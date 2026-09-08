@@ -53,6 +53,17 @@ export interface TechnicalRead {
   fromLowPct: number
   signals: Signal[]
   /**
+   * True, positive things about this chart, strongest first. Never empty.
+   *
+   * This exists because the post has to lead with one. Left to pick its own
+   * framing from a mixed read, a model opens with whatever is largest, and on a
+   * red day that is the loss -- "rough hour: we lost the level" is accurate and
+   * is still the wrong first sentence to put in front of people who hold this.
+   * The facts here are computed the same way every other number is; what the
+   * list changes is which of them is easiest to reach for.
+   */
+  positives: string[]
+  /**
    * 0-100, where 50 is neutral. Not a prediction and not a recommendation: it
    * is the balance of the signals below, and it exists so a post can be honest
    * about a weak tape instead of finding something nice to say about it.
@@ -304,11 +315,67 @@ export function analyse(
     fromHighPct: round(drawdown),
     fromLowPct: round(pct(windowLow, last.close)),
     signals,
+    positives: [],
     bullishScore,
     notes: [],
   }
+  read.positives = findPositives(read, candles)
   read.notes = describe(read)
   return read
+}
+
+/**
+ * Everything true and good that can be said about this chart, best first.
+ *
+ * The order matters more than the contents: it is the order a post should
+ * reach for them in. A defended level beats a percentage, a percentage beats a
+ * ratio, and something happening now beats something that happened last week.
+ *
+ * The last entry is a floor. Price is always some distance above its own low,
+ * so there is always one true positive available, and an account that has to
+ * reach that far is telling you something by reaching.
+ */
+function findPositives(read: TechnicalRead, candles: Candle[]): string[] {
+  const positives: string[] = []
+  const last = candles[candles.length - 1] as Candle
+
+  if (read.event && read.event.kind !== 'breakdown') {
+    positives.push(
+      `${read.event.kind === 'reclaim' ? 'reclaimed' : 'broke above'} $${read.event.level.toPrecision(4)}` +
+        `${read.event.volumeConfirmed ? ' with volume behind it' : ''}`,
+    )
+  }
+  if (read.levels.support !== undefined) {
+    positives.push(
+      `$${read.levels.support.toPrecision(4)} has been defended ` +
+        `${read.levels.supportTouches ?? 2} times and price is still above it`,
+    )
+  }
+  if (read.structure === 'higher highs, higher lows' || read.structure === 'higher lows') {
+    positives.push(`the lows are stepping up (${read.structure})`)
+  }
+  if (read.changePct > 0) positives.push(`up ${read.changePct}% across the window read`)
+  if (read.volume.trend >= 1.2) {
+    positives.push(`volume is ${read.volume.trend}x what it was earlier in the window`)
+  }
+  if (read.volume.ratio >= 1.5 && last.close >= last.open) {
+    positives.push(`the last bar traded ${read.volume.ratio}x average volume and closed green`)
+  }
+  if (read.ema.fast !== undefined && last.close > read.ema.fast) {
+    positives.push(`price is holding above the ${read.ema.fastPeriod} EMA`)
+  }
+  if (read.volatility.rangeWidthPct !== undefined && read.volatility.rangeWidthPct < 6) {
+    positives.push(`the range has coiled to ${read.volatility.rangeWidthPct}% wide`)
+  }
+  const green = candles.slice(-24).filter((candle) => candle.close >= candle.open).length
+  const recent = Math.min(24, candles.length)
+  if (green > recent / 2) positives.push(`${green} of the last ${recent} bars closed green`)
+  if (read.fromHighPct > -5) {
+    positives.push(`price is within ${Math.abs(read.fromHighPct)}% of the window high`)
+  }
+
+  positives.push(`price is ${read.fromLowPct}% up off the low of the window`)
+  return positives
 }
 
 /**
@@ -401,6 +468,9 @@ function describe(read: TechnicalRead): string[] {
   notes.push(
     `Volume: last bar ${read.volume.ratio}x its average, and the recent half of the window is ` +
       `${read.volume.trend}x the half before it.`,
+  )
+  notes.push(
+    `TRUE POSITIVES YOU CAN LEAD WITH, best first: ${read.positives.join('; ')}.`,
   )
   notes.push(
     `Signal balance: ${read.bullishScore}/100 bullish (${read.signals.filter((s) => s.bullish).length} of ` +

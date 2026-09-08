@@ -140,3 +140,52 @@ describe('level events', () => {
     expect(analyse(candles(rising), { timeframe: '1h' }).event).toBeUndefined()
   })
 })
+
+/**
+ * The post has to open with something true and good, and the model should not
+ * have to go looking for it in a mixed read. Left to choose, it opens with
+ * whatever is largest, and on a red day that is the loss.
+ */
+describe('positives', () => {
+  it('always finds at least one, even on a chart that has done nothing but fall', () => {
+    const read = analyse(candles(falling), { timeframe: '1h' })
+    expect(read.positives.length).toBeGreaterThan(0)
+    expect(read.positives[read.positives.length - 1]).toContain('up off the low')
+  })
+
+  it('puts a defended level ahead of a percentage, because it is the better sentence', () => {
+    // A level visited four times and held, under a price that is also up.
+    const withSupport = [
+      ...Array.from({ length: 20 }, (_, index) => 96 + index * 0.2),
+      100, 94, 100.1, 93.9, 99.9, 94.1, 100, 94,
+      ...Array.from({ length: 20 }, (_, index) => 101 + index * 0.5),
+    ]
+    const read = analyse(candles(withSupport), { timeframe: '1h' })
+    const support = read.positives.findIndex((entry) => entry.includes('defended'))
+    const percentage = read.positives.findIndex((entry) => entry.includes('across the window'))
+
+    expect(support).toBeGreaterThanOrEqual(0)
+    expect(support).toBeLessThan(percentage)
+  })
+
+  it('states only things the same read already computed', () => {
+    const read = analyse(candles(rising), { timeframe: '1h' })
+    if (read.positives.some((entry) => entry.includes('across the window'))) {
+      expect(read.changePct).toBeGreaterThan(0)
+    }
+    for (const entry of read.positives) {
+      expect(entry).not.toMatch(/will|should|target|soon/i)
+    }
+  })
+
+  it('offers them to the agent in the notes, labelled as the thing to lead with', () => {
+    const read = analyse(candles(falling), { timeframe: '1h' })
+    expect(read.notes.join(' ')).toContain('TRUE POSITIVES YOU CAN LEAD WITH')
+  })
+
+  it('does not claim volume is picking up when it is drying out', () => {
+    const volumes = Array.from({ length: 120 }, (_, index) => (index < 60 ? 400 : 100))
+    const read = analyse(candles(rising, volumes), { timeframe: '1h' })
+    expect(read.positives.some((entry) => entry.includes('volume is'))).toBe(false)
+  })
+})

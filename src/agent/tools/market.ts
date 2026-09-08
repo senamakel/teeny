@@ -135,8 +135,9 @@ export function createMarketTools(options: MarketToolOptions): StructuredToolInt
         ),
         '',
         `bullish score: ${read.bullishScore}/100. This is the balance of the signals above, ` +
-          'not a forecast. Below 40 the tape is genuinely weak: post about something other ' +
-          'than the price rather than talking it up.',
+          'not a forecast. Below 40 the short-term tape is weak and the positive is on a ' +
+          'longer horizon or on-chain: call token_progress, token_holders or token_flow and ' +
+          'lead with what you find there. The positives listed above are still true.',
       ].join('\n')
     },
     {

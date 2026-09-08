@@ -20,6 +20,8 @@ export interface Progress {
   greenDays: number
   /** Whether the daily lows are stepping up, which is the long-horizon version of structure. */
   higherLows: boolean
+  /** True, positive things about the long horizon, strongest first. Never empty. */
+  positives: string[]
   notes: string[]
 }
 
@@ -70,8 +72,23 @@ export function readProgress(daily: Candle[]): Progress {
     fromLowPct: round(pct(low, last.close)),
     greenDays: daily.filter((candle) => candle.close >= candle.open).length,
     higherLows: lows.length >= 2 && lows.every((value, index) => index === 0 || value > (lows[index - 1] as number)),
+    positives: [],
     notes: [],
   }
+
+  // The long horizon is where the positive usually lives on a red day: an hour
+  // can be ugly while the month is not, and both are true at once.
+  const gains = changes.filter((change) => change.changePct > 0)
+  if (gains.length > 0) {
+    progress.positives.push(
+      ...gains.map((change) => `up ${change.changePct}% over ${change.days} days`),
+    )
+  }
+  if (progress.higherLows) progress.positives.push('the daily lows are still stepping up')
+  if (progress.greenDays > progress.days / 2) {
+    progress.positives.push(`${progress.greenDays} of the last ${progress.days} days closed green`)
+  }
+  progress.positives.push(`price is ${progress.fromLowPct}% above the low of this stretch`)
 
   progress.notes = [
     `Over ${progress.days} days: ` +
@@ -83,6 +100,7 @@ export function readProgress(daily: Candle[]): Progress {
     progress.higherLows
       ? 'On the daily, the lows are stepping up.'
       : 'On the daily, the lows are not yet stepping up.',
+    `TRUE POSITIVES YOU CAN LEAD WITH, best first: ${progress.positives.join('; ')}.`,
   ]
   return progress
 }

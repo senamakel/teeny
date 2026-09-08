@@ -42,6 +42,18 @@ describe('long-horizon progress', () => {
     expect(progress.notes.join(' ')).toContain('not yet stepping up')
   })
 
+  it('finds the positive on the long horizon, which is where it lives on a red day', () => {
+    const progress = readProgress(daily([1, 2, 4, 8, 16, 32, 30, 28]))
+    expect(progress.positives.length).toBeGreaterThan(0)
+    expect(progress.notes.join(' ')).toContain('TRUE POSITIVES YOU CAN LEAD WITH')
+  })
+
+  it('still has one when every horizon is down', () => {
+    const progress = readProgress(daily(Array.from({ length: 40 }, (_, index) => 100 - index * 2)))
+    expect(progress.positives.length).toBeGreaterThan(0)
+    expect(progress.positives.every((entry) => !entry.includes('up 0'))).toBe(true)
+  })
+
   it('refuses to read progress from a single day', () => {
     expect(() => readProgress(daily([1]))).toThrow(/at least 2/)
   })

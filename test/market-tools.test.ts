@@ -239,6 +239,7 @@ describe('market tools', () => {
       bars: 60,
     } as never)) as string
     expect(output).toContain('bullish score:')
-    expect(output).toContain('Below 40 the tape is genuinely weak')
+    expect(output).toContain('Below 40 the short-term tape is weak')
+    expect(output).toContain('TRUE POSITIVES YOU CAN LEAD WITH')
   })
 })
