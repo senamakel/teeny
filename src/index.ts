@@ -96,6 +96,7 @@ const airdrop = (() => {
       collection: config.RECIPIENTS_COLLECTION,
     }),
     followsAccount: (userId: string) => x.followsAccount(userId),
+    memory,
     limits: {
       maxPerAirdrop: config.AIRDROP_MAX_PER_AIRDROP,
       maxPerDay: config.AIRDROP_MAX_PER_DAY,

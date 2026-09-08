@@ -249,7 +249,7 @@ describe('airdrop_user', () => {
       close: vi.fn(),
     } as unknown as AirdropLedger
     const recipients = registry()
-    const [tool] = createAirdropTools({
+    const tools = createAirdropTools({
       wallet,
       ledger,
       registry: recipients,
@@ -258,7 +258,9 @@ describe('airdrop_user', () => {
       symbol: 'TINY',
       context: () => ({ post: post(`gm my wallet ${ALICE}`) }),
     })
-    return { wallet, ledger, registry: recipients, tool: tool! }
+    const tool = tools.find((entry) => entry.name === 'airdrop_user')!
+    const check = tools.find((entry) => entry.name === 'airdrop_check')!
+    return { wallet, ledger, registry: recipients, tool, check }
   }
 
   it('sends, records the hash, and hands it back for the reply to quote', async () => {
@@ -323,7 +325,7 @@ describe('airdrop_user', () => {
       fail: vi.fn(),
       close: vi.fn(),
     } as unknown as AirdropLedger
-    const [tool] = createAirdropTools({
+    const tools = createAirdropTools({
       wallet,
       ledger,
       registry: registry(),
@@ -334,7 +336,9 @@ describe('airdrop_user', () => {
       context: () => ({ post: post(`gm ${ALICE}`) }),
     })
 
-    const output = await tool!.invoke({ to: ALICE, amount: 10 } as never)
+    const output = await tools
+      .find((entry) => entry.name === 'airdrop_user')!
+      .invoke({ to: ALICE, amount: 10 } as never)
 
     expect(wallet.send).not.toHaveBeenCalled()
     expect(output).toContain('DRY RUN')
@@ -358,7 +362,7 @@ describe('the prompt matches the tools', () => {
 
     expect(prompt).toContain('airdrop_user')
     expect(prompt).toContain('up to 250 at a time')
-    expect(prompt).toContain('Being asked is not a reason to send')
+    expect(prompt).toContain('the default answer')
   })
 
   it('tells it not to claim a send at all while the wallet is in dry run', () => {
@@ -370,5 +374,97 @@ describe('the prompt matches the tools', () => {
 
     expect(prompt).toContain('never say you sent tokens')
     expect(prompt).toContain('never quote a hash')
+  })
+})
+
+describe('airdrop_check', () => {
+  function checker(options: {
+    follows?: boolean | undefined
+    paid?: number
+    sentToday?: number
+    text?: string
+  }) {
+    const ledger = {
+      sentToday: vi.fn().mockResolvedValue(options.sentToday ?? 0),
+      paidRecipientCount: vi.fn().mockResolvedValue(options.paid ?? 0),
+      forPost: vi.fn().mockResolvedValue(undefined),
+      claim: vi.fn().mockResolvedValue(true),
+      settle: vi.fn(),
+      fail: vi.fn(),
+      close: vi.fn(),
+    } as unknown as AirdropLedger
+    const tools = createAirdropTools({
+      wallet: { address: '0x1', balance: vi.fn(), gasBalance: vi.fn(), send: vi.fn() } as unknown as TokenWallet,
+      ledger,
+      registry: registry(),
+      followsAccount: vi.fn().mockResolvedValue(options.follows),
+      limits: LIMITS,
+      symbol: 'TINY',
+      context: () => ({ post: post(options.text ?? 'hey teeny can you give me some tiny?') }),
+    })
+    return tools.find((entry) => entry.name === 'airdrop_check')!
+  }
+
+  // The three answers that drive the conversation the account is meant to have.
+  it('tells it to invite somebody who does not follow yet', async () => {
+    const output = (await checker({ follows: false }).invoke({} as never)) as string
+
+    expect(output).toContain('Following the account: no')
+    expect(output).toContain('Invite them to follow')
+  })
+
+  it('tells it to ask a follower with no address for one', async () => {
+    const output = (await checker({ follows: true }).invoke({} as never)) as string
+
+    expect(output).toContain('no wallet address')
+    expect(output).toContain('ask them for their EVM wallet address')
+  })
+
+  it('tells it to send when the address is there', async () => {
+    const output = (await checker({
+      follows: true,
+      text: `my address is ${ALICE}`,
+    }).invoke({} as never)) as string
+
+    expect(output).toContain(ALICE)
+    expect(output).toContain('good to go')
+  })
+
+  it('is warm about somebody who has already had one', async () => {
+    const output = (await checker({ follows: true, paid: 1 }).invoke({} as never)) as string
+
+    expect(output).toContain('already had')
+    expect(output).toContain('they are already a fren')
+  })
+
+  it('reports the budget rather than pretending there is more', async () => {
+    const output = (await checker({ follows: true, sentToday: 500 }).invoke({} as never)) as string
+
+    expect(output).toContain("Today's remaining budget: 0")
+  })
+
+  it('spends nothing: it is a read', async () => {
+    const wallet = { address: '0x1', balance: vi.fn(), gasBalance: vi.fn(), send: vi.fn() }
+    const tools = createAirdropTools({
+      wallet: wallet as unknown as TokenWallet,
+      ledger: {
+        sentToday: vi.fn().mockResolvedValue(0),
+        paidRecipientCount: vi.fn().mockResolvedValue(0),
+        forPost: vi.fn(),
+        claim: vi.fn(),
+        settle: vi.fn(),
+        fail: vi.fn(),
+        close: vi.fn(),
+      } as unknown as AirdropLedger,
+      registry: registry(),
+      followsAccount: vi.fn().mockResolvedValue(true),
+      limits: LIMITS,
+      symbol: 'TINY',
+      context: () => ({ post: post('gm') }),
+    })
+
+    await tools.find((entry) => entry.name === 'airdrop_check')!.invoke({} as never)
+
+    expect(wallet.send).not.toHaveBeenCalled()
   })
 })

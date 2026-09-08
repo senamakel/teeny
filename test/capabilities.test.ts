@@ -158,10 +158,16 @@ describe('agent capabilities', () => {
     expect(buildTools(walletOptions()).map((tool) => tool.name)).not.toContain('airdrop_user')
   })
 
+  // Two tools, one of which spends: airdrop_check is a read that exists so the
+  // account can answer "can I have some?" without promising what the policy
+  // would then refuse.
   it('adds exactly one spending tool when a wallet is configured and a post is bound', () => {
     const withWallet = buildTools(walletOptions(), () => ({ post: POST })).map((tool) => tool.name)
     const without = buildTools(options()).map((tool) => tool.name)
 
-    expect(withWallet.filter((name) => !without.includes(name))).toEqual(['airdrop_user'])
+    expect(withWallet.filter((name) => !without.includes(name))).toEqual([
+      'airdrop_check',
+      'airdrop_user',
+    ])
   })
 })

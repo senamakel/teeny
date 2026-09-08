@@ -5,6 +5,7 @@ import type { Address } from 'viem'
 import type { AirdropLedger } from '../../airdrop/ledger.js'
 import type { RecipientRegistry } from '../../airdrop/registry.js'
 import { decideAirdrop, type AirdropLimits } from '../../airdrop/policy.js'
+import { personOf, type Memory } from '../../types.js'
 import type { TokenWallet } from '../../clients/wallet.js'
 
 /**
@@ -30,6 +31,15 @@ export interface AirdropContext {
 
 export interface AirdropToolOptions {
   wallet: TokenWallet
+  /**
+   * Where an airdrop is written down so later turns know about it.
+   *
+   * The ledger is the enforcement record and the model never reads it. This is
+   * the conversational one, attributed to the person so their own recall finds
+   * it: without it the account pays somebody and then answers them next week as
+   * though it never had.
+   */
+  memory?: Pick<Memory, 'captureActivity'>
   ledger: AirdropLedger
   /** Who has been paid and at which wallet, so one address cannot farm many. */
   registry: RecipientRegistry
@@ -49,6 +59,70 @@ export interface AirdropToolOptions {
 }
 
 export function createAirdropTools(options: AirdropToolOptions): StructuredToolInterface[] {
+  /**
+   * Everything the account needs to know before it offers anybody anything.
+   *
+   * It takes no arguments on purpose: the person being answered is whoever
+   * wrote the post this turn is bound to, so there is no name for the model to
+   * get wrong and no way to point the question at somebody else. It is a read,
+   * it spends nothing, and it is the difference between "sure, send me your
+   * address" and promising an airdrop that the policy then refuses.
+   */
+  const check = tool(
+    async () => {
+      const { post } = options.context()
+      if (!post) return 'There is no post here, so there is nobody to check.'
+
+      const recipientUserId = post.authorId
+      const [paidCount, sentToday, owner, follows] = await Promise.all([
+        options.ledger.paidRecipientCount(recipientUserId),
+        options.ledger.sentToday(),
+        Promise.resolve(undefined),
+        options.limits.requireFollow && recipientUserId
+          ? options.followsAccount(recipientUserId)
+          : Promise.resolve(true),
+      ])
+      void owner
+
+      const address = post.text.match(/0x[0-9a-fA-F]{40}/)?.[0]
+      const budgetLeft = Math.max(0, options.limits.maxPerDay - sentToday)
+      const lines = [
+        `Following the account: ${follows === undefined ? 'could not tell' : follows ? 'yes' : 'no'}.`,
+        paidCount > 0
+          ? `They have already had ${paidCount} airdrop(s), which is their limit.`
+          : 'They have never had an airdrop.',
+        address
+          ? `Their post contains the address ${address}, which is the one you may pay.`
+          : 'Their post contains no wallet address, so there is nothing to pay yet.',
+        `Today's remaining budget: ${budgetLeft} ${options.symbol}, and at most ` +
+          `${options.limits.maxPerAirdrop} in one go.`,
+      ]
+
+      if (follows === false) {
+        lines.push('So: no airdrop yet. Invite them to follow, warmly, and mean it.')
+      } else if (paidCount > 0) {
+        lines.push('So: no second airdrop. Be nice about it, they are already a fren.')
+      } else if (!address) {
+        lines.push('So: ask them for their EVM wallet address and send it once they reply.')
+      } else if (budgetLeft <= 0) {
+        lines.push("So: today's budget is gone. Tell them to catch you tomorrow.")
+      } else {
+        lines.push('So: they are good to go. Call airdrop_user with that address.')
+      }
+      return lines.join('\n')
+    },
+    {
+      name: 'airdrop_check',
+      description:
+        'Check whether the person you are replying to can receive an airdrop, before you ' +
+        'offer them one. Tells you whether they follow the account, whether they have had ' +
+        'one already, whether their post contains a wallet address, and what is left in ' +
+        "today's budget. Costs nothing and sends nothing. Call it whenever somebody asks " +
+        'for tokens, and let the answer shape the reply.',
+      schema: z.object({}),
+    },
+  )
+
   const airdrop = tool(
     async (input: unknown) => {
       const { to, amount } = input as { to: string; amount: number }
@@ -137,6 +211,28 @@ export function createAirdropTools(options: AirdropToolOptions): StructuredToolI
           address: to,
         })
         options.logger?.info({ to, amount: decision.amount, postId, txHash }, 'airdropped')
+        // personOf, not a hand-rolled id: CortexDB reads the segment before
+        // the first colon as an actor type, so the X id has to be namespaced
+        // the same way every other capture does it or this note lands under a
+        // different person than their mentions do.
+        const person = post ? personOf(post) : undefined
+        await options.memory
+          ?.captureActivity(
+            'agent_note',
+            `airdrop:${txHash}`,
+            {
+              note:
+                `Airdropped ${decision.amount} ${options.symbol} to ` +
+                `${post?.authorUsername ? `@${post.authorUsername}` : 'them'} at ${to} ` +
+                `(tx ${txHash}). They have had their airdrop, so the answer to a second ` +
+                'ask is a warm no.',
+              labels: ['airdrop', ...(post?.authorUsername ? [post.authorUsername] : [])],
+            },
+            person,
+          )
+          // A note that fails to write must not undo a transfer that already
+          // happened: the ledger is what enforces, and it is already settled.
+          .catch(() => undefined)
         return `Sent ${decision.amount} ${options.symbol} to ${to}. Transaction: ${txHash}. Quote that hash exactly; do not invent or shorten it.`
       } catch (error) {
         const message = (error as Error).message
@@ -172,5 +268,5 @@ export function createAirdropTools(options: AirdropToolOptions): StructuredToolI
     },
   )
 
-  return [airdrop]
+  return [check, airdrop]
 }

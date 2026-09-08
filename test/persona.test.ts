@@ -80,7 +80,12 @@ describe('the one commercial rule', () => {
       draftPrompt({ botUsername: 'TinyMascot', dryRun: true }),
     ]) {
       expect(prompt).toContain('$TINY is the only token')
-      expect(prompt).toMatch(/[Nn]ever shill/)
+      // The rule is unchanged; the wording is not. "Never shill" was dropped
+      // because the account had started using the word ABOUT people -- it
+      // called somebody offering it its own token a shill -- and a prompt that
+      // repeats a word teaches it as vocabulary.
+      expect(prompt).toMatch(/[Nn]ever endorse/)
+      expect(prompt).toMatch(/[Nn]ever use the word shill|not moving your own bag/)
     }
   })
 })
@@ -89,10 +94,14 @@ describe('the drafter is not weaker than the task agent', () => {
   it('carries the same tone rules in both prompts', () => {
     const options = { botUsername: 'TinyMascot', dryRun: false }
     for (const prompt of [systemPrompt(options), draftPrompt(options)]) {
-      expect(prompt).toContain('roast them back')
-      expect(prompt).toContain('fair skepticism')
+      expect(prompt).toContain('roast back')
       expect(prompt).toContain('do not roast and')
       expect(prompt).toMatch(/Reach for a GIF often/)
+      // The default has moved: warmth first, roasting as the exception. Both
+      // prompts must agree, or the cron drafter -- the one that actually
+      // answers people -- is the one running on the older, colder rules.
+      expect(prompt).toContain('Build people up')
+      expect(prompt).toContain('Do not deflate people')
     }
   })
 })
