@@ -85,11 +85,10 @@ const schema = z.object({
   THREAD_CONTEXT_MAX_POSTS: z.coerce.number().int().min(0).max(100).default(10),
 
   // --- the wallet ----------------------------------------------------------
-  // Off unless switched on, and switched on it still needs a key and a token
-  // address, so a half-filled environment gets no signer rather than a signer
-  // pointed at nothing. AIRDROP_DRY_RUN is separate from DRY_RUN on purpose:
-  // publishing replies and spending money are different decisions, and the
-  // second one defaults to off even once the first is on.
+  // Nothing reads these today. The agent has no airdrop tool: it was added and
+  // removed on 2026-09-08, and `test/capabilities.test.ts` explains why. The
+  // settings stay because `src/airdrop/` and `src/clients/wallet.ts` stay, and
+  // re-wiring a tool would need them back exactly as they were.
   AIRDROP_ENABLED: offByDefault,
   AIRDROP_DRY_RUN: booleanFromString,
   AIRDROP_PRIVATE_KEY: blankable(

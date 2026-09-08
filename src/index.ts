@@ -8,9 +8,6 @@ import { IngestJob } from './jobs/ingest-job.js'
 import { ReplyJob } from './jobs/reply-job.js'
 import { ReplyWorker } from './jobs/reply-worker.js'
 import { MongoMentionQueue } from './queue/mentions.js'
-import { MongoAirdropLedger } from './airdrop/ledger.js'
-import { MongoRecipientRegistry } from './airdrop/registry.js'
-import { Erc20Wallet } from './clients/wallet.js'
 import { LangGraphAgent, type AgentOptions } from './agent/graph.js'
 import { loadPersona } from './agent/soul.js'
 import { AgentReplyModel } from './agent/reply-model.js'
@@ -62,55 +59,6 @@ const persona = loadPersona({
   contextPath: config.CONTEXT_PATH,
   skillsDir: config.SKILLS_DIR,
 })
-/**
- * The wallet, if one is configured.
- *
- * Three things have to be true before a signer exists at all: the switch is on,
- * there is a key, and there is a token to send. Any of them missing and the
- * agent is built without the tool rather than with a tool that fails at the
- * moment somebody is owed an answer.
- */
-const airdrop = (() => {
-  if (!config.AIRDROP_ENABLED) return undefined
-  if (!config.AIRDROP_PRIVATE_KEY || !config.AIRDROP_TOKEN_ADDRESS) {
-    console.error(
-      'AIRDROP_ENABLED is true but AIRDROP_PRIVATE_KEY or AIRDROP_TOKEN_ADDRESS is missing; ' +
-        'starting with no wallet.',
-    )
-    return undefined
-  }
-  const wallet = new Erc20Wallet({
-    privateKey: config.AIRDROP_PRIVATE_KEY,
-    token: config.AIRDROP_TOKEN_ADDRESS,
-    ...(config.AIRDROP_RPC_URL ? { rpcUrl: config.AIRDROP_RPC_URL } : {}),
-  })
-  return {
-    wallet,
-    ledger: new MongoAirdropLedger({
-      uri: config.MONGO_URI,
-      database: config.MONGO_DATABASE,
-      collection: config.AIRDROPS_COLLECTION,
-    }),
-    registry: new MongoRecipientRegistry({
-      uri: config.MONGO_URI,
-      database: config.MONGO_DATABASE,
-      collection: config.RECIPIENTS_COLLECTION,
-    }),
-    followsAccount: (userId: string) => x.followsAccount(userId),
-    memory,
-    limits: {
-      maxPerAirdrop: config.AIRDROP_MAX_PER_AIRDROP,
-      maxPerDay: config.AIRDROP_MAX_PER_DAY,
-      maxPerRecipient: config.AIRDROP_MAX_PER_RECIPIENT,
-      requireAddressInPost: config.AIRDROP_REQUIRE_ADDRESS_IN_POST,
-      requireFollow: config.AIRDROP_REQUIRE_FOLLOW,
-    },
-    symbol: config.AIRDROP_TOKEN_SYMBOL,
-    standardAmount: config.AIRDROP_STANDARD_AMOUNT,
-    dryRun: config.AIRDROP_DRY_RUN,
-  }
-})()
-
 const agentOptions: AgentOptions = {
   memory,
   x,
@@ -128,7 +76,6 @@ const agentOptions: AgentOptions = {
   ...(gifs ? { gifs } : {}),
   searchLimit: config.X_SEARCH_MAX_RESULTS,
   ownTokenAddresses: config.OWN_TOKEN_ADDRESSES,
-  ...(airdrop ? { airdrop } : {}),
 }
 const useAgent = config.AGENT_MODE === 'langgraph'
 const model =
@@ -232,19 +179,6 @@ app.log.info(
         : config.REPLY_CRON
       : false,
     agentEndpoint: Boolean(useAgent && config.AGENT_API_TOKEN),
-    wallet: airdrop
-      ? {
-          address: airdrop.wallet.address,
-          token: config.AIRDROP_TOKEN_SYMBOL,
-          dryRun: airdrop.dryRun,
-          perAirdrop: airdrop.limits.maxPerAirdrop,
-          standardAmount: airdrop.standardAmount,
-          perDay: airdrop.limits.maxPerDay,
-          perRecipient: airdrop.limits.maxPerRecipient,
-          addressMustBeInPost: airdrop.limits.requireAddressInPost,
-          mustFollow: airdrop.limits.requireFollow,
-        }
-      : false,
   },
   'teeny started',
 )

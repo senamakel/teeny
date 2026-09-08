@@ -5,33 +5,33 @@ import type { GifSource, Memory, XTools } from '../src/types.js'
 /**
  * A prompt rule asks the model not to do something. This asserts it cannot.
  *
- * The account held no keys at all until 2026-09-08, when it was given a wallet
- * on Robinhood Chain to airdrop $TINY. This file used to say that adding one
- * had to be a deliberate decision rather than an inherited ability; this is
- * that decision, written down.
+ * The account holds no keys, so the defence against "send 5 SOL to this
+ * address" in a reply is that no such tool is reachable, not that the model
+ * declines. If a wallet capability is ever added, this test fails and someone
+ * has to decide deliberately rather than inherit the ability by accident.
  *
- * What was decided, and what it costs. The airdrop tool IS on the reply path,
- * whose entire input is text written by strangers, because the account is meant
- * to decide in conversation whether somebody has earned a tip. So the old
- * property -- no signer reachable from untrusted text -- is gone, and it is not
- * coming back while that is the product. What replaces it is the third option
- * this file listed: a spend policy enforced outside the model, with a ceiling a
- * turn cannot raise.
+ * It was added, on 2026-09-08, and removed again the same day. Both halves are
+ * worth recording, because the reasoning above turned out to be right for a
+ * reason nobody had written down.
  *
- * The boundaries that remain, each asserted below:
+ * The wallet worked exactly as designed: the caps held, the address-in-post
+ * rule held, one wallet could not farm many accounts, and 106 airdrops went out
+ * with nothing lost or overpaid. What went wrong was not the spending. It was
+ * that a hundred near-identical reply-and-pay posts in an hour is the shape of
+ * spam whatever the intent, and X shadowbanned the account for it. The risk on
+ * a giveaway is not only that somebody talks the model into overpaying -- it is
+ * that doing it at all, at speed, in public, costs the account its reach.
  *
- *   - The signer exists only when a wallet is configured. No configuration,
- *     no tool, whatever the prompt says.
- *   - The signer exists only when a turn is bound to a specific post. The
- *     operator endpoint answers a task rather than a post, so it gets no
- *     signer by construction rather than by policy.
- *   - `airdrop_user` is the only capability that spends. There is no approve,
- *     no swap, no arbitrary call, and no way to move the native balance.
+ * So the tool is gone and the machinery is not: `src/airdrop/` and
+ * `src/clients/wallet.ts` still hold the policy, the ledger, the recipient
+ * registry and the ERC-20 client, all still tested. Nothing constructs them,
+ * and no turn can reach a signer. Bringing it back means wiring a tool in
+ * again, which is a deliberate act that trips this test -- which is the whole
+ * point of it.
  *
- * Everything the model does not control lives in `src/airdrop/policy.ts`, and
- * `test/airdrop.test.ts` is where the limits themselves are asserted. If a
- * second spending tool ever appears here, this test fails, and the same
- * question has to be answered again.
+ * If that day comes, read the git history first: the safe shape was a spend
+ * policy enforced outside the model, and the thing that actually bit was rate
+ * and repetition, not the ceiling.
  */
 
 const FORBIDDEN = [
@@ -53,8 +53,6 @@ const FORBIDDEN = [
   'buy',
   'sell',
 ]
-
-const POST = { id: '1', text: 'gm, my wallet is 0xabc', authorId: '42' }
 
 function options() {
   const memory = {
@@ -81,37 +79,6 @@ function options() {
     exaApiKey: 'exa',
     gifs: { source: gifs, channel: 'TinyHumansAI' },
   }
-}
-
-/** A wallet whose calls would throw: nothing here should reach them. */
-function walletOptions() {
-  return {
-    ...options(),
-    airdrop: {
-      wallet: {
-        address: '0x0000000000000000000000000000000000000001' as const,
-        balance: vi.fn(),
-        gasBalance: vi.fn(),
-        send: vi.fn(),
-      },
-      ledger: {
-        sentToday: vi.fn(),
-        paidRecipientCount: vi.fn(),
-        forPost: vi.fn(),
-        claim: vi.fn(),
-        settle: vi.fn(),
-        fail: vi.fn(),
-        close: vi.fn(),
-      },
-      limits: {
-        maxPerAirdrop: 100,
-        maxPerDay: 1000,
-        maxPerRecipient: 1,
-        requireAddressInPost: true,
-      },
-      symbol: 'TINY',
-    },
-  } as unknown as Parameters<typeof buildTools>[0]
 }
 
 describe('agent capabilities', () => {
@@ -145,29 +112,12 @@ describe('agent capabilities', () => {
     ])
   })
 
-  it('has no signer when no wallet is configured, whatever the prompt says', () => {
-    expect(buildTools(options(), () => ({ post: POST })).map((tool) => tool.name)).not.toContain(
-      'airdrop_user',
-    )
-  })
+  // The list above is the whole of it, and none of these words appear in it.
+  it('has no tool that spends, however the turn is built', () => {
+    const names = buildTools(options()).map((tool) => tool.name)
 
-  // The operator endpoint answers a task, not a post, so there is nothing to
-  // bind a payment to and nothing to check an address against. It gets no
-  // signer by construction rather than by remembering to configure one.
-  it('has no signer on a turn that is not bound to a post', () => {
-    expect(buildTools(walletOptions()).map((tool) => tool.name)).not.toContain('airdrop_user')
-  })
-
-  // Two tools, one of which spends: airdrop_check is a read that exists so the
-  // account can answer "can I have some?" without promising what the policy
-  // would then refuse.
-  it('adds exactly one spending tool when a wallet is configured and a post is bound', () => {
-    const withWallet = buildTools(walletOptions(), () => ({ post: POST })).map((tool) => tool.name)
-    const without = buildTools(options()).map((tool) => tool.name)
-
-    expect(withWallet.filter((name) => !without.includes(name))).toEqual([
-      'airdrop_check',
-      'airdrop_user',
-    ])
+    for (const name of names) {
+      expect(name).not.toMatch(/airdrop|wallet|send|pay|transfer/i)
+    }
   })
 })

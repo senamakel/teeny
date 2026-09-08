@@ -165,40 +165,16 @@ stonks deploy cannot bring a second agent back up on this account.
 
 ## The wallet
 
-The agent's own key lives in the repo-root `.env` as `AIRDROP_PRIVATE_KEY` and
-is shipped to the box with that file. It is the only secret in this deployment
-that is worth money directly, so it is worth saying plainly: it is not in git,
-it is not in the image, and it is not in any log line. A copy of the key exists
-only in that file and wherever you back it up to.
+There is no wallet in the running service. The agent had one for a day and the
+tool was removed; the code and its configuration remain, unwired. `AIRDROP_*` in
+`.env` is therefore inert, and `AIRDROP_ENABLED=false` is the state to leave it
+in.
 
-Bringing it up, in this order:
-
-1. `AIRDROP_TOKEN_ADDRESS` — the $TINY ERC-20 on Robinhood Chain.
-2. Fund the wallet with $TINY, and with a little ETH, which is what pays gas on
-   this chain. Without gas nothing sends, and the failure arrives mid-reply.
-3. `AIRDROP_ENABLED=true` with `AIRDROP_DRY_RUN=true`, and redeploy. The whole
-   path runs and broadcasts nothing; the `airdrops` collection fills with
-   `dry-run` rows showing exactly who it would have paid.
-4. Read those rows. When they look right, `AIRDROP_DRY_RUN=false`.
-
-The ceilings are in the same file, and the startup line prints all of them
-alongside the wallet address, so what a running container will actually do is
-visible without reading the config:
-
-```sh
-./deploy/deploy.sh --logs | grep 'teeny started'
-```
-
-```sh
-# what it has paid out
-docker exec teeny-mongo-1 mongosh --quiet -u teeny -p "$PASS" \
-  --authenticationDatabase admin --eval \
-  'db.getSiblingDB("teeny").airdrops.find().sort({createdAt:-1}).limit(10).toArray()'
-```
-
-To stop it paying anything at all, without touching the rest of the account:
-set `AIRDROP_ENABLED=false` and redeploy, which removes the tool rather than
-leaving one that fails.
+The key in `AIRDROP_PRIVATE_KEY` still controls a funded address
+(`0x4C3799279dDF44d97a46dd14927789f23bf47589`, roughly 302k $TINY and 0.2 ETH),
+so it is still worth treating as a secret: it is not in git, not in the image,
+and not in any log line, and the tokens are reachable by anybody holding it.
+Move them out and rotate the key if the wallet is not coming back.
 
 ## Before the next real change
 

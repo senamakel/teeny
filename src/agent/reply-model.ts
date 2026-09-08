@@ -48,34 +48,22 @@ export class AgentReplyModel implements LanguageModel {
   }
 
   /**
-   * A fresh graph per turn, because the airdrop tool is bound to the post being
-   * answered. Shared across turns it would be bound to whichever post happened
-   * to be first, which on a money path is not a subtlety. Building it costs no
-   * network call and the turn that follows costs several.
+   * Built per turn rather than once.
+   *
+   * It was per turn because the airdrop tool had to be bound to the post being
+   * answered; that tool is gone, and this stays because it is also how the
+   * thread and the own-token note reach the turn without shared mutable state.
+   * It costs no network call and the turn that follows costs several.
    */
-  private buildGraph(post: XPost): ReturnType<typeof createReactAgent> {
+  private buildGraph(): ReturnType<typeof createReactAgent> {
     const options = this.options
     return createReactAgent({
       llm: createChatModel(options.llm),
-      tools: buildTools({ ...options, allowPosting: false }, () => ({ post })),
+      tools: buildTools({ ...options, allowPosting: false }),
       prompt: draftPrompt({
         botUsername: options.botUsername,
         dryRun: options.dryRun,
         ...(options.persona ? { persona: options.persona } : {}),
-        ...(options.airdrop
-          ? {
-              airdrop: {
-                symbol: options.airdrop.symbol,
-                maxPerAirdrop: options.airdrop.limits.maxPerAirdrop,
-                ...(options.airdrop.standardAmount === undefined
-                  ? {}
-                  : { standardAmount: options.airdrop.standardAmount }),
-                ...(options.airdrop.dryRun === undefined
-                  ? {}
-                  : { dryRun: options.airdrop.dryRun }),
-              },
-            }
-          : {}),
       }),
       responseFormat,
     })
@@ -129,7 +117,7 @@ export class AgentReplyModel implements LanguageModel {
       .filter((line) => line !== '')
       .join('\n')
 
-    const result = await this.buildGraph(input.post).invoke(
+    const result = await this.buildGraph().invoke(
       { messages: [new HumanMessage(task)] },
       { recursionLimit: this.maxSteps * 2 },
     )

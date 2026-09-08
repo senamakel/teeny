@@ -121,76 +121,27 @@ checkpointer; that state is lost on restart. The endpoint returns 503 while
 `AGENT_MODE=simple` or `AGENT_API_TOKEN` is unset, and the agent still honours
 `DRY_RUN`, so nothing is published until you turn it off.
 
-## The wallet
+## The wallet, and why there isn't one
 
-The account holds a wallet on Robinhood Chain (an Arbitrum L2, chain id 4663,
-gas in ETH) and can send small $TINY airdrops from inside a conversation. It
-decides for itself whether somebody has earned one.
+The account was given an ERC-20 wallet on Robinhood Chain on 2026-09-08 and had
+it taken away the same day. `src/airdrop/` and `src/clients/wallet.ts` are still
+here and still tested — the spend policy, the ledger, the recipient registry and
+the ERC-20 client — but nothing constructs them and no tool reaches them, so the
+agent cannot move funds.
 
-```text
-airdrop_user(to, amount)  ->  "Sent 50 TINY to 0x... Transaction: 0x..."
-                          ->  "No airdrop was sent: <reason>"
-```
+It is worth being precise about what failed, because the machinery did not. Over
+one campaign it sent 106 airdrops and the limits all held: the amount cap, the
+daily budget, one-per-account, the rule that an address must appear in the post
+being answered, and the check that stops one wallet collecting from twenty fresh
+accounts. Nothing was overpaid and nothing was lost.
 
-This is the one tool that spends, and it was added against the explicit advice
-recorded in `test/capabilities.test.ts`, which is worth reading before changing
-any of it. The argument there is sound: every tool on the reply path is
-reachable from text written by strangers, so a wallet tool there is a wallet a
-stranger can address, and a prompt is an argument rather than a permission
-boundary. The account is meant to tip people in conversation, so the tool is on
-that path anyway and the defence is placed elsewhere.
+What broke was the account. A hundred near-identical reply-and-pay posts in an
+hour is the shape of spam however sincerely they are meant, and X throttled the
+account's reach for it. The lesson is not about ceilings. It is that a giveaway
+run at speed in public costs the thing the account exists for.
 
-**Nothing that matters is decided by the model.** `src/airdrop/policy.ts` is
-checked after the model has already asked, against the ledger:
-
-| Limit | What it stops |
-| --- | --- |
-| the address must appear in the post being answered | an address from a search result, a memory, or somebody else in the thread being paid |
-| the post's author is the only one who can claim it | publishing an address and having a later reply pay it |
-| `AIRDROP_MAX_PER_AIRDROP` | the amount being argued upward |
-| `AIRDROP_MAX_PER_RECIPIENT` | the same account being paid twice |
-| `AIRDROP_MAX_PER_DAY` | a bad day costing more than a day's budget |
-| one wallet, one account | a farm of fresh accounts all pointing at one wallet |
-| `AIRDROP_REQUIRE_FOLLOW` | drive-by begging from accounts with no connection to the project |
-| a unique index on the post id | one post being paid twice by two turns at once |
-
-The account is keyed on its numeric X id and the wallet is stored beside it in
-`recipients`, so a rename does not make somebody a new person and one wallet
-cannot collect from twenty accounts. Handles are kept as history, and nothing is
-ever decided by them — that lesson cost an afternoon already.
-
-Following is a deliberately weak signal: a follow costs nothing and a farm can
-buy a thousand, so it filters drive-by begging rather than defending anything.
-When X cannot be asked at all, the answer is treated as no, because not sending
-is recovered by them asking again and sending wrongly is not recovered.
-
-## Watching it decide
-
-```sh
-npm run airdrop-sim
-```
-
-Plays the real tool and the real policy against the situations it will meet —
-the same person asking twice, somebody negotiating the cap upward, a farm of
-fresh accounts behind one wallet, a non-follower, and a prompt injection. It is
-entirely in memory: no chain, no X, no model, no configuration, so it runs
-anywhere and cannot spend anything.
-
-The worst case is therefore boring: the most persuasive post anyone can write
-gets its own author, once, at most one call's cap, while the budget lasts.
-That is an airdrop working, not an exploit.
-
-Two operational details worth knowing. The ledger row is claimed *before* the
-transfer is broadcast, so a crash between the two blocks a retry rather than
-paying twice — an airdrop that may not have happened is the safe way to be
-wrong. And the airdrop happens while the reply is being drafted, so a reply that
-fails to publish afterwards leaves tokens sent with nothing posted; the ledger
-has it, X does not.
-
-`AIRDROP_ENABLED=false` removes the tool entirely rather than making it fail,
-and `AIRDROP_DRY_RUN=true` runs the whole path and broadcasts nothing. Both are
-independent of `DRY_RUN`, because publishing replies and spending money are
-different decisions.
+`test/capabilities.test.ts` holds the long version, and fails if a spending tool
+is ever wired back in.
 
 ## Tone and what gets remembered
 
