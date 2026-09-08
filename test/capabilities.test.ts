@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { buildTools } from '../src/agent/graph.js'
+import { createMarketTools } from '../src/agent/tools/market.js'
+import type { ChartRenderer } from '../src/chart/renderer.js'
+import type { TokenMarket } from '../src/market/market.js'
 import type { GifSource, Memory, XTools } from '../src/types.js'
 
 /**
@@ -110,6 +113,31 @@ describe('agent capabilities', () => {
       'web_answer',
       'find_gif',
     ])
+  })
+
+  /**
+   * The chart agent came later and has its own tool set: market data, on-chain
+   * flow, a renderer and one publish tool. It reads posts and trade labels
+   * written by strangers, so it is exactly as reachable by a prompt injection
+   * as the reply drafter is, and it gets the same guarantee.
+   */
+  it('gives the chart agent no way to spend either', () => {
+    const tools = createMarketTools({
+      market: {} as TokenMarket,
+      address: 'TOKEN',
+      x: options().x,
+      charts: { name: 'test', render: vi.fn() } as unknown as ChartRenderer,
+      dryRun: true,
+    })
+
+    for (const tool of tools) {
+      for (const word of FORBIDDEN) {
+        expect(
+          tool.name.toLowerCase().includes(word),
+          `tool "${tool.name}" looks like a wallet capability`,
+        ).toBe(false)
+      }
+    }
   })
 
   // The list above is the whole of it, and none of these words appear in it.

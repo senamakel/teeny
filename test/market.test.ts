@@ -1,0 +1,179 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { DexscreenerClient } from '../src/market/dexscreener.js'
+import { GeckoTerminalClient } from '../src/market/geckoterminal.js'
+import { GmgnClient } from '../src/market/gmgn.js'
+import { summariseFlow } from '../src/market/market.js'
+import type { Trade } from '../src/market/types.js'
+
+function answering(body: unknown, ok = true): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue({
+      ok,
+      status: ok ? 200 : 500,
+      json: async () => body,
+      text: async () => JSON.stringify(body),
+    }),
+  )
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+describe('GeckoTerminal', () => {
+  it('returns candles oldest first, whatever order they arrived in', async () => {
+    answering({
+      data: {
+        attributes: {
+          ohlcv_list: [
+            [1_700_007_200, 3, 4, 2, 3.5, 10],
+            [1_700_003_600, 2, 3, 1, 2.5, 20],
+            [1_700_000_000, 1, 2, 0.5, 1.5, 30],
+          ],
+        },
+      },
+    })
+    const candles = await new GeckoTerminalClient().candles({ pool: 'pool', timeframe: '1h' })
+    expect(candles.map((candle) => candle.time)).toEqual([
+      1_700_000_000, 1_700_003_600, 1_700_007_200,
+    ])
+  })
+
+  it('drops a malformed row rather than charting a zero', async () => {
+    answering({
+      data: {
+        attributes: {
+          ohlcv_list: [
+            [1_700_000_000, 1, 2, 0.5, 1.5, 30],
+            [1_700_003_600, null, 3, 1, 2.5, 20],
+          ],
+        },
+      },
+    })
+    const candles = await new GeckoTerminalClient().candles({ pool: 'pool', timeframe: '1h' })
+    expect(candles).toHaveLength(1)
+  })
+
+  it('refuses to invent a price when the token is unknown', async () => {
+    answering({ data: { attributes: {} } })
+    await expect(new GeckoTerminalClient().overview('missing')).rejects.toThrow(/no price/)
+  })
+
+  it('reads the wallet and the side off each trade', async () => {
+    answering({
+      data: [
+        {
+          attributes: {
+            tx_hash: '0xabc',
+            tx_from_address: 'WalletOne',
+            kind: 'buy',
+            volume_in_usd: '104.47',
+            block_timestamp: '2026-09-08T17:51:03Z',
+            to_token_amount: '138670.49',
+            price_to_in_usd: '0.00075',
+          },
+        },
+      ],
+    })
+    const trades = await new GeckoTerminalClient().trades({ pool: 'pool', minVolumeUsd: 100 })
+    expect(trades[0]).toMatchObject({ wallet: 'WalletOne', kind: 'buy', volumeUsd: 104.47 })
+  })
+})
+
+describe('Dexscreener', () => {
+  /**
+   * The pool ranking bug, caught on live data: $TINY's deepest Solana pool held
+   * $139K and did $336 of volume in a day, while the pool everybody actually
+   * trades held $93K and did $10K. Ranking on liquidity charted the dead one.
+   */
+  it('picks the pool with the volume, not the one with the liquidity', async () => {
+    answering({
+      pairs: [
+        {
+          chainId: 'solana',
+          baseToken: { address: 'TOKEN', symbol: 'TINY' },
+          priceUsd: '0.0007',
+          liquidity: { usd: 139_000 },
+          volume: { h24: 336 },
+          pairAddress: 'DeadPool',
+        },
+        {
+          chainId: 'solana',
+          baseToken: { address: 'TOKEN', symbol: 'TINY' },
+          priceUsd: '0.00075',
+          liquidity: { usd: 93_000 },
+          volume: { h24: 10_134 },
+          pairAddress: 'LivePool',
+        },
+      ],
+    })
+    const overview = await new DexscreenerClient().overview('TOKEN')
+    expect(overview.poolAddress).toBe('LivePool')
+    expect(overview.volume24hUsd).toBe(10_134)
+  })
+
+  it('ignores pairs where the token is the quote side', async () => {
+    answering({
+      pairs: [{ baseToken: { address: 'SOMETHING_ELSE' }, priceUsd: '1', volume: { h24: 99 } }],
+    })
+    await expect(new DexscreenerClient().overview('TOKEN')).rejects.toThrow(/no pair/)
+  })
+})
+
+describe('GMGN', () => {
+  it('surfaces a refusal instead of returning an empty chart', async () => {
+    answering({ code: 1, msg: 'blocked' })
+    await expect(
+      new GmgnClient({ baseUrl: 'https://proxy.example' }).overview('TOKEN'),
+    ).rejects.toThrow(/blocked/)
+  })
+
+  it('converts millisecond timestamps, which would otherwise chart 50,000 years out', async () => {
+    answering({
+      code: 0,
+      data: { list: [{ time: 1_700_000_000_000, open: 1, high: 2, low: 0.5, close: 1.5, volume: 3 }] },
+    })
+    const candles = await new GmgnClient({ baseUrl: 'https://proxy.example' }).candles({
+      address: 'TOKEN',
+      timeframe: '1h',
+    })
+    expect(candles[0]!.time).toBe(1_700_000_000)
+  })
+})
+
+describe('flow', () => {
+  const trades: Trade[] = [
+    { txHash: '1', timestamp: '2026-09-08T10:00:00Z', kind: 'buy', wallet: 'A', volumeUsd: 500, tokenAmount: 1, priceUsd: 1 },
+    { txHash: '2', timestamp: '2026-09-08T11:00:00Z', kind: 'buy', wallet: 'A', volumeUsd: 300, tokenAmount: 1, priceUsd: 1 },
+    { txHash: '3', timestamp: '2026-09-08T12:00:00Z', kind: 'sell', wallet: 'B', volumeUsd: 200, tokenAmount: 1, priceUsd: 1 },
+  ]
+
+  it('nets buys against sells and counts each wallet once', () => {
+    const summary = summariseFlow(trades, new Map())
+    expect(summary.netUsd).toBe(600)
+    expect(summary.uniqueWallets).toBe(2)
+    expect(summary.buyers).toBe(1)
+    expect(summary.topBuyers[0]).toMatchObject({ wallet: 'A', boughtUsd: 800 })
+  })
+
+  it('reports the window it actually read, so a post cannot claim the whole day', () => {
+    const summary = summariseFlow(trades, new Map())
+    expect(summary.window).toMatchObject({
+      from: '2026-09-08T10:00:00Z',
+      to: '2026-09-08T12:00:00Z',
+      trades: 3,
+    })
+  })
+
+  it('labels a watchlist wallet, matching case-insensitively', () => {
+    const summary = summariseFlow(trades, new Map([['a', 'a friend of the project']]))
+    expect(summary.known.map((entry) => entry.label)).toEqual(['a friend of the project'])
+  })
+
+  it('says nothing rather than dividing by zero on an empty window', () => {
+    const summary = summariseFlow([], new Map())
+    expect(summary).toMatchObject({ netUsd: 0, uniqueWallets: 0 })
+    expect(summary.window.trades).toBe(0)
+  })
+})

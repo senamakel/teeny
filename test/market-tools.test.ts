@@ -1,0 +1,202 @@
+import { describe, expect, it, vi } from 'vitest'
+import { createMarketTools } from '../src/agent/tools/market.js'
+import type { ChartRenderer } from '../src/chart/renderer.js'
+import type { TokenMarket } from '../src/market/market.js'
+import type { Candle } from '../src/market/types.js'
+import type { XTools } from '../src/types.js'
+
+const ADDRESS = '2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump'
+
+function candles(): Candle[] {
+  return Array.from({ length: 60 }, (_, index) => ({
+    time: 1_700_000_000 + index * 3_600,
+    open: 0.0007 + index * 0.000_001,
+    high: 0.00071 + index * 0.000_001,
+    low: 0.00069 + index * 0.000_001,
+    close: 0.000_705 + index * 0.000_001,
+    volume: 100,
+  }))
+}
+
+function market(): TokenMarket {
+  return {
+    overview: vi.fn().mockResolvedValue({
+      address: ADDRESS,
+      chain: 'solana',
+      name: 'Tiny Humans AI',
+      symbol: 'TINY',
+      priceUsd: 0.000_747,
+      marketCapUsd: 730_709,
+      liquidityUsd: 93_428,
+      volume24hUsd: 10_134,
+      priceChange: { h24: 17.38 },
+      txns24h: { buys: 79, sells: 75 },
+      poolAddress: 'GEF9',
+      source: 'dexscreener',
+    }),
+    candles: vi.fn().mockResolvedValue(candles()),
+    flow: vi.fn().mockResolvedValue({
+      window: { from: 'a', to: 'b', trades: 24 },
+      buyVolumeUsd: 6_344,
+      sellVolumeUsd: 2_687,
+      netUsd: 3_657,
+      uniqueWallets: 11,
+      buyers: 7,
+      sellers: 5,
+      topBuyers: [{ wallet: 'WalletAAAAAAAAAA', boughtUsd: 1_600, soldUsd: 0, netUsd: 1_600, buys: 2, sells: 0, firstSeen: 'a', lastSeen: 'b' }],
+      topSellers: [],
+      known: [],
+    }),
+    holders: vi.fn(),
+    wallet: vi.fn().mockResolvedValue(undefined),
+    rankedTraders: vi.fn().mockResolvedValue([]),
+  } as unknown as TokenMarket
+}
+
+function xTools(): XTools {
+  return {
+    searchPosts: vi.fn(),
+    getPost: vi.fn(),
+    getConversation: vi.fn(),
+    createPost: vi.fn().mockResolvedValue({ id: '999' }),
+    uploadMedia: vi.fn().mockResolvedValue({ mediaId: 'media-1' }),
+  }
+}
+
+const renderer: ChartRenderer = {
+  name: 'test',
+  render: vi.fn().mockResolvedValue({
+    svg: '<svg/>',
+    png: Buffer.from('png-bytes'),
+    width: 1_200,
+    height: 675,
+    path: '/tmp/chart.png',
+  }),
+}
+
+function build(overrides: Partial<Parameters<typeof createMarketTools>[0]> = {}) {
+  const x = overrides.x ?? xTools()
+  const tools = createMarketTools({
+    market: market(),
+    address: ADDRESS,
+    symbol: 'TINY',
+    x,
+    charts: renderer,
+    dryRun: false,
+    ...overrides,
+  })
+  return { x, tools: new Map(tools.map((tool) => [tool.name, tool])) }
+}
+
+describe('market tools', () => {
+  it('publishes nothing that could move money, whatever the run', () => {
+    const { tools } = build()
+    for (const name of tools.keys()) {
+      expect(name).not.toMatch(/airdrop|wallet|send|pay|transfer|swap|approve|sign/i)
+    }
+  })
+
+  it('is the exact tool list, so a new capability is a conscious change', () => {
+    const { tools } = build()
+    expect([...tools.keys()]).toEqual([
+      'token_overview',
+      'token_candles',
+      'technical_analysis',
+      'render_chart',
+      'token_holders',
+      'token_flow',
+      'trader_activity',
+      'ranked_traders',
+      'post_chart',
+    ])
+  })
+
+  it('reports the source alongside the numbers, so nothing is quotable without one', async () => {
+    const { tools } = build()
+    const output = (await tools.get('token_overview')!.invoke({} as never)) as string
+    expect(output).toContain('$730.7K')
+    expect(output).toContain('source: dexscreener')
+  })
+
+  it('hands back a chart id rather than image bytes', async () => {
+    const { tools } = build()
+    const output = (await tools.get('render_chart')!.invoke({
+      timeframe: '1h',
+      bars: 60,
+    } as never)) as string
+    expect(output).toContain('chart_1')
+    expect(output).toContain('1200x675')
+  })
+
+  it('attaches a rendered chart to the post it publishes', async () => {
+    const { tools, x } = build()
+    await tools.get('render_chart')!.invoke({ timeframe: '1h', bars: 60 } as never)
+    const output = (await tools.get('post_chart')!.invoke({
+      text: 'the level held',
+      chartId: 'chart_1',
+    } as never)) as string
+
+    expect(x.uploadMedia).toHaveBeenCalledWith(
+      expect.objectContaining({ mimeType: 'image/png' }),
+    )
+    expect(x.createPost).toHaveBeenCalledWith('the level held', { mediaIds: ['media-1'] })
+    expect(output).toContain('with the chart attached')
+  })
+
+  it('refuses an id it never rendered instead of posting a bare text', async () => {
+    const { tools, x } = build()
+    const output = (await tools.get('post_chart')!.invoke({
+      text: 'hello',
+      chartId: 'chart_9',
+    } as never)) as string
+    expect(output).toMatch(/Refused/)
+    expect(x.createPost).not.toHaveBeenCalled()
+  })
+
+  it('publishes nothing in a dry run', async () => {
+    const { tools, x } = build({ dryRun: true })
+    const output = (await tools.get('post_chart')!.invoke({ text: 'hello' } as never)) as string
+    expect(output).toContain('DRY RUN')
+    expect(x.createPost).not.toHaveBeenCalled()
+  })
+
+  it('refuses outright when the agent is not allowed to publish', async () => {
+    const { tools, x } = build({ allowPosting: false })
+    const output = (await tools.get('post_chart')!.invoke({ text: 'hello' } as never)) as string
+    expect(output).toMatch(/cannot publish/)
+    expect(x.createPost).not.toHaveBeenCalled()
+  })
+
+  it('enforces the emoji cap the same way the reply path does', async () => {
+    const { tools, x } = build({ maxEmoji: 1 })
+    const output = (await tools.get('post_chart')!.invoke({
+      text: 'up only 🚀🚀🚀',
+    } as never)) as string
+    expect(output).toMatch(/Refused/)
+    expect(x.createPost).not.toHaveBeenCalled()
+  })
+
+  it('tells the agent the flow window is short rather than letting it say "today"', async () => {
+    const { tools } = build()
+    const output = (await tools.get('token_flow')!.invoke({ minVolumeUsd: 100 } as never)) as string
+    expect(output).toContain('in the last few hours')
+    expect(output).toContain('never name a wallet address')
+  })
+
+  it('says plainly that there is no KOL data rather than returning an empty list', async () => {
+    const { tools } = build()
+    const output = (await tools.get('ranked_traders')!.invoke({} as never)) as string
+    expect(output).toMatch(/No ranked-trader source is configured/)
+    expect(output).toMatch(/Do not claim any/)
+  })
+
+  it('carries the bullish score with the warning attached to it', async () => {
+    const { tools } = build()
+    const output = (await tools.get('technical_analysis')!.invoke({
+      timeframe: '1h',
+      bars: 60,
+    } as never)) as string
+    expect(output).toContain('bullish score:')
+    expect(output).toContain('Below 40 the tape is genuinely weak')
+  })
+})

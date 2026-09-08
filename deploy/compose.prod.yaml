@@ -76,6 +76,33 @@ services:
       mongo:
         condition: service_healthy
 
+  # Posts the daily chart. Its own container because it must run in exactly one
+  # place: two processes on the same cron would post the same chart twice, and a
+  # near-duplicate post an hour apart is the shape that got this account
+  # throttled once already. Opt in with CHART_ENABLED=true in ../.env.
+  bot-chart:
+    image: teeny:current
+    build:
+      context: ..
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      CORTEX_API_URL: http://cortexdb:3141
+      LLM_BASE_URL: ${LADDER_URL:-http://ladder:6969/v1}
+      LLM_API_KEY: ${LADDER_API_KEY:?set LADDER_API_KEY in deploy/.env}
+      MONGO_URI: mongodb://${MONGO_ROOT_USERNAME:-teeny}:${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD}@mongo:27017/${MONGO_DATABASE:-teeny}?authSource=admin
+      MONGO_DATABASE: ${MONGO_DATABASE:-teeny}
+      SERVICE_ROLE: chart
+      PORT: "3003"
+    volumes:
+      - chart-data:/app/data
+    depends_on:
+      cortexdb:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+
   # Long-term memory. Every model call it makes goes to the same ladder the
   # agent uses, so there is one egress path and one set of provider keys on the
   # box rather than a second copy living inside a database.
@@ -184,5 +211,6 @@ services:
 volumes:
   mongo-data:
   bot-data:
+  chart-data:
   reply-data:
   cortexdb-data:

@@ -223,7 +223,12 @@ export class XApiClient implements XClient, XTools {
   async uploadMedia(media: XMedia): Promise<{ mediaId: string }> {
     const initialized = await this.writeClient.media.initializeUpload({
       mediaType: media.mimeType,
-      mediaCategory: media.mimeType === 'image/gif' ? 'tweet_gif' : 'tweet_video',
+      mediaCategory:
+        media.mimeType === 'image/gif'
+          ? 'tweet_gif'
+          : media.mimeType === 'image/png'
+            ? 'tweet_image'
+            : 'tweet_video',
       totalBytes: media.data.byteLength,
     })
     const mediaId = initialized.data?.id

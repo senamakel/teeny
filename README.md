@@ -121,6 +121,123 @@ checkpointer; that state is lost on restart. The endpoint returns 503 while
 `AGENT_MODE=simple` or `AGENT_API_TOKEN` is unset, and the agent still honours
 `DRY_RUN`, so nothing is published until you turn it off.
 
+## The chart agent
+
+A second agent on its own timer. Once a day it reads the token's chart, renders
+a candlestick image, and posts one post with it attached. It shares the persona
+and the same CortexDB memory as the reply drafter, so the voice is one voice and
+yesterday's post is something it can actually remember writing.
+
+It is off by default (`CHART_ENABLED=false`), because it publishes.
+
+```sh
+npm run chart-dry-run              # the whole agent, dry: research, draft, render, no post
+npm run chart-dry-run -- --data-only   # just the market read and the PNG
+npm run chart-dry-run -- --publish     # actually posts, if DRY_RUN=false
+```
+
+### Where the numbers come from
+
+No single provider answers everything, so three sit behind `TokenMarket` and it
+merges them:
+
+| Source | What it gives | Notes |
+| --- | --- | --- |
+| Dexscreener | price, market cap, liquidity, 5m/1h/6h/24h change, buy and sell counts | no OHLCV endpoint |
+| GeckoTerminal | OHLCV candles, per-trade wallets | free, no key |
+| Solana RPC | supply and holder concentration | public RPC rate-limits; set `SOLANA_RPC_URL` |
+| GMGN | KOL and smart-money labels, ranked traders | **unreachable**, see below |
+
+GMGN would have the best of it — smart-money tags, KOL wallets, top-trader PnL
+— and has no public API. `gmgn.ai` fronts everything with Cloudflare's bot
+check, which answers a server with an HTML interstitial and a 403 whatever
+headers it sends; verified against both the token-quotation and the candles
+endpoints. So
+`GmgnClient` exists, is tried first, and stays off unless `GMGN_BASE_URL` names
+something that will actually answer. With it unset the `ranked_traders` tool
+returns "no ranked-trader source is configured" and the prompt forbids claiming
+any KOL activity — which is the correct behaviour, not a degradation.
+
+One live-data bug worth keeping in mind: pools are ranked by 24-hour **volume**,
+not liquidity. $TINY's deepest Solana pool holds $139K and did $336 of volume in
+a day, while the pool everybody actually trades holds $93K and did $10K.
+Charting the deepest one drew a flat line through a pool nothing happens in.
+
+### The technical read
+
+`src/ta/` computes it: EMA, RSI (Wilder), MACD, Bollinger, ATR, VWAP, fractal
+swing points, and support/resistance clustered by relative distance so it works
+the same on a token priced at $0.0007 as on one priced at $40,000. Every series
+returns `undefined` for its warm-up rather than a zero or the first close, so a
+chart never draws a trend line through a period the indicator could not see.
+
+`analyse()` turns that into signals, notes, and a `bullishScore` out of 100. The
+score reports bearish signals honestly even though the account is unapologetically
+long: without the window-trend signal, a token down a third over five days scored
+bullish on a two-hour bounce, and the post would have read "structure intact"
+under a chart that was visibly bleeding. Under 40, the prompt tells the agent to
+post about accumulation, distribution or what shipped this week instead of
+finding something nice to say about the price.
+
+### Rendering
+
+The default renderer draws the chart here: SVG, rasterised to PNG by resvg.
+TradingView's dark palette, EMA20/EMA50, a volume panel, the support and
+resistance the analysis found, and the account's handle as a watermark. The SVG
+is a string, so the tests assert on it and a diff shows what changed.
+
+Two details that are not obvious from the picture. The volume panel is scaled to
+the 95th percentile, not the maximum, because one launch bar is routinely fifty
+times the median and scaling to it flattens every other bar into the axis; bars
+over the cap clip to the top of the panel, which reads correctly. And the price
+scale includes the overlays, because an EMA that leaves the panel reads as the
+price having gone somewhere it did not.
+
+resvg is the only native dependency in the repo. It draws text through the
+system fonts, and alpine ships none — hence `apk add font-noto` in the runner
+image. Without it the chart renders and every label silently disappears.
+
+`CHART_RENDERER=screenshot` is the other option: drive a headless browser at a
+page that draws a chart and photograph it. It is not the default because DEX
+Screener's embed does not serve its chart data to a headless browser — the page
+loads, the TradingView shell and toolbar render, and the panel says "No data
+here", verified against the $TINY PumpSwap pool with a real Chrome binary and
+generous waits. The URL is a template, so the useful version of the idea is
+pointing it at a page we serve ourselves; that needs a browser in the runtime
+image, which is why it is opt-in.
+
+### Tools
+
+| Tool | What it does |
+| --- | --- |
+| `token_overview` | price, market cap, liquidity, 24h volume, change, buy/sell counts, and the source |
+| `token_candles` | raw OHLCV, for when a post needs one specific bar |
+| `technical_analysis` | the full read: trend, structure, indicators, levels, bullish score |
+| `render_chart` | draws the chart, returns a `chartId` |
+| `token_holders` | supply and concentration from the chain |
+| `token_flow` | buy versus sell volume, top buyers and sellers, watchlist wallets |
+| `trader_activity` | one wallet's footprint in the recent-trades window |
+| `ranked_traders` | KOL and smart-money labels, when a provider is configured |
+| `post_chart` | publishes one post with a `chartId` attached. The only way it publishes |
+
+It also gets `recall_memory` and `remember`, and read-only X search. It cannot
+reply and it has no `x_post`.
+
+Two things are bound in configuration rather than left to the model. The token
+address, because an agent that can be told which contract to analyse can be told
+to analyse somebody else's by anything that lands in its context — and this one
+reads posts. And publishing, which goes through `post_chart` alone: one post,
+one image, the emoji cap and the length limit enforced in code.
+
+Wallet addresses are shown truncated to the agent and the prompt forbids putting
+one in a post. So is any URL: links cost an account its reach, and this one has
+already paid for that lesson once. The chart is the attachment.
+
+The job refuses to run twice inside 20 hours even if the cron fires again — a
+container that restarts near the cron minute would otherwise post the same chart
+an hour later, which is exactly the repetitive-publishing shape that got this
+account throttled.
+
 ## The wallet, and why there isn't one
 
 The account was given an ERC-20 wallet on Robinhood Chain on 2026-09-08 and had
@@ -309,6 +426,7 @@ npm test
 npm run lint
 npm run build
 npm run webhook     # read or move the X Account Activity registration
+npm run chart-dry-run   # rehearse the daily chart post without publishing
 ```
 
 Runtime cursor data is stored at `data/state.json` and is ignored by

@@ -20,12 +20,14 @@
     "webhook": "tsx src/scripts/webhook.ts",
     "airdrop-sim": "tsx src/scripts/airdrop-sim.ts",
     "unsay": "tsx src/scripts/unsay.ts",
-    "requeue-unpaid": "tsx src/scripts/requeue-unpaid.ts"
+    "requeue-unpaid": "tsx src/scripts/requeue-unpaid.ts",
+    "chart-dry-run": "tsx src/scripts/chart-dry-run.ts"
   },
   "dependencies": {
     "@langchain/core": "^1.2.9",
     "@langchain/langgraph": "^1.4.13",
     "@langchain/openai": "^1.5.11",
+    "@resvg/resvg-js": "^2.6.2",
     "@xdevplatform/xdk": "^0.6.6",
     "cortexdbai": "^0.9.1",
     "dotenv": "^17.2.3",
@@ -33,6 +35,7 @@
     "fastify": "^5.12.1",
     "mongodb": "^6.21.0",
     "node-cron": "^4.6.0",
+    "playwright-core": "^1.63.0",
     "viem": "^2.56.3",
     "zod": "^4.1.12"
   },

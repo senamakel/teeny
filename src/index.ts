@@ -8,6 +8,8 @@ import { IngestJob } from './jobs/ingest-job.js'
 import { ReplyJob } from './jobs/reply-job.js'
 import { ReplyWorker } from './jobs/reply-worker.js'
 import { MongoMentionQueue } from './queue/mentions.js'
+import { buildChartAgent } from './agent/chart-wiring.js'
+import { ChartJob } from './jobs/chart-job.js'
 import { LangGraphAgent, type AgentOptions } from './agent/graph.js'
 import { loadPersona } from './agent/soul.js'
 import { AgentReplyModel } from './agent/reply-model.js'
@@ -105,6 +107,9 @@ const app = buildServer({
 const role = config.SERVICE_ROLE
 const runsIngest = role === 'all' || role === 'ingest'
 const runsReplies = role === 'all' || role === 'reply'
+// The chart agent publishes on its own timer. It is opt-in and single-homed:
+// two containers on the same schedule would post the same chart twice.
+const runsChart = config.CHART_ENABLED && (role === 'all' || role === 'chart')
 
 if (runsIngest) {
   const ingestJob = new IngestJob({
@@ -157,6 +162,24 @@ if (runsReplies) {
   }
 }
 
+if (runsChart) {
+  const chartJob = new ChartJob({
+    agent: buildChartAgent(config, {
+      memory,
+      x,
+      botUsername,
+      persona,
+      dryRun: config.DRY_RUN,
+    }),
+    symbol: config.CHART_TOKEN_SYMBOL,
+    timeframe: config.CHART_TIMEFRAME,
+    logger: app.log,
+  })
+  cron.schedule(config.CHART_CRON, () => {
+    void chartJob.run().catch((error: unknown) => app.log.error({ err: error }, 'chart job failed'))
+  })
+}
+
 await app.listen({ host: '0.0.0.0', port: config.PORT })
 app.log.info(
   {
@@ -184,6 +207,9 @@ app.log.info(
         : config.REPLY_CRON
       : false,
     agentEndpoint: Boolean(useAgent && config.AGENT_API_TOKEN),
+    chart: runsChart
+      ? `${config.CHART_TOKEN_SYMBOL} ${config.CHART_TIMEFRAME} at "${config.CHART_CRON}" via ${config.CHART_RENDERER}`
+      : false,
   },
   'teeny started',
 )

@@ -175,7 +175,13 @@ export interface XCreateOptions {
 
 export interface XMedia {
   data: Uint8Array
-  mimeType: 'image/gif' | 'video/mp4'
+  /**
+   * `image/png` is here for charts. X sorts uploads into categories rather than
+   * by MIME type and puts a still image in a different one from an animation,
+   * so widening this without widening the category mapping in `XApiClient`
+   * uploads a PNG as a GIF and X rejects the post, not the upload.
+   */
+  mimeType: 'image/gif' | 'video/mp4' | 'image/png'
 }
 
 /**

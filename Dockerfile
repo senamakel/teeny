@@ -12,6 +12,13 @@ RUN npm run build
 FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+
+# Fonts, for the chart renderer. resvg draws text through the system fonts and
+# alpine ships none: without this the chart still renders and every label --
+# price axis, ticker, timestamps -- silently disappears, which looks like a
+# broken chart rather than a missing package.
+RUN apk add --no-cache font-noto
+
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=builder /app/dist ./dist
@@ -21,8 +28,9 @@ COPY --from=builder /app/SOUL.md ./SOUL.md
 COPY --from=builder /app/CONTEXT.md ./CONTEXT.md
 COPY --from=builder /app/skills ./skills
 
-# The reply job keeps its cursor on disk, so the path is a volume in compose.
-RUN mkdir -p /app/data && addgroup --system --gid 1001 nodejs \
+# The reply job keeps its cursor on disk, and the chart agent writes each PNG it
+# renders next to it, so the path is a volume in compose.
+RUN mkdir -p /app/data/charts && addgroup --system --gid 1001 nodejs \
   && adduser --system --uid 1001 bot && chown -R bot:nodejs /app/data
 USER bot
 

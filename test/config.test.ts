@@ -56,3 +56,42 @@ describe('wallet config', () => {
     expect(config.AIRDROP_DRY_RUN).toBe(true)
   })
 })
+
+describe('chart agent config', () => {
+  it('is off unless it is switched on, because it publishes', () => {
+    const config = loadConfig(REQUIRED as unknown as NodeJS.ProcessEnv)
+    expect(config.CHART_ENABLED).toBe(false)
+    expect(config.CHART_RENDERER).toBe('native')
+  })
+
+  it('accepts a blank token address rather than refusing to boot', () => {
+    const config = loadConfig({
+      ...REQUIRED,
+      CHART_TOKEN_ADDRESS: '',
+      CHART_URL_TEMPLATE: '',
+      GMGN_BASE_URL: '',
+      SOLANA_RPC_URL: '',
+    } as unknown as NodeJS.ProcessEnv)
+
+    expect(config.CHART_TOKEN_ADDRESS).toBeUndefined()
+    expect(config.GMGN_BASE_URL).toBeUndefined()
+  })
+
+  it('parses the watchlist into wallets and labels', () => {
+    const config = loadConfig({
+      ...REQUIRED,
+      KOL_WALLETS: ' Wallet1:a big fund , Wallet2 ,',
+    } as unknown as NodeJS.ProcessEnv)
+
+    expect(config.KOL_WALLETS).toEqual([
+      { wallet: 'Wallet1', label: 'a big fund' },
+      // An entry with no label still counts: knowing it is on the list is the
+      // point, and "watchlist" is a truthful name for it.
+      { wallet: 'Wallet2', label: 'watchlist' },
+    ])
+  })
+
+  it('has an empty watchlist by default, so no wallet is ever mislabelled', () => {
+    expect(loadConfig(REQUIRED as unknown as NodeJS.ProcessEnv).KOL_WALLETS).toEqual([])
+  })
+})

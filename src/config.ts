@@ -57,7 +57,7 @@ const schema = z.object({
   X_SEARCH_MAX_RESULTS: z.coerce.number().int().min(10).max(100).default(10),
   // `all` runs every role in one process. Split them to scale or restart the
   // reply side without pausing ingestion, which is the half with a deadline.
-  SERVICE_ROLE: z.enum(['all', 'ingest', 'reply', 'api']).default('all'),
+  SERVICE_ROLE: z.enum(['all', 'ingest', 'reply', 'api', 'chart']).default('all'),
   INGEST_CRON: z.string().default('*/5 * * * *'),
   // `worker` drains the queue continuously, which is what makes a webhook
   // delivery turn into a reply in seconds rather than by the next tick.
@@ -90,6 +90,52 @@ const schema = z.object({
     .default('')
     .transform((value) => value.split(',').map((entry) => entry.trim()).filter(Boolean)),
   THREAD_CONTEXT_MAX_POSTS: z.coerce.number().int().min(0).max(100).default(10),
+
+  // --- the chart agent -----------------------------------------------------
+  // A second agent, on its own timer: it reads the token's own chart once a day
+  // and posts it. Off by default, because it publishes.
+  CHART_ENABLED: offByDefault,
+  // 15:00 UTC: mid-morning in New York, evening in Europe, which is where this
+  // timeline is awake. A daily post lands or it does not; there is no catch-up.
+  CHART_CRON: z.string().default('0 15 * * *'),
+  // The token the chart agent looks at. Bound in configuration rather than
+  // chosen per run: this agent reads posts, and an agent that can be told which
+  // contract to analyse can be told to analyse somebody else's.
+  CHART_TOKEN_ADDRESS: blankable(z.string().min(26)),
+  CHART_TOKEN_SYMBOL: z.string().min(1).default('TINY'),
+  CHART_CHAIN: z.string().min(1).default('solana'),
+  CHART_TIMEFRAME: z.enum(['5m', '15m', '1h', '4h', '1d']).default('1h'),
+  CHART_BARS: z.coerce.number().int().min(20).max(500).default(120),
+  // `native` draws the chart here from candles this service fetched. `screenshot`
+  // drives a headless browser at a page that draws one; see ScreenshotChartRenderer
+  // for why that is not the default.
+  CHART_RENDERER: z.enum(['native', 'screenshot']).default('native'),
+  CHART_URL_TEMPLATE: blankable(z.string().min(1)),
+  CHART_BROWSER_CHANNEL: blankable(z.string().min(1)),
+  CHART_BROWSER_PATH: blankable(z.string().min(1)),
+  CHART_OUTPUT_DIR: z.string().default('data/charts'),
+  // Defaults to the account's own handle at startup.
+  CHART_WATERMARK: blankable(z.string().min(1)),
+  // A ranked-trader source. Unset, the KOL tool returns nothing and the prompt
+  // forbids claiming any -- which is the correct behaviour, not a degradation.
+  GMGN_BASE_URL: blankable(z.url()),
+  SOLANA_RPC_URL: blankable(z.url()),
+  // Wallets worth naming when they show up in the flow, as `address:label`
+  // pairs, comma separated. The label is for the agent's reasoning only; the
+  // prompt forbids putting an address in a post.
+  KOL_WALLETS: z
+    .string()
+    .default('')
+    .transform((value) =>
+      value
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .flatMap((entry) => {
+          const [wallet, ...rest] = entry.split(':')
+          return wallet ? [{ wallet: wallet.trim(), label: rest.join(':').trim() || 'watchlist' }] : []
+        }),
+    ),
 
   // --- the wallet ----------------------------------------------------------
   // Nothing reads these today. The agent has no airdrop tool: it was added and
