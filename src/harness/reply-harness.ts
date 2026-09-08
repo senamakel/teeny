@@ -57,19 +57,25 @@ export class ReplyHarness {
     // tiny?", the account replied "I'm just a mascot who doesn't read charts"
     // -- hours after publishing a chart of its own token. It had no idea,
     // because nothing ever told it what it had posted.
+    // Both recalls fail soft. A reply drafted without memory is a worse reply;
+    // a reply that never goes out because the memory service returned a 401 is
+    // a person on the timeline being ignored, and the mention does not come
+    // back -- the queue marks it failed and nothing retries it.
     const [recalled, ownActivity] = await Promise.all([
-      this.memory.recall(
-        'What context, past interactions, product facts, and tone are relevant to replying to ' +
-          `this X post? ${post.text}` +
-          (conversation ? `\n\nThe conversation it sits in:\n${conversation}` : ''),
-        person ? { person } : {},
-      ),
-      this.memory
-        .recall(
+      Promise.resolve(
+        this.memory.recall(
+          'What context, past interactions, product facts, and tone are relevant to replying to ' +
+            `this X post? ${post.text}` +
+            (conversation ? `\n\nThe conversation it sits in:\n${conversation}` : ''),
+          person ? { person } : {},
+        ),
+      ).catch(() => ''),
+      Promise.resolve(
+        this.memory.recall(
           'What has this account itself posted recently? Include its daily chart posts, the ' +
             'market reads it published, and anything it has said publicly in the last few days.',
-        )
-        .catch(() => ''),
+        ),
+      ).catch(() => ''),
     ])
 
     const memory = ownActivity.trim()
@@ -85,7 +91,13 @@ export class ReplyHarness {
     // Sour and abusive posts are answered but not kept. Memory is what the
     // account carries into every future conversation, and an insult stored
     // today is context that colours a reply to someone else next week.
-    if (!isSour(draft.incomingTone)) await this.memory.captureMention(post)
+    // Capture is best-effort for the same reason: the draft already exists, and
+    // losing it to a storage error helps nobody. Wrapped in `Promise.resolve`
+    // rather than chained directly, so a capture that returns nothing at all
+    // cannot take the reply down on the way past.
+    if (!isSour(draft.incomingTone)) {
+      await Promise.resolve(this.memory.captureMention(post)).catch(() => undefined)
+    }
     return draft
   }
 

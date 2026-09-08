@@ -177,3 +177,41 @@ describe('negative posts', () => {
     }
   })
 })
+
+/**
+ * CortexDB returning 401 used to take the whole reply down. The mention is then
+ * marked failed by the queue and nothing retries it, so a memory outage does
+ * not degrade the reply -- it silently drops the person from the conversation.
+ */
+describe('when memory is down', () => {
+  const broken = (): Memory => ({
+    captureActivity: vi.fn().mockRejectedValue(new Error('401 MISSING_TOKEN')),
+    captureMention: vi.fn().mockRejectedValue(new Error('401 MISSING_TOKEN')),
+    recall: vi.fn().mockRejectedValue(new Error('401 MISSING_TOKEN')),
+    captureReply: vi.fn().mockRejectedValue(new Error('401 MISSING_TOKEN')),
+  })
+
+  it('still drafts a reply', async () => {
+    const model: LanguageModel = { reply: vi.fn().mockResolvedValue({ text: 'hi' }) }
+    await expect(
+      new ReplyHarness(broken(), model).generate({ id: '1', text: 'gm' }),
+    ).resolves.toEqual({ text: 'hi' })
+  })
+
+  it('tells the drafter it has no memory rather than passing an error through', async () => {
+    const model: LanguageModel = { reply: vi.fn().mockResolvedValue({ text: 'hi' }) }
+    await new ReplyHarness(broken(), model).generate({ id: '1', text: 'gm' })
+
+    const passed = (model.reply as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as { memory: string }
+    expect(passed.memory).toBe('')
+  })
+
+  it('does not fail the reply because the mention could not be stored', async () => {
+    const model: LanguageModel = { reply: vi.fn().mockResolvedValue({ text: 'hi' }) }
+    const memory = broken()
+    await expect(
+      new ReplyHarness(memory, model).generate({ id: '1', text: 'gm', authorId: '9' }),
+    ).resolves.toBeDefined()
+    expect(memory.captureMention).toHaveBeenCalled()
+  })
+})
