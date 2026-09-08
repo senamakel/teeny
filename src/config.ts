@@ -104,7 +104,7 @@ const schema = z.object({
   CHART_TOKEN_ADDRESS: blankable(z.string().min(26)),
   CHART_TOKEN_SYMBOL: z.string().min(1).default('TINY'),
   CHART_CHAIN: z.string().min(1).default('solana'),
-  CHART_TIMEFRAME: z.enum(['5m', '15m', '1h', '4h', '1d']).default('1h'),
+  CHART_TIMEFRAME: z.enum(['5m', '15m', '1h', '4h', '12h', '1d', '1w']).default('1h'),
   CHART_BARS: z.coerce.number().int().min(20).max(500).default(120),
   // `native` draws the chart here from candles this service fetched. `screenshot`
   // drives a headless browser at a page that draws one; see ScreenshotChartRenderer

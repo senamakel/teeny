@@ -206,6 +206,50 @@ under a chart that was visibly bleeding. Under 40, the prompt tells the agent to
 post about accumulation, distribution or what shipped this week instead of
 finding something nice to say about the price.
 
+### Four ways of looking at the same chart
+
+`chart_timeframes` reads the token hourly, 4-hourly, daily and weekly in one
+call, and reports whether they agree. One timeframe is one opinion: an hour can
+be red inside a green week and both are true, and a post built on whichever
+timeframe happened to be the config default is a post whose framing was chosen by
+an env var. Each horizon gets its own trend, structure, level event, support and
+best positive, and the tool ends with the alignment — all four bullish is itself
+the story, none of them bullish means the positive is on-chain today.
+
+Weekly candles do not exist upstream. GeckoTerminal's daily endpoint accepts
+`aggregate=1` and answers 400 to anything larger, so `fold()` builds them here
+from daily bars: first open, last close, the extremes, volume summed. It buckets
+on absolute time rather than counting back from the newest bar — counting back
+would silently redraw every weekly candle depending on what hour the job ran.
+
+The market layer caches each series, so reading four timeframes and then
+rendering one costs four fetches rather than five. That is not an optimisation:
+GeckoTerminal's free tier started answering 429 on the first multi-timeframe run
+and the post lost its holder data to it.
+
+### Always leading with the positive
+
+Both `analyse` and `readProgress` return a ranked list of true positives, handed
+to the agent as `TRUE POSITIVES YOU CAN LEAD WITH, best first`. It is never
+empty — the last entry is always price's distance above its own low, which is
+true of every chart that has ever existed. Order matters more than contents: a
+defended level beats a percentage, a percentage beats a ratio, now beats last
+week.
+
+This is structural because prompting alone did not hold. Left to choose its own
+framing from a mixed read, the agent opened a post with `rough hour: we lost
+$0.0007292` — accurate, and the wrong first sentence to put in front of people
+who hold the token. The prompt now bans opening on a loss, volunteering a bearish
+caveat, and the words "rough", "ugly" and "bleeding" about the chart; a broken
+level may appear mid-post but never as the headline or the last word.
+
+None of that permits saying something untrue. Every positive is computed from the
+same candles as everything else — what changed is which true thing goes first.
+There is also a cap of three numbers per post, and percentages off the low are
+banned as headline stats: the first post to lead with the long horizon read
+"+702%, +3394%, 3718% off the daily low", which is a spreadsheet screenshot and
+looks exactly like a pump.
+
 ### Rendering
 
 The default renderer draws the chart here: SVG, rasterised to PNG by resvg.
@@ -281,7 +325,8 @@ about the day rather than an invitation to invent enthusiasm.
 | --- | --- |
 | `token_overview` | price, market cap, liquidity, 24h volume, change, buy/sell counts, and the source |
 | `token_candles` | raw OHLCV, for when a post needs one specific bar |
-| `technical_analysis` | the short-term read: levels, breakouts and reclaims, volume, structure, bullish score |
+| `chart_timeframes` | the same chart hourly, 4-hourly, daily and weekly, and whether they agree |
+| `technical_analysis` | the read on one horizon: levels, breakouts and reclaims, volume, structure, bullish score |
 | `token_progress` | the long horizon on the daily: 7/30/90-day change, green days, stepping lows |
 | `render_chart` | draws the chart, returns a `chartId` |
 | `token_holders` | supply and concentration from the chain |

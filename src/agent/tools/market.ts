@@ -12,7 +12,15 @@ import { applyHouseStyle, countEmoji } from '../house-style.js'
 import { MAX_POST_LENGTH } from './x.js'
 import type { XTools } from '../../types.js'
 
-const TIMEFRAME = z.enum(['5m', '15m', '1h', '4h', '1d'])
+const TIMEFRAME = z.enum(['5m', '15m', '1h', '4h', '12h', '1d', '1w'])
+
+/** The four horizons a post is ever actually about. */
+const HORIZONS: Array<{ timeframe: '1h' | '4h' | '1d' | '1w'; bars: number; label: string }> = [
+  { timeframe: '1h', bars: 120, label: 'hourly (last 5 days)' },
+  { timeframe: '4h', bars: 120, label: '4-hour (last 20 days)' },
+  { timeframe: '1d', bars: 120, label: 'daily (last 4 months)' },
+  { timeframe: '1w', bars: 52, label: 'weekly (the whole story)' },
+]
 
 export interface MarketToolOptions {
   market: TokenMarket
@@ -153,6 +161,78 @@ export function createMarketTools(options: MarketToolOptions): StructuredToolInt
         timeframe: TIMEFRAME.default('1h'),
         bars: z.number().int().min(20).max(500).default(120),
       }),
+    },
+  )
+
+  /**
+   * The same chart at four zoom levels.
+   *
+   * One timeframe is one opinion. An hour can be red inside a green week, and a
+   * post built on whichever timeframe happened to be the default is a post
+   * whose framing was chosen by a config value. This reads all four, says which
+   * agree, and lets the model pick the horizon the day is actually about.
+   *
+   * Cheap after the first call: the market layer caches each series, so the
+   * chart that gets rendered afterwards costs nothing more.
+   */
+  const timeframes = tool(
+    async () => {
+      const reads = await Promise.all(
+        HORIZONS.map(async (horizon) => {
+          const series = await market
+            .candles({ address, timeframe: horizon.timeframe, limit: horizon.bars })
+            .catch(() => [] as Awaited<ReturnType<typeof market.candles>>)
+          return {
+            horizon,
+            read: series.length < 20 ? undefined : analyse(series, { timeframe: horizon.timeframe }),
+            bars: series.length,
+          }
+        }),
+      )
+
+      const lines = reads.map(({ horizon, read, bars }) => {
+        if (!read) return `${horizon.label}: only ${bars} bars available, not enough to read.`
+        return [
+          `${horizon.label} [${horizon.timeframe}, ${read.bars} bars]`,
+          `  ${read.changePct >= 0 ? 'up' : 'down'} ${Math.abs(read.changePct)}%, trend ${read.trend}, ${read.structure}`,
+          read.event
+            ? `  ${read.event.kind} at $${read.event.level.toPrecision(4)}, ${read.event.barsAgo} bars ago` +
+              `${read.event.volumeConfirmed ? ', volume confirmed' : ', unconfirmed'}`
+            : '  no level crossed recently',
+          read.levels.support === undefined
+            ? '  no support below price on this timeframe'
+            : `  support $${read.levels.support.toPrecision(4)} (${read.levels.supportTouches} touches)`,
+          `  bullish ${read.bullishScore}/100`,
+          `  best positive: ${read.positives[0] ?? 'none'}`,
+        ].join('\n')
+      })
+
+      const known = reads.flatMap((entry) => (entry.read ? [entry.read.bullishScore] : []))
+      const up = known.filter((score) => score >= 50).length
+
+      return [
+        ...lines,
+        '',
+        known.length === 0
+          ? 'No timeframe had enough history to read.'
+          : up === known.length
+            ? `All ${known.length} timeframes read bullish. That agreement is itself the story.`
+            : up === 0
+              ? `None of the ${known.length} timeframes reads bullish on price. The positive is ` +
+                'on-chain today: try token_holders or token_flow, and lead with what you find.'
+              : `${up} of ${known.length} timeframes read bullish. Post about the horizon the day ` +
+                'is actually about, and do not pretend the others agree with it.',
+      ].join('\n')
+    },
+    {
+      name: 'chart_timeframes',
+      description:
+        'The same chart at four zoom levels at once: hourly, 4-hour, daily and weekly. ' +
+        'Each one gets its trend, structure, any level just broken or reclaimed, its nearest ' +
+        'support and its own best positive, plus whether the timeframes agree. Call this ' +
+        'early: it is how you choose which horizon the post should be about, and it makes ' +
+        'the later calls free because the candles are cached.',
+      schema: z.object({}),
     },
   )
 
@@ -421,6 +501,7 @@ export function createMarketTools(options: MarketToolOptions): StructuredToolInt
     overview,
     candles,
     technicals,
+    timeframes,
     progress,
     drawChart,
     holders,

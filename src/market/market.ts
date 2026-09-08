@@ -2,7 +2,7 @@ import { DexscreenerClient } from './dexscreener.js'
 import { GeckoTerminalClient } from './geckoterminal.js'
 import { GmgnClient, type RankedTrader } from './gmgn.js'
 import { SolanaRpc } from './solana.js'
-import type { Candle, HolderSnapshot, Timeframe, TokenOverview, Trade } from './types.js'
+import { fold, TIMEFRAMES, type Candle, type HolderSnapshot, type Timeframe, type TokenOverview, type Trade } from './types.js'
 
 /** A wallet worth naming: a KOL, a fund, a team wallet, a known exit liquidity enjoyer. */
 export interface LabelledWallet {
@@ -64,6 +64,13 @@ export class TokenMarket {
   private readonly watchlist: Map<string, string>
   private readonly ttlMs: number
   private readonly overviews = new Map<string, Cached<TokenOverview>>()
+  /**
+   * Candles, cached by timeframe. The agent reads four timeframes in a run and
+   * then renders one of them, and GeckoTerminal's free tier answers 429 well
+   * before that many calls -- which is not theoretical, it happened on the
+   * first multi-timeframe run and cost the post its holder data.
+   */
+  private readonly series = new Map<string, Cached<Candle[]>>()
 
   constructor(
     options: {
@@ -161,15 +168,36 @@ export class TokenMarket {
     timeframe: Timeframe
     limit?: number
   }): Promise<Candle[]> {
+    const limit = input.limit ?? 100
+    const key = `${input.address}:${input.timeframe}:${limit}`
+    const cached = this.series.get(key)
+    if (cached && Date.now() - cached.at < this.ttlMs) return cached.value
+
+    const spec = TIMEFRAMES[input.timeframe]
+    // A timeframe the provider does not serve is built from one it does. The
+    // fold needs `factor` source bars per output bar, plus a little slack so
+    // the oldest bucket is not a fragment of a week presented as a week.
+    const value = spec.foldFrom
+      ? fold(
+          await this.candles({
+            address: input.address,
+            timeframe: spec.foldFrom.timeframe,
+            limit: Math.min(limit * spec.foldFrom.factor + spec.foldFrom.factor, 1_000),
+          }),
+          spec.seconds,
+        ).slice(-limit)
+      : await this.fetchCandles(input.address, input.timeframe, limit)
+
+    this.series.set(key, { at: Date.now(), value })
+    return value
+  }
+
+  private async fetchCandles(address: string, timeframe: Timeframe, limit: number): Promise<Candle[]> {
     if (this.gmgn) {
-      const fromGmgn = await this.gmgn.candles(input).catch(() => [])
+      const fromGmgn = await this.gmgn.candles({ address, timeframe, limit }).catch(() => [])
       if (fromGmgn.length > 0) return fromGmgn
     }
-    return this.gecko.candles({
-      pool: await this.pool(input.address),
-      timeframe: input.timeframe,
-      ...(input.limit === undefined ? {} : { limit: input.limit }),
-    })
+    return this.gecko.candles({ pool: await this.pool(address), timeframe, limit })
   }
 
   async trades(input: { address: string; minVolumeUsd?: number }): Promise<Trade[]> {

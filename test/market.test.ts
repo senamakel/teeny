@@ -177,3 +177,43 @@ describe('flow', () => {
     expect(summary.window.trades).toBe(0)
   })
 })
+
+describe('the market layer', () => {
+  it('builds a weekly series from daily candles, because the provider has none', async () => {
+    const { TokenMarket } = await import('../src/market/market.js')
+    const market = new TokenMarket()
+    const daily = Array.from({ length: 70 }, (_, index) => ({
+      time: 1_700_000_000 + index * 86_400,
+      open: 1 + index,
+      high: 2 + index,
+      low: index,
+      close: 1.5 + index,
+      volume: 10,
+    }))
+    // Stand in for the network: the fold is what is under test, not the fetch.
+    const fetched = vi.fn().mockResolvedValue(daily)
+    Object.assign(market as unknown as Record<string, unknown>, { fetchCandles: fetched })
+
+    const weekly = await market.candles({
+      address: 'TOKEN',
+      timeframe: '1w',
+      limit: 5,
+    })
+
+    expect(fetched).toHaveBeenCalledWith('TOKEN', '1d', expect.any(Number))
+    expect(weekly).toHaveLength(5)
+    expect(weekly.every((candle, index) => index === 0 || candle.time > (weekly[index - 1]?.time ?? 0))).toBe(true)
+  })
+
+  it('serves the second read of a timeframe from cache, which is what keeps it under the rate limit', async () => {
+    const { TokenMarket } = await import('../src/market/market.js')
+    const market = new TokenMarket()
+    const fetched = vi.fn().mockResolvedValue([])
+    Object.assign(market as unknown as Record<string, unknown>, { fetchCandles: fetched })
+
+    await market.candles({ address: 'TOKEN', timeframe: '1h', limit: 120 })
+    await market.candles({ address: 'TOKEN', timeframe: '1h', limit: 120 })
+
+    expect(fetched).toHaveBeenCalledTimes(1)
+  })
+})

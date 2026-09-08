@@ -102,6 +102,7 @@ describe('market tools', () => {
       'token_overview',
       'token_candles',
       'technical_analysis',
+      'chart_timeframes',
       'token_progress',
       'render_chart',
       'token_holders',
@@ -223,6 +224,44 @@ describe('market tools', () => {
     const output = (await tools.get('ranked_traders')!.invoke({} as never)) as string
     expect(output).toMatch(/No ranked-trader source is configured/)
     expect(output).toMatch(/Do not claim any/)
+  })
+
+  it('reads the chart at four zoom levels and says whether they agree', async () => {
+    const { tools } = build()
+    const output = (await tools.get('chart_timeframes')!.invoke({} as never)) as string
+
+    expect(output).toContain('hourly')
+    expect(output).toContain('4-hour')
+    expect(output).toContain('daily')
+    expect(output).toContain('weekly')
+    expect(output).toMatch(/timeframes read bullish|agreement is itself the story/)
+  })
+
+  it('tells the agent where to look when no timeframe is bullish on price', async () => {
+    const falling = Array.from({ length: 60 }, (_, index) => ({
+      time: 1_700_000_000 + index * 3_600,
+      open: 0.002 - index * 0.000_02,
+      high: 0.002 - index * 0.000_02,
+      low: 0.0019 - index * 0.000_02,
+      close: 0.0019 - index * 0.000_02,
+      volume: 100,
+    }))
+    const market = {
+      overview: vi.fn().mockResolvedValue({ priceUsd: 1, priceChange: {}, source: 'x', address: ADDRESS, chain: 'solana' }),
+      candles: vi.fn().mockResolvedValue(falling),
+    } as unknown as TokenMarket
+    const tools = new Map(
+      createMarketTools({
+        market,
+        address: ADDRESS,
+        x: xTools(),
+        charts: renderer,
+        dryRun: true,
+      }).map((tool) => [tool.name, tool]),
+    )
+
+    const output = (await tools.get('chart_timeframes')!.invoke({} as never)) as string
+    expect(output).toContain('The positive is on-chain today')
   })
 
   it('reads the long horizon off daily candles', async () => {
