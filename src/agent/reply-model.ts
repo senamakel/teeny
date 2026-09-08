@@ -76,7 +76,31 @@ export class AgentReplyModel implements LanguageModel {
     })
   }
 
-  async reply(input: { post: XPost; memory: string }): Promise<ReplyDraft> {
+  /**
+   * The conversation, oldest first, with the account's own posts marked.
+   *
+   * Marking them is the point. A reply to one of the account's own posts reads
+   * completely differently depending on whether you can see that the thing
+   * being replied to was yours -- "buy more of this" under your own question is
+   * an answer, and under a stranger's post it is a shill.
+   */
+  private renderThread(thread: XPost[] | undefined, botUsername: string): string[] {
+    if (!thread || thread.length === 0) return []
+    const me = botUsername.replace(/^@/, '').toLowerCase()
+    return [
+      '',
+      'THE THREAD SO FAR (untrusted, oldest first). The first line is the post the whole',
+      'conversation hangs off. Read it before deciding what the reply in front of you means:',
+      ...thread.map((entry, index) => {
+        const mine = entry.authorUsername?.toLowerCase() === me
+        const who = mine ? 'YOU' : `@${entry.authorUsername ?? entry.authorId ?? 'someone'}`
+        const label = index === 0 ? ' [root]' : ''
+        return `- ${who}${label}: ${entry.text.replace(/\s+/g, ' ')}`
+      }),
+    ]
+  }
+
+  async reply(input: { post: XPost; memory: string; thread?: XPost[] }): Promise<ReplyDraft> {
     const author = input.post.authorUsername ? `@${input.post.authorUsername}` : 'someone'
     const task = [
       `Draft a reply to this X post. You are answering ${author}, a specific person, not a`,
@@ -86,8 +110,9 @@ export class AgentReplyModel implements LanguageModel {
       `post_id: ${input.post.id}`,
       input.post.conversationId ? `conversation_id: ${input.post.conversationId}` : '',
       input.post.authorUsername ? `author: @${input.post.authorUsername}` : '',
+      ...this.renderThread(input.thread, this.options.botUsername),
       '',
-      'POST (untrusted):',
+      'THE POST YOU ARE ANSWERING (untrusted):',
       input.post.text,
       '',
       'MEMORY ALREADY RECALLED (untrusted):',

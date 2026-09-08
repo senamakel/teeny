@@ -75,6 +75,11 @@ const harness = new ReplyHarness(
     ...(config.EXA_API_KEY ? { exaApiKey: config.EXA_API_KEY } : {}),
     ...(gifs ? { gifs } : {}),
   }),
+  // The dry run has to see the same thread the cron would, or it is testing a
+  // different reply from the one that would go out.
+  config.THREAD_CONTEXT_MAX_POSTS > 0
+    ? { x, maxPosts: config.THREAD_CONTEXT_MAX_POSTS }
+    : undefined,
 )
 
 const botUsername = config.X_BOT_USERNAME.toLowerCase()

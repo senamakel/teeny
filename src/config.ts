@@ -62,6 +62,12 @@ const schema = z.object({
   MONGO_URI: z.string().min(1).default('mongodb://mongo:27017'),
   MONGO_DATABASE: z.string().min(1).default('teeny'),
   MENTIONS_COLLECTION: z.string().min(1).default('mentions'),
+  // How much of the thread is fetched before drafting. Zero disables it, and
+  // the reply then sees only the post that mentioned the account. Every post
+  // retrieved is billed and X's floor on a search is ten, so this is the most
+  // expensive part of a reply: at five replies a run it is the difference
+  // between fifty posts and none.
+  THREAD_CONTEXT_MAX_POSTS: z.coerce.number().int().min(0).max(100).default(10),
 
   // --- the wallet ----------------------------------------------------------
   // Off unless switched on, and switched on it still needs a key and a token

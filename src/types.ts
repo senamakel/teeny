@@ -136,7 +136,7 @@ export interface ReplyDraft {
 }
 
 export interface LanguageModel {
-  reply(input: { post: XPost; memory: string }): Promise<ReplyDraft>
+  reply(input: { post: XPost; memory: string; thread?: XPost[] }): Promise<ReplyDraft>
 }
 
 export interface Gif {

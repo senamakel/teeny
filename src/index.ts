@@ -174,7 +174,13 @@ if (runsIngest) {
 if (runsReplies) {
   const replyJob = new ReplyJob({
     x,
-    harness: new ReplyHarness(memory, model),
+    harness: new ReplyHarness(
+      memory,
+      model,
+      config.THREAD_CONTEXT_MAX_POSTS > 0
+        ? { x, maxPosts: config.THREAD_CONTEXT_MAX_POSTS }
+        : undefined,
+    ),
     queue,
     logger: app.log,
     dryRun: config.DRY_RUN,
@@ -192,6 +198,7 @@ await app.listen({ host: '0.0.0.0', port: config.PORT })
 app.log.info(
   {
     handle: botUsername,
+    threadContext: config.THREAD_CONTEXT_MAX_POSTS || false,
     userId: identity?.id ?? 'UNRESOLVED',
     configuredHandle:
       identity && identity.username !== config.X_BOT_USERNAME ? config.X_BOT_USERNAME : undefined,
