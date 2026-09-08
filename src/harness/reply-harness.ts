@@ -52,15 +52,33 @@ export class ReplyHarness {
       )
       .join('\n')
 
-    const recalled = await this.memory.recall(
-      'What context, past interactions, product facts, and tone are relevant to replying to ' +
-        `this X post? ${post.text}` +
-        (conversation ? `\n\nThe conversation it sits in:\n${conversation}` : ''),
-      person ? { person } : {},
-    )
+    // Two recalls: what is relevant to this post, and what the account itself
+    // has been doing lately. The second is not a nicety. Asked "much higher for
+    // tiny?", the account replied "I'm just a mascot who doesn't read charts"
+    // -- hours after publishing a chart of its own token. It had no idea,
+    // because nothing ever told it what it had posted.
+    const [recalled, ownActivity] = await Promise.all([
+      this.memory.recall(
+        'What context, past interactions, product facts, and tone are relevant to replying to ' +
+          `this X post? ${post.text}` +
+          (conversation ? `\n\nThe conversation it sits in:\n${conversation}` : ''),
+        person ? { person } : {},
+      ),
+      this.memory
+        .recall(
+          'What has this account itself posted recently? Include its daily chart posts, the ' +
+            'market reads it published, and anything it has said publicly in the last few days.',
+        )
+        .catch(() => ''),
+    ])
+
+    const memory = ownActivity.trim()
+      ? `${recalled}\n\nWHAT YOU YOURSELF HAVE POSTED RECENTLY:\n${ownActivity}`
+      : recalled
+
     const draft = await this.model.reply({
       post,
-      memory: recalled,
+      memory,
       ...(thread.length > 0 ? { thread } : {}),
     })
 

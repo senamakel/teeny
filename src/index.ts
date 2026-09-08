@@ -9,6 +9,8 @@ import { ReplyJob } from './jobs/reply-job.js'
 import { ReplyWorker } from './jobs/reply-worker.js'
 import { MongoMentionQueue } from './queue/mentions.js'
 import { buildChartAgent } from './agent/chart-wiring.js'
+import { GlobalMarketClient } from './market/global.js'
+import { TokenMarket } from './market/market.js'
 import { ChartJob } from './jobs/chart-job.js'
 import { LangGraphAgent, type AgentOptions } from './agent/graph.js'
 import { loadPersona } from './agent/soul.js'
@@ -61,10 +63,33 @@ const persona = loadPersona({
   contextPath: config.CONTEXT_PATH,
   skillsDir: config.SKILLS_DIR,
 })
+/**
+ * Read-only market access for the reply drafter and the task agent.
+ *
+ * Built whenever a token is configured, independently of CHART_ENABLED: the
+ * chart job publishes and is opt-in, but being able to answer "how is $TINY
+ * doing" is not a publishing capability and the account looked foolish without
+ * it.
+ */
+const marketAccess = config.CHART_TOKEN_ADDRESS
+  ? {
+      market: new TokenMarket({
+        network: config.CHART_CHAIN,
+        ...(config.SOLANA_RPC_URL ? { solanaRpcUrl: config.SOLANA_RPC_URL } : {}),
+        ...(config.GMGN_BASE_URL ? { gmgnBaseUrl: config.GMGN_BASE_URL } : {}),
+        watchlist: config.KOL_WALLETS,
+      }),
+      address: config.CHART_TOKEN_ADDRESS,
+      symbol: config.CHART_TOKEN_SYMBOL,
+      global: new GlobalMarketClient(),
+    }
+  : undefined
+
 const agentOptions: AgentOptions = {
   memory,
   x,
   persona,
+  ...(marketAccess ? { market: marketAccess } : {}),
   maxEmoji: config.MAX_EMOJI_PER_POST,
   botUsername,
   dryRun: config.DRY_RUN,
@@ -191,6 +216,7 @@ app.log.info(
     dryRun: config.DRY_RUN,
     cron: config.REPLY_CRON,
     agentMode: config.AGENT_MODE,
+    market: marketAccess ? `${config.CHART_TOKEN_SYMBOL} read-only` : false,
     soul: Boolean(persona.soul),
     context: Boolean(persona.context),
     skills: persona.skills.map((skill) => skill.name),

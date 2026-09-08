@@ -29,7 +29,14 @@ export interface MarketToolOptions {
   address: string
   symbol?: string
   x: XTools
-  charts: ChartRenderer
+  /**
+   * Omit for a read-only tool set: no `render_chart`, no `post_chart`.
+   *
+   * This is how the reply drafter gets the market without getting the ability
+   * to publish. It needs to answer "how's TINY doing" with real numbers, and it
+   * must not be able to broadcast.
+   */
+  charts?: ChartRenderer
   dryRun: boolean
   maxEmoji?: number
   watermark?: string
@@ -345,6 +352,7 @@ export function createMarketTools(options: MarketToolOptions): StructuredToolInt
       if (series.length < 5) return `Only ${series.length} bars available; not enough to chart.`
       const snapshot = await market.overview(address).catch(() => undefined)
       const read = analyse(series, { timeframe })
+      if (!options.charts) return 'Refused: no chart renderer is configured in this mode.'
       const chart = await options.charts.render({
         candles: series,
         timeframe,
@@ -574,20 +582,21 @@ export function createMarketTools(options: MarketToolOptions): StructuredToolInt
     },
   )
 
-  return [
+  const reading = [
     overview,
     context,
     candles,
     technicals,
     timeframes,
     progress,
-    drawChart,
     holders,
     flow,
     traderActivity,
     rankedTraders,
-    postChart,
   ]
+  // Without a renderer there is nothing to draw and nothing to attach, so the
+  // two publishing tools are not built rather than being built and refusing.
+  return options.charts ? [...reading.slice(0, 6), drawChart, ...reading.slice(6), postChart] : reading
 }
 
 /**

@@ -5,10 +5,13 @@ import { MemorySaver } from '@langchain/langgraph'
 import { createReactAgent } from '@langchain/langgraph/prebuilt'
 import { createExaClient, createExaTools } from './tools/exa.js'
 import { createGiphyTools } from './tools/giphy.js'
+import { createMarketTools } from './tools/market.js'
 import { createMemoryTools } from './tools/memory.js'
 import { createXTools } from './tools/x.js'
 import { systemPrompt } from './prompt.js'
 import type { Persona } from './soul.js'
+import type { GlobalMarketClient } from '../market/global.js'
+import type { TokenMarket } from '../market/market.js'
 import type { Agent, AgentRunResult, GifSource, Memory, XTools } from '../types.js'
 
 export interface LlmOptions {
@@ -38,6 +41,21 @@ export interface AgentOptions {
   searchLimit?: number
   /** The account's own token contracts, recognised before drafting. */
   ownTokenAddresses?: string[]
+  /**
+   * Read-only market data for the account's own token.
+   *
+   * Without it the drafter cannot look at its own chart, which is not a
+   * hypothetical gap: asked "much higher for tiny?", the account answered "I'm
+   * just a mascot who doesn't read charts" -- hours after publishing one. That
+   * was an accurate description of the tools it had. It gets no renderer and no
+   * publish tool here, so it can read the market and still cannot broadcast.
+   */
+  market?: {
+    market: TokenMarket
+    address: string
+    symbol?: string
+    global?: GlobalMarketClient
+  }
 }
 
 export function createChatModel(options: LlmOptions): ChatOpenAI {
@@ -61,6 +79,17 @@ export function buildTools(options: AgentOptions): StructuredToolInterface[] {
     }),
     ...(options.exaApiKey ? createExaTools(createExaClient(options.exaApiKey)) : []),
     ...(options.gifs ? createGiphyTools(options.gifs.source, options.gifs.channel) : []),
+    ...(options.market
+      ? createMarketTools({
+          market: options.market.market,
+          address: options.market.address,
+          ...(options.market.symbol ? { symbol: options.market.symbol } : {}),
+          ...(options.market.global ? { global: options.market.global } : {}),
+          x: options.x,
+          dryRun: options.dryRun,
+          allowPosting: false,
+        })
+      : []),
   ]
 }
 

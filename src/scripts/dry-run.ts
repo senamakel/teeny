@@ -7,6 +7,8 @@ import { applyHouseStyle } from '../agent/house-style.js'
 import { loadPersona } from '../agent/soul.js'
 import { ReplyHarness } from '../harness/reply-harness.js'
 import { CortexMemory } from '../memory/cortex.js'
+import { GlobalMarketClient } from '../market/global.js'
+import { TokenMarket } from '../market/market.js'
 import type { XPost } from '../types.js'
 
 /**
@@ -76,6 +78,23 @@ const harness = new ReplyHarness(
       skillsDir: config.SKILLS_DIR,
     }),
     searchLimit: config.X_SEARCH_MAX_RESULTS,
+    // The rehearsal gets the same market access the real drafter has, or it is
+    // rehearsing a reply the cron would not produce.
+    ...(config.CHART_TOKEN_ADDRESS
+      ? {
+          market: {
+            market: new TokenMarket({
+              network: config.CHART_CHAIN,
+              ...(config.SOLANA_RPC_URL ? { solanaRpcUrl: config.SOLANA_RPC_URL } : {}),
+              ...(config.GMGN_BASE_URL ? { gmgnBaseUrl: config.GMGN_BASE_URL } : {}),
+              watchlist: config.KOL_WALLETS,
+            }),
+            address: config.CHART_TOKEN_ADDRESS,
+            symbol: config.CHART_TOKEN_SYMBOL,
+            global: new GlobalMarketClient(),
+          },
+        }
+      : {}),
     ...(config.EXA_API_KEY ? { exaApiKey: config.EXA_API_KEY } : {}),
     ...(gifs ? { gifs } : {}),
     ownTokenAddresses: config.OWN_TOKEN_ADDRESSES,

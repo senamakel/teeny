@@ -28,8 +28,65 @@ describe('ReplyHarness', () => {
     })
     expect(model.reply).toHaveBeenCalledWith({
       post,
-      memory: 'stonks.rocks is an open-source dapp',
+      memory: expect.stringContaining('stonks.rocks is an open-source dapp') as unknown as string,
     })
+  })
+
+  /**
+   * Asked "much higher for tiny?", the account replied "I'm just a mascot who
+   * doesn't read charts" -- hours after publishing a chart of its own token.
+   * Nothing had ever told it what it had posted.
+   */
+  it('also recalls what the account itself has posted, and labels it as such', async () => {
+    const memory: Memory = {
+      captureActivity: vi.fn().mockResolvedValue(undefined),
+      captureMention: vi.fn().mockResolvedValue(undefined),
+      recall: vi
+        .fn()
+        .mockResolvedValueOnce('they asked about the roadmap last week')
+        .mockResolvedValueOnce('yesterday you posted the daily chart'),
+      captureReply: vi.fn().mockResolvedValue(undefined),
+    }
+    const model: LanguageModel = { reply: vi.fn().mockResolvedValue({ text: 'hi' }) }
+
+    await new ReplyHarness(memory, model).generate({ id: '1', text: 'much higher for tiny?' })
+
+    const passed = (model.reply as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as { memory: string }
+    expect(passed.memory).toContain('they asked about the roadmap last week')
+    expect(passed.memory).toContain('WHAT YOU YOURSELF HAVE POSTED RECENTLY')
+    expect(passed.memory).toContain('yesterday you posted the daily chart')
+  })
+
+  it('drops the section entirely rather than showing an empty heading', async () => {
+    const memory: Memory = {
+      captureActivity: vi.fn().mockResolvedValue(undefined),
+      captureMention: vi.fn().mockResolvedValue(undefined),
+      recall: vi.fn().mockResolvedValueOnce('context').mockResolvedValueOnce('   '),
+      captureReply: vi.fn().mockResolvedValue(undefined),
+    }
+    const model: LanguageModel = { reply: vi.fn().mockResolvedValue({ text: 'hi' }) }
+
+    await new ReplyHarness(memory, model).generate({ id: '1', text: 'hello' })
+    const passed = (model.reply as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as { memory: string }
+    expect(passed.memory).toBe('context')
+  })
+
+  /** A memory outage on the second recall must not cost the reply the first. */
+  it('still replies when the self-recall fails', async () => {
+    const memory: Memory = {
+      captureActivity: vi.fn().mockResolvedValue(undefined),
+      captureMention: vi.fn().mockResolvedValue(undefined),
+      recall: vi
+        .fn()
+        .mockResolvedValueOnce('context')
+        .mockRejectedValueOnce(new Error('401 MISSING_TOKEN')),
+      captureReply: vi.fn().mockResolvedValue(undefined),
+    }
+    const model: LanguageModel = { reply: vi.fn().mockResolvedValue({ text: 'hi' }) }
+
+    await expect(
+      new ReplyHarness(memory, model).generate({ id: '1', text: 'hello' }),
+    ).resolves.toEqual({ text: 'hi' })
   })
 })
 
@@ -68,7 +125,11 @@ describe('recall ordering', () => {
     const harness = new ReplyHarness(memory, { reply: vi.fn().mockResolvedValue({ text: 'hi' }) })
 
     await harness.generate({ id: '1', text: 'gm', authorId: '9', authorUsername: 'someone' })
-    expect(order).toEqual(['recall', 'capture'])
+    // Two recalls now -- the post's context and the account's own recent posts
+    // -- but the invariant is unchanged: every recall happens before the
+    // capture, or the agent reads the post it is answering back as history.
+    expect(order.at(-1)).toBe('capture')
+    expect(order.filter((step) => step === 'recall')).toHaveLength(2)
   })
 })
 
