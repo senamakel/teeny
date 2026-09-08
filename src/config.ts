@@ -59,6 +59,13 @@ const schema = z.object({
   // reply side without pausing ingestion, which is the half with a deadline.
   SERVICE_ROLE: z.enum(['all', 'ingest', 'reply', 'api']).default('all'),
   INGEST_CRON: z.string().default('*/5 * * * *'),
+  // `worker` drains the queue continuously, which is what makes a webhook
+  // delivery turn into a reply in seconds rather than by the next tick.
+  // `cron` keeps the old timer for a quiet account that would rather poll.
+  REPLY_MODE: z.enum(['worker', 'cron']).default('worker'),
+  // How long the worker waits after finding an empty queue. One indexed query
+  // per tick, so this is cheap; it is latency, not load.
+  REPLY_IDLE_MS: z.coerce.number().int().min(250).max(60_000).default(2_000),
   MONGO_URI: z.string().min(1).default('mongodb://mongo:27017'),
   MONGO_DATABASE: z.string().min(1).default('teeny'),
   MENTIONS_COLLECTION: z.string().min(1).default('mentions'),

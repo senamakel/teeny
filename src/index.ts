@@ -6,6 +6,7 @@ import { loadConfig } from './config.js'
 import { ReplyHarness } from './harness/reply-harness.js'
 import { IngestJob } from './jobs/ingest-job.js'
 import { ReplyJob } from './jobs/reply-job.js'
+import { ReplyWorker } from './jobs/reply-worker.js'
 import { MongoMentionQueue } from './queue/mentions.js'
 import { MongoAirdropLedger } from './airdrop/ledger.js'
 import { MongoRecipientRegistry } from './airdrop/registry.js'
@@ -191,9 +192,19 @@ if (runsReplies) {
     botUserId: () => x.userId(),
     ...(gifs ? { gifs: gifs.source } : {}),
   })
-  cron.schedule(config.REPLY_CRON, () => {
-    void replyJob.run().catch((error: unknown) => app.log.error({ err: error }, 'reply job failed'))
-  })
+  if (config.REPLY_MODE === 'worker') {
+    new ReplyWorker({
+      job: replyJob,
+      logger: app.log,
+      idleMs: config.REPLY_IDLE_MS,
+    }).start()
+  } else {
+    cron.schedule(config.REPLY_CRON, () => {
+      void replyJob
+        .run()
+        .catch((error: unknown) => app.log.error({ err: error }, 'reply job failed'))
+    })
+  }
 }
 
 await app.listen({ host: '0.0.0.0', port: config.PORT })
@@ -214,7 +225,11 @@ app.log.info(
     giphy: gifs ? config.GIPHY_CHANNEL : false,
     role,
     ingestCron: runsIngest ? config.INGEST_CRON : false,
-    replyCron: runsReplies ? config.REPLY_CRON : false,
+    replies: runsReplies
+      ? config.REPLY_MODE === 'worker'
+        ? `worker, ${config.REPLY_IDLE_MS}ms idle`
+        : config.REPLY_CRON
+      : false,
     agentEndpoint: Boolean(useAgent && config.AGENT_API_TOKEN),
     wallet: airdrop
       ? {

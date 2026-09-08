@@ -57,15 +57,17 @@ export class ReplyJob {
     }
   }
 
-  async run(): Promise<void> {
+  /** Resolves true when it answered something, which is what tells a worker
+   * loop to come straight back rather than idle. */
+  async run(): Promise<boolean> {
     if (this.running) {
       this.dependencies.logger.warn('reply job is already running; skipping overlap')
-      return
+      return false
     }
     this.running = true
     try {
       const queued = await this.dependencies.queue.takePending(this.dependencies.maxReplies)
-      if (queued.length === 0) return
+      if (queued.length === 0) return false
 
       // A self-reply is the failure that compounds -- the answer is itself a
       // mention, and answering it produces another -- so not knowing which
@@ -76,7 +78,7 @@ export class ReplyJob {
         this.dependencies.logger.error(
           'cannot identify the account; refusing to reply to anything this run',
         )
-        return
+        return false
       }
 
       for (const item of queued) {
@@ -155,6 +157,8 @@ export class ReplyJob {
           )
         }
       }
+      // It took a batch, so there may be more behind it.
+      return true
     } finally {
       this.running = false
     }
