@@ -1,0 +1,30 @@
+# syntax=docker/dockerfile:1
+
+# The X bot: a Fastify webhook server plus the reply cron, in one process.
+
+FROM node:22-alpine AS builder
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+FROM node:22-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+COPY --from=builder /app/dist ./dist
+
+# The persona is read at startup from the working directory, not compiled in.
+COPY --from=builder /app/SOUL.md ./SOUL.md
+COPY --from=builder /app/CONTEXT.md ./CONTEXT.md
+COPY --from=builder /app/skills ./skills
+
+# The reply job keeps its cursor on disk, so the path is a volume in compose.
+RUN mkdir -p /app/data && addgroup --system --gid 1001 nodejs \
+  && adduser --system --uid 1001 bot && chown -R bot:nodejs /app/data
+USER bot
+
+EXPOSE 3001
+CMD ["node", "dist/index.js"]

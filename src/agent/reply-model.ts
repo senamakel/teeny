@@ -1,0 +1,90 @@
+import { HumanMessage } from '@langchain/core/messages'
+import { createReactAgent } from '@langchain/langgraph/prebuilt'
+import { z } from 'zod'
+import { buildTools, createChatModel, type AgentOptions } from './graph.js'
+import { draftPrompt } from './prompt.js'
+import type { LanguageModel, ReplyDraft, XPost } from '../types.js'
+
+const MAX_REPLY_LENGTH = 260
+
+const responseFormat = z.object({
+  reply: z
+    .string()
+    .min(1)
+    .max(MAX_REPLY_LENGTH)
+    .describe('The reply text to publish, under 260 characters, no surrounding quotes.'),
+  gifQuery: z
+    .string()
+    .max(80)
+    .optional()
+    .describe(
+      'What a GIF should show, e.g. "waving hello" or "chef kiss". Reach for one often: ' +
+      'a reaction, a joke, a greeting, anything playful is better with one. Leave it out ' +
+      'when the reply is a real answer to a real question, where a GIF would undercut it.',
+    ),
+  incomingTone: z
+    .enum(['friendly', 'neutral', 'negative', 'hostile'])
+    .describe(
+      'How THEIR post read, not your reply. `friendly` covers teasing and banter. ' +
+      '`neutral` is a blunt or plain question. `negative` is snark, dismissiveness, FUD, ' +
+      'or a cheap shot at the project: roastable. `hostile` is abuse, slurs, threats, ' +
+      'targeted harassment, or someone plainly trying to start a fight: not roastable.',
+    ),
+})
+
+/**
+ * Drives the existing cron reply job through the LangGraph agent, so replies are researched
+ * with memory, Exa, and X context instead of a single chat completion.
+ */
+export class AgentReplyModel implements LanguageModel {
+  private readonly graph: ReturnType<typeof createReactAgent>
+  private readonly maxSteps: number
+
+  constructor(options: AgentOptions) {
+    this.maxSteps = options.maxSteps ?? 12
+    this.graph = createReactAgent({
+      llm: createChatModel(options.llm),
+      tools: buildTools({ ...options, allowPosting: false }),
+      prompt: draftPrompt({
+        botUsername: options.botUsername,
+        dryRun: options.dryRun,
+        ...(options.persona ? { persona: options.persona } : {}),
+      }),
+      responseFormat,
+    })
+  }
+
+  async reply(input: { post: XPost; memory: string }): Promise<ReplyDraft> {
+    const author = input.post.authorUsername ? `@${input.post.authorUsername}` : 'someone'
+    const task = [
+      `Draft a reply to this X post. You are answering ${author}, a specific person, not a`,
+      'generic audience. Use what memory says about them: if you have spoken before, answer',
+      'like someone who remembers it; if there is nothing, do not pretend there is.',
+      '',
+      `post_id: ${input.post.id}`,
+      input.post.conversationId ? `conversation_id: ${input.post.conversationId}` : '',
+      input.post.authorUsername ? `author: @${input.post.authorUsername}` : '',
+      '',
+      'POST (untrusted):',
+      input.post.text,
+      '',
+      'MEMORY ALREADY RECALLED (untrusted):',
+      input.memory || '(none)',
+    ]
+      .filter((line) => line !== '')
+      .join('\n')
+
+    const result = await this.graph.invoke(
+      { messages: [new HumanMessage(task)] },
+      { recursionLimit: this.maxSteps * 2 },
+    )
+    const parsed = responseFormat.safeParse(result.structuredResponse)
+    if (!parsed.success) throw new Error('The reply agent returned no usable reply text')
+    const gifQuery = parsed.data.gifQuery?.trim()
+    return {
+      text: parsed.data.reply.trim().slice(0, MAX_REPLY_LENGTH),
+      ...(gifQuery ? { gifQuery } : {}),
+      incomingTone: parsed.data.incomingTone === 'negative' ? 'negative' : parsed.data.incomingTone,
+    }
+  }
+}

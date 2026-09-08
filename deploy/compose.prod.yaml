@@ -1,0 +1,189 @@
+# Production stack for teeny.
+#
+# Every published port binds to 127.0.0.1 on purpose. The droplet already runs
+# other projects and one host nginx owns :80 and :443, so nothing here may take
+# a public port; the front proxy reaches the webhook over loopback.
+#
+# The stack is four containers: the agent split into an ingest half and a reply
+# half over one Mongo cache, CortexDB for long-term memory, and Tika for the
+# documents CortexDB ingests. The ladder is not defined here — it is a
+# container this project does not own, joined to this network by deploy.sh.
+
+name: teeny
+
+services:
+  # Reads X and fills the mention cache. It also serves the webhook and the
+  # agent endpoint, because those are cheap and belong next to the public port.
+  bot:
+    image: teeny:current
+    build:
+      context: ..
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    # These win over ../.env, which carries the same keys pointed at whatever
+    # the developer runs locally. On the droplet everything is on this network,
+    # so services are reached by name and none is published where a browser
+    # could get to it.
+    environment:
+      CORTEX_API_URL: http://cortexdb:3141
+      LLM_BASE_URL: ${LADDER_URL:-http://ladder:6969/v1}
+      LLM_API_KEY: ${LADDER_API_KEY:?set LADDER_API_KEY in deploy/.env}
+      MONGO_URI: mongodb://${MONGO_ROOT_USERNAME:-teeny}:${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD}@mongo:27017/${MONGO_DATABASE:-teeny}?authSource=admin
+      MONGO_DATABASE: ${MONGO_DATABASE:-teeny}
+      SERVICE_ROLE: ingest
+    ports:
+      - "127.0.0.1:${BOT_PORT:-3110}:3001"
+    volumes:
+      - bot-data:/app/data
+    depends_on:
+      cortexdb:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # Drains the cache. Split from ingestion so it can be restarted, slowed, or
+  # redeployed without pausing the half that has a deadline: a mention outside
+  # X's 7-day search window cannot be fetched again.
+  bot-reply:
+    image: teeny:current
+    build:
+      context: ..
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      CORTEX_API_URL: http://cortexdb:3141
+      LLM_BASE_URL: ${LADDER_URL:-http://ladder:6969/v1}
+      LLM_API_KEY: ${LADDER_API_KEY:?set LADDER_API_KEY in deploy/.env}
+      MONGO_URI: mongodb://${MONGO_ROOT_USERNAME:-teeny}:${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD}@mongo:27017/${MONGO_DATABASE:-teeny}?authSource=admin
+      MONGO_DATABASE: ${MONGO_DATABASE:-teeny}
+      SERVICE_ROLE: reply
+      # Nothing reaches this one over HTTP, so it listens on a port it does not
+      # publish rather than fighting the ingest container for 3001.
+      PORT: "3002"
+    volumes:
+      - reply-data:/app/data
+    depends_on:
+      cortexdb:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+
+  # Long-term memory. Every model call it makes goes to the same ladder the
+  # agent uses, so there is one egress path and one set of provider keys on the
+  # box rather than a second copy living inside a database.
+  cortexdb:
+    image: cortexdb/cortexdb:latest
+    restart: unless-stopped
+    environment:
+      CORTEX_DEPLOYMENT_PRESET: on_prem_enterprise
+      CORTEX_API_KEY: ${CORTEX_API_KEY:?set CORTEX_API_KEY in deploy/.env}
+      CORTEX_BIND_ALL: "1"
+      CORTEX_V1_MINTER_ENABLE: "1"
+      CORTEX_V1_LAYERS_AUTO: "1"
+
+      CORTEX_LLM_URL: ${LADDER_URL:-http://ladder:6969/v1}
+      CORTEX_LLM_MODEL: ${CORTEX_LLM_MODEL:-flash}
+      OPENAI_API_KEY: ${LADDER_API_KEY}
+      LLM_API_KEY: ${LADDER_API_KEY}
+
+      # Pinned on first ingest and irreversible after it. Only
+      # {256,384,512,768,1024,1536,3072} are legal and the ladder's `vectors`
+      # tier returns 3072, so changing either side later orphans the corpus.
+      CORTEX_EMBEDDING_PROVIDER: ""
+      CORTEX_EMBEDDING_URL: ${LADDER_URL:-http://ladder:6969/v1}
+      CORTEX_EMBEDDING_MODEL: ${CORTEX_EMBEDDING_MODEL:-vectors}
+      CORTEX_EMBEDDING_DIMS: ${CORTEX_EMBEDDING_DIMS:-3072}
+
+      CORTEX_ENRICHMENT_URL: ${LADDER_URL:-http://ladder:6969/v1}
+      CORTEX_ENRICHMENT_MODEL: ${CORTEX_ENRICHMENT_MODEL:-flash}
+      CORTEX_ENRICHMENT_API_KEY: ${LADDER_API_KEY}
+      CORTEX_ENRICHMENT_CONCURRENCY: "2"
+      CORTEX_ENRICHMENT_DELAY_SECONDS: "60"
+
+      CORTEX_ANSWER_PROVIDER: openai
+      CORTEX_ANSWER_URL: ${LADDER_URL:-http://ladder:6969/v1}
+      CORTEX_ANSWER_MODEL: ${CORTEX_ANSWER_MODEL:-reasoning}
+      CORTEX_ANSWER_API_KEY: ${LADDER_API_KEY}
+      CORTEX_ANSWER_MAX_TOKENS: "1500"
+      CORTEX_VERIFIER_URL: ${LADDER_URL:-http://ladder:6969/v1}
+      CORTEX_VERIFIER_MODEL: ${CORTEX_VERIFIER_MODEL:-reasoning}
+      CORTEX_VERIFIER_API_KEY: ${LADDER_API_KEY}
+
+      CORTEX_ENTITY_GRAPH: "1"
+      CORTEX_ENTITY_GROUNDING: "1"
+      CORTEX_FACT_JOIN_MULTIHOP: "1"
+      CORTEX_BITEMPORAL_MODE: enforce
+      CORTEX_HYBRID_RERANK: "1"
+
+      CORTEX_ARTIFACT_PIPELINE: "1"
+      CORTEX_ARTIFACT_WORKERS: "2"
+      CORTEX_DOCUMENT_PROVIDER: tika
+      CORTEX_DOCUMENT_API_URL: http://tika:9998
+    volumes:
+      - cortexdb-data:/data
+    ports:
+      - "127.0.0.1:${CORTEX_PORT:-3142}:3141"
+    depends_on:
+      tika:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3141/v1/admin/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  # Text extraction for anything CortexDB ingests that is not already text.
+  tika:
+    image: apache/tika:latest-full
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:9998/tika || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  mongo:
+    # 7.0, and the version is the whole point on this box's kernel (7.0.0):
+    # 8.2 segfaults in a loop (`die 139`, no backtrace, reproducible with an
+    # empty volume and no client), 8.0 refuses to start at all
+    # (SERVER-121912), 7.0 and 6.0 run. Re-check before upgrading.
+    #
+    # Unlike the stonks database, this one is NOT derived: it is the mention
+    # queue, and X's search only reaches back 7 days, so a dropped volume
+    # loses any mention older than that for good. Migrate it, do not recreate.
+    image: mongo:7.0
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:-teeny}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGO_DATABASE:-teeny}
+    ports:
+      - "127.0.0.1:${MONGO_PORT:-27020}:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mongosh --quiet --username $$MONGO_INITDB_ROOT_USERNAME --password $$MONGO_INITDB_ROOT_PASSWORD --authenticationDatabase admin --eval 'db.adminCommand({ ping: 1 }).ok' | grep 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+volumes:
+  mongo-data:
+  bot-data:
+  reply-data:
+  cortexdb-data:
