@@ -88,6 +88,11 @@ const schema = z.object({
   // from a search result or a recalled memory rather than from the person
   // being answered. Leave it on unless you know why you are turning it off.
   AIRDROP_REQUIRE_ADDRESS_IN_POST: booleanFromString,
+  // A weak signal deliberately: a follow costs nothing and a farm can buy a
+  // thousand. It filters drive-by begging; the caps are what make a bad day
+  // survivable.
+  AIRDROP_REQUIRE_FOLLOW: booleanFromString,
+  RECIPIENTS_COLLECTION: z.string().min(1).default('recipients'),
 })
 
 export type Config = z.infer<typeof schema>

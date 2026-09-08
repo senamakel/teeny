@@ -17,7 +17,8 @@
     "typecheck": "tsc -p tsconfig.test.json",
     "test": "vitest run",
     "lint": "oxlint src test",
-    "webhook": "tsx src/scripts/webhook.ts"
+    "webhook": "tsx src/scripts/webhook.ts",
+    "airdrop-sim": "tsx src/scripts/airdrop-sim.ts"
   },
   "dependencies": {
     "@langchain/core": "^1.2.9",

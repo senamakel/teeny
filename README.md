@@ -150,7 +150,31 @@ checked after the model has already asked, against the ledger:
 | `AIRDROP_MAX_PER_AIRDROP` | the amount being argued upward |
 | `AIRDROP_MAX_PER_RECIPIENT` | the same account being paid twice |
 | `AIRDROP_MAX_PER_DAY` | a bad day costing more than a day's budget |
+| one wallet, one account | a farm of fresh accounts all pointing at one wallet |
+| `AIRDROP_REQUIRE_FOLLOW` | drive-by begging from accounts with no connection to the project |
 | a unique index on the post id | one post being paid twice by two turns at once |
+
+The account is keyed on its numeric X id and the wallet is stored beside it in
+`recipients`, so a rename does not make somebody a new person and one wallet
+cannot collect from twenty accounts. Handles are kept as history, and nothing is
+ever decided by them — that lesson cost an afternoon already.
+
+Following is a deliberately weak signal: a follow costs nothing and a farm can
+buy a thousand, so it filters drive-by begging rather than defending anything.
+When X cannot be asked at all, the answer is treated as no, because not sending
+is recovered by them asking again and sending wrongly is not recovered.
+
+## Watching it decide
+
+```sh
+npm run airdrop-sim
+```
+
+Plays the real tool and the real policy against the situations it will meet —
+the same person asking twice, somebody negotiating the cap upward, a farm of
+fresh accounts behind one wallet, a non-follower, and a prompt injection. It is
+entirely in memory: no chain, no X, no model, no configuration, so it runs
+anywhere and cannot spend anything.
 
 The worst case is therefore boring: the most persuasive post anyone can write
 gets its own author, once, at most one call's cap, while the budget lasts.

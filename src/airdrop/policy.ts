@@ -21,6 +21,11 @@ export interface AirdropRequest {
   recipientUserId?: string
   /** The post being answered, and its text, for the address-in-post rule. */
   post?: { id: string; text: string; authorId?: string }
+  /**
+   * Whether they follow the account. `undefined` means X could not be asked,
+   * which is not the same as "no" and is not treated as one.
+   */
+  isFollower?: boolean
 }
 
 export interface AirdropLimits {
@@ -40,6 +45,15 @@ export interface AirdropLimits {
    * destination, and none of those were written by the person being answered.
    */
   requireAddressInPost: boolean
+  /**
+   * Whether the recipient has to follow the account.
+   *
+   * It is a weak signal -- a follow costs nothing and a farm can buy a thousand
+   * -- so it is a filter for drive-by begging rather than a security control.
+   * The caps are what make the worst case survivable; this only makes the
+   * common case quieter.
+   */
+  requireFollow: boolean
 }
 
 export interface LedgerSnapshot {
@@ -49,6 +63,13 @@ export interface LedgerSnapshot {
   paidRecipientCount: number
   /** A prior airdrop for this exact post, if the tool is called twice. */
   existingTxHash?: string
+  /**
+   * The X id already paid at this address, when it is somebody else.
+   *
+   * Twenty new accounts pointing at one wallet is the ordinary shape of airdrop
+   * farming, and asking only "has this account been paid" cannot see it.
+   */
+  addressOwnedBy?: string
 }
 
 export type AirdropDecision =
@@ -120,6 +141,24 @@ export function decideAirdrop(
     return {
       allowed: false,
       reason: left > 0 ? `only ${left} left in today's budget` : "today's airdrop budget is spent",
+    }
+  }
+
+  if (
+    ledger.addressOwnedBy &&
+    (!request.recipientUserId || ledger.addressOwnedBy !== request.recipientUserId)
+  ) {
+    return { allowed: false, reason: 'that wallet has already been paid, under another account' }
+  }
+
+  if (limits.requireFollow) {
+    if (request.isFollower === undefined) {
+      // Money, so an unanswerable question is a no. Not sending is recovered
+      // by them asking again; sending wrongly is not recovered at all.
+      return { allowed: false, reason: 'could not check whether they follow the account' }
+    }
+    if (!request.isFollower) {
+      return { allowed: false, reason: 'they do not follow the account' }
     }
   }
 

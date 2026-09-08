@@ -167,6 +167,33 @@ export class XApiClient implements XClient, XTools {
     return (await this.identity()).id
   }
 
+  /**
+   * How the account and this person are connected, as X sees it.
+   *
+   * `followed_by` is them following the account; `following` is the account
+   * following them. They are not the same question and only the first one is
+   * evidence of anything, since anyone can be followed by a bot farm.
+   *
+   * This needs the OAuth 1.0a client: `connection_status` is a relationship
+   * between two accounts, so an app-only token has nobody to be the other half
+   * of it and X simply omits the field rather than failing.
+   *
+   * Returns undefined when the answer cannot be established -- a deleted user,
+   * a rate limit, an outage -- which callers must not read as "no".
+   */
+  async followsAccount(userId: string): Promise<boolean | undefined> {
+    try {
+      const response = await this.writeClient.users.getById(userId, {
+        userFields: ['connection_status'],
+      })
+      const status = response.data?.connectionStatus
+      if (!status) return undefined
+      return status.includes('followed_by')
+    } catch {
+      return undefined
+    }
+  }
+
   private cachedIdentity: { id: string; username: string } | undefined
 
   async createPost(text: string, options: XCreateOptions = {}): Promise<{ id: string }> {

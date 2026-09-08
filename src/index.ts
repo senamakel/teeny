@@ -8,6 +8,7 @@ import { IngestJob } from './jobs/ingest-job.js'
 import { ReplyJob } from './jobs/reply-job.js'
 import { MongoMentionQueue } from './queue/mentions.js'
 import { MongoAirdropLedger } from './airdrop/ledger.js'
+import { MongoRecipientRegistry } from './airdrop/registry.js'
 import { Erc20Wallet } from './clients/wallet.js'
 import { LangGraphAgent, type AgentOptions } from './agent/graph.js'
 import { loadPersona } from './agent/soul.js'
@@ -89,11 +90,18 @@ const airdrop = (() => {
       database: config.MONGO_DATABASE,
       collection: config.AIRDROPS_COLLECTION,
     }),
+    registry: new MongoRecipientRegistry({
+      uri: config.MONGO_URI,
+      database: config.MONGO_DATABASE,
+      collection: config.RECIPIENTS_COLLECTION,
+    }),
+    followsAccount: (userId: string) => x.followsAccount(userId),
     limits: {
       maxPerAirdrop: config.AIRDROP_MAX_PER_AIRDROP,
       maxPerDay: config.AIRDROP_MAX_PER_DAY,
       maxPerRecipient: config.AIRDROP_MAX_PER_RECIPIENT,
       requireAddressInPost: config.AIRDROP_REQUIRE_ADDRESS_IN_POST,
+      requireFollow: config.AIRDROP_REQUIRE_FOLLOW,
     },
     symbol: config.AIRDROP_TOKEN_SYMBOL,
     dryRun: config.AIRDROP_DRY_RUN,
@@ -208,6 +216,7 @@ app.log.info(
           perDay: airdrop.limits.maxPerDay,
           perRecipient: airdrop.limits.maxPerRecipient,
           addressMustBeInPost: airdrop.limits.requireAddressInPost,
+          mustFollow: airdrop.limits.requireFollow,
         }
       : false,
   },

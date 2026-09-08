@@ -3,6 +3,7 @@ import type { StructuredToolInterface } from '@langchain/core/tools'
 import { z } from 'zod'
 import type { Address } from 'viem'
 import type { AirdropLedger } from '../../airdrop/ledger.js'
+import type { RecipientRegistry } from '../../airdrop/registry.js'
 import { decideAirdrop, type AirdropLimits } from '../../airdrop/policy.js'
 import type { TokenWallet } from '../../clients/wallet.js'
 
@@ -30,6 +31,13 @@ export interface AirdropContext {
 export interface AirdropToolOptions {
   wallet: TokenWallet
   ledger: AirdropLedger
+  /** Who has been paid and at which wallet, so one address cannot farm many. */
+  registry: RecipientRegistry
+  /**
+   * Whether this person follows the account. Undefined when X could not be
+   * asked, which the policy treats as a refusal rather than as a no.
+   */
+  followsAccount: (userId: string) => Promise<boolean | undefined>
   limits: AirdropLimits
   /** The token's ticker, for the text the model reads back. */
   symbol: string
@@ -49,11 +57,18 @@ export function createAirdropTools(options: AirdropToolOptions): StructuredToolI
       const recipientUserId = post?.authorId
       const postId = post?.id
 
-      const [sentToday, paidRecipientCount, existing] = await Promise.all([
-        options.ledger.sentToday(),
-        options.ledger.paidRecipientCount(recipientUserId),
-        postId ? options.ledger.forPost(postId) : Promise.resolve(undefined),
-      ])
+      const [sentToday, paidRecipientCount, existing, addressOwner, isFollower] =
+        await Promise.all([
+          options.ledger.sentToday(),
+          options.ledger.paidRecipientCount(recipientUserId),
+          postId ? options.ledger.forPost(postId) : Promise.resolve(undefined),
+          options.registry.ownerOfAddress(to),
+          // Only asked when it is going to be used, because it is an API call
+          // per attempt and the caps do not depend on the answer.
+          options.limits.requireFollow && recipientUserId
+            ? options.followsAccount(recipientUserId)
+            : Promise.resolve(true),
+        ])
 
       const decision = decideAirdrop(
         {
@@ -61,12 +76,14 @@ export function createAirdropTools(options: AirdropToolOptions): StructuredToolI
           amount,
           ...(recipientUserId ? { recipientUserId } : {}),
           ...(post ? { post } : {}),
+          ...(isFollower === undefined ? {} : { isFollower }),
         },
         options.limits,
         {
           sentToday,
           paidRecipientCount,
           ...(existing?.txHash ? { existingTxHash: existing.txHash } : {}),
+          ...(addressOwner ? { addressOwnedBy: addressOwner.userId } : {}),
         },
       )
 
@@ -97,13 +114,28 @@ export function createAirdropTools(options: AirdropToolOptions): StructuredToolI
 
       if (options.dryRun) {
         await options.ledger.settle(postId, 'dry-run')
+        await options.registry.remember({
+          userId: recipientUserId ?? 'unknown',
+          ...(post?.authorUsername ? { username: post.authorUsername } : {}),
+          address: to,
+        })
         options.logger?.info({ to, amount: decision.amount, postId }, 'airdrop (dry run)')
-        return `DRY RUN: ${decision.amount} ${options.symbol} would have gone to ${to}. No transaction was broadcast, so do not quote a hash.`
+        return (
+          `DRY RUN: ${decision.amount} ${options.symbol} would have gone to ${to}, but nothing ` +
+          'was broadcast and they have received nothing. Write the reply as though you had ' +
+          'decided not to send: do not say you sent anything, do not thank them for their ' +
+          'wallet, and do not quote a hash.'
+        )
       }
 
       try {
         const { txHash } = await options.wallet.send(to as Address, decision.amount)
         await options.ledger.settle(postId, txHash)
+        await options.registry.remember({
+          userId: recipientUserId ?? 'unknown',
+          ...(post?.authorUsername ? { username: post.authorUsername } : {}),
+          address: to,
+        })
         options.logger?.info({ to, amount: decision.amount, postId, txHash }, 'airdropped')
         return `Sent ${decision.amount} ${options.symbol} to ${to}. Transaction: ${txHash}. Quote that hash exactly; do not invent or shorten it.`
       } catch (error) {
