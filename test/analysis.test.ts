@@ -189,3 +189,36 @@ describe('positives', () => {
     expect(read.positives.some((entry) => entry.includes('volume is'))).toBe(false)
   })
 })
+
+/**
+ * A level breaking is not a story about losing a level; it is a story about
+ * where price stopped and what it is standing on now. This is the difference
+ * between "we lost support" and "we found our new support", and both describe
+ * the same candles.
+ */
+describe('a new base after a breakdown', () => {
+  const broken = [
+    ...Array.from({ length: 20 }, (_, index) => 100 + index * 0.1),
+    102, 98, 102, 97.5, 101.8, 98, 102, 97,
+    // Breaks 97 and then holds a shelf just above 90 for several bars.
+    92, 90.5, 91, 90.8, 91.2, 91, 91.4, 91.1, 91.6,
+  ]
+
+  it('reports the base once it has actually held', () => {
+    const read = analyse(candles(broken), { timeframe: '1h' })
+    expect(read.positives.some((entry) => entry.includes('new base is forming'))).toBe(true)
+  })
+
+  it('will not call a base on the way down', () => {
+    // Same break, but price is still making new lows every bar.
+    const falling = [...broken.slice(0, 28), 92, 90, 88, 86, 84, 82, 80]
+    const read = analyse(candles(falling), { timeframe: '1h' })
+    expect(read.positives.some((entry) => entry.includes('new base'))).toBe(false)
+  })
+
+  it('will not call one on the bar the level broke', () => {
+    const justBroke = [...broken.slice(0, 28), 92]
+    const read = analyse(candles(justBroke), { timeframe: '1h' })
+    expect(read.positives.some((entry) => entry.includes('new base'))).toBe(false)
+  })
+})

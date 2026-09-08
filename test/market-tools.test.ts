@@ -100,6 +100,7 @@ describe('market tools', () => {
     const { tools } = build()
     expect([...tools.keys()]).toEqual([
       'token_overview',
+      'market_context',
       'token_candles',
       'technical_analysis',
       'chart_timeframes',
@@ -224,6 +225,42 @@ describe('market tools', () => {
     const output = (await tools.get('ranked_traders')!.invoke({} as never)) as string
     expect(output).toMatch(/No ranked-trader source is configured/)
     expect(output).toMatch(/Do not claim any/)
+  })
+
+  it('leads with outperformance when the market is red and the token is not', async () => {
+    const global = {
+      snapshot: vi.fn().mockResolvedValue({
+        totalMarketCapUsd: 2_699_012_632_815,
+        totalChange24hPct: -1.8,
+        assets: [{ symbol: 'BTC', priceUsd: 78_327, change24hPct: -1.11 }],
+        source: 'coingecko',
+      }),
+    }
+    const { tools } = build({ global: global as never })
+    const output = (await tools.get('market_context')!.invoke({} as never)) as string
+
+    expect(output).toContain('TRUE POSITIVES YOU CAN LEAD WITH')
+    expect(output).toContain('outperforming')
+    expect(output).toContain('The whole market is red today')
+  })
+
+  it('refuses to manufacture a comparison the token did not win', async () => {
+    const global = {
+      snapshot: vi.fn().mockResolvedValue({
+        totalChange24hPct: 40,
+        assets: [{ symbol: 'BTC', priceUsd: 78_327, change24hPct: 30 }],
+        source: 'coingecko',
+      }),
+    }
+    const { tools } = build({ global: global as never })
+    const output = (await tools.get('market_context')!.invoke({} as never)) as string
+    expect(output).toContain('Do not force a comparison that is not there')
+  })
+
+  it('says plainly when there is no global source rather than guessing', async () => {
+    const { tools } = build()
+    const output = (await tools.get('market_context')!.invoke({} as never)) as string
+    expect(output).toContain('No global market source is configured')
   })
 
   it('reads the chart at four zoom levels and says whether they agree', async () => {

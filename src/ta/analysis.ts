@@ -351,6 +351,15 @@ function findPositives(read: TechnicalRead, candles: Candle[]): string[] {
         `${read.levels.supportTouches ?? 2} times and price is still above it`,
     )
   }
+  // A level that broke is not the end of the story. What matters next is where
+  // price stopped falling, and if it has held there for a few bars that is a
+  // new base -- which is both the true reading and the one worth posting.
+  const base = findBase(read, candles)
+  if (base) {
+    positives.push(
+      `a new base is forming at $${base.price.toPrecision(4)}, held for ${base.bars} bars since the level broke`,
+    )
+  }
   if (read.structure === 'higher highs, higher lows' || read.structure === 'higher lows') {
     positives.push(`the lows are stepping up (${read.structure})`)
   }
@@ -422,6 +431,38 @@ function findEvent(
     }
   }
   return undefined
+}
+
+/**
+ * Where price stopped falling after a level broke, if it has stayed there.
+ *
+ * Three bars is the floor: one bar is a wick and two is a pause. Below that
+ * this would be calling a base on the way down, which is the single easiest way
+ * for an optimistic account to be wrong in public.
+ */
+function findBase(
+  read: TechnicalRead,
+  candles: Candle[],
+): { price: number; bars: number } | undefined {
+  const event = read.event
+  if (!event || event.kind !== 'breakdown' || event.barsAgo < 3) return undefined
+
+  const since = candles.slice(candles.length - 1 - event.barsAgo)
+  if (since.length < 3) return undefined
+  const floor = Math.min(...since.map((candle) => candle.low))
+  const last = candles[candles.length - 1] as Candle
+  if (last.close <= floor) return undefined
+
+  // If the last bar set the low, price is still falling and there is no base
+  // yet -- only a decline that has not finished. Calling one here is how an
+  // optimistic account ends up wrong in public.
+  if (since[since.length - 1]?.low === floor) return undefined
+
+  // Bars that came back down to the floor and held, not bars that are merely
+  // above it. Getting this comparison the wrong way round counted every bar in
+  // a straight-line collapse as a touch and reported a base mid-fall.
+  const held = since.filter((candle) => candle.low <= floor * 1.005).length
+  return held >= 3 ? { price: floor, bars: held } : undefined
 }
 
 /** Volume in the recent half of the window against the half before it. */

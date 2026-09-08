@@ -1,5 +1,6 @@
 import type { Config } from '../config.js'
 import { NativeChartRenderer, ScreenshotChartRenderer, type ChartRenderer } from '../chart/renderer.js'
+import { GlobalMarketClient } from '../market/global.js'
 import { TokenMarket } from '../market/market.js'
 import { ChartAgent } from './chart-agent.js'
 import { captureChartPost, ChartHarness } from '../harness/chart-harness.js'
@@ -35,6 +36,7 @@ export function buildChartAgent(
   })
 
   const agent = new ChartAgent({
+    global: new GlobalMarketClient(),
     memory: options.memory,
     market,
     charts: buildRenderer(config),

@@ -227,6 +227,26 @@ rendering one costs four fetches rather than five. That is not an optimisation:
 GeckoTerminal's free tier started answering 429 on the first multi-timeframe run
 and the post lost its holder data to it.
 
+### The market as the frame
+
+`market_context` reads BTC, ETH, SOL, total market cap and BTC dominance from
+CoinGecko and computes the token's outperformance in percentage points over the
+same 24 hours. This is the single most useful thing the account can say on a bad
+day, and it is a fact rather than a spin: a token up 14% while the whole market
+is down 1.8% is genuinely outperforming, and "everything is bleeding and we are
+not" is more informative to a holder than the 14% on its own.
+
+Comparisons are only offered when the token actually won them. On a day it lagged
+everything, the tool says so and tells the agent to take its positive from the
+chart, the holders or the longer horizon instead — the point is to choose among
+true comparisons, not to manufacture one.
+
+`crypto_news` is the same idea qualitatively: Exa search bounded to the last few
+days, so the post can place itself against the market's weather. `web_search`
+could do this and does it badly for a daily post — without a date bound it
+happily returns an analysis piece from March, and framing today against last
+spring is worse than ignoring the news entirely.
+
 ### Always leading with the positive
 
 Both `analyse` and `readProgress` return a ranked list of true positives, handed
@@ -235,6 +255,14 @@ empty — the last entry is always price's distance above its own low, which is
 true of every chart that has ever existed. Order matters more than contents: a
 defended level beats a percentage, a percentage beats a ratio, now beats last
 week.
+
+The three framings the prompt reaches for, in order: **relative strength** (the
+market is red, we are not), **a new base** (a level that broke is a story about
+where price stopped and what it is standing on now, not about losing a level),
+and **the longer horizon** (an hour can be red inside a green week). `findBase`
+only reports a base once price has actually held a floor for three bars and the
+last bar did not set the low — calling a base mid-fall is the easiest way for an
+optimistic account to be wrong in public.
 
 This is structural because prompting alone did not hold. Left to choose its own
 framing from a mixed read, the agent opened a post with `rough hour: we lost
@@ -325,6 +353,8 @@ about the day rather than an invitation to invent enthusiasm.
 | --- | --- |
 | `token_overview` | price, market cap, liquidity, 24h volume, change, buy/sell counts, and the source |
 | `token_candles` | raw OHLCV, for when a post needs one specific bar |
+| `market_context` | the token against BTC, ETH, SOL and the whole market over the same 24h |
+| `crypto_news` | recent crypto headlines, date-bounded, for what kind of day the market is having |
 | `chart_timeframes` | the same chart hourly, 4-hourly, daily and weekly, and whether they agree |
 | `technical_analysis` | the read on one horizon: levels, breakouts and reclaims, volume, structure, bullish score |
 | `token_progress` | the long horizon on the daily: 7/30/90-day change, green days, stepping lows |

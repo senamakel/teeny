@@ -5,6 +5,7 @@ import type { ChartRenderer } from '../../chart/renderer.js'
 import type { RenderedChart } from '../../chart/chart.js'
 import { compactUsd, price as formatPrice, signedPercent } from '../../chart/format.js'
 import type { TokenMarket } from '../../market/market.js'
+import { relativeStrength, type GlobalMarketClient } from '../../market/global.js'
 import { analyse } from '../../ta/analysis.js'
 import { readProgress } from '../../ta/progress.js'
 import type { PublishedChartPost } from '../../harness/chart-harness.js'
@@ -33,6 +34,8 @@ export interface MarketToolOptions {
   maxEmoji?: number
   watermark?: string
   outputDir?: string
+  /** The rest of the market, for context. Without it there is no relative-strength tool. */
+  global?: GlobalMarketClient
   /** Off, `post_chart` refuses. Used by the dry run and by the research-only agent. */
   allowPosting?: boolean
   /**
@@ -175,6 +178,80 @@ export function createMarketTools(options: MarketToolOptions): StructuredToolInt
    * Cheap after the first call: the market layer caches each series, so the
    * chart that gets rendered afterwards costs nothing more.
    */
+  /**
+   * The token against everything else.
+   *
+   * This is the single most useful thing the account can say on a bad day, and
+   * it is a fact rather than a spin: a token up 14% while the whole market is
+   * down 1% is genuinely outperforming, and saying so is more informative than
+   * the 14% alone. On a day the token is down and the market is down harder,
+   * the same sentence is still true and still the honest headline.
+   */
+  const context = tool(
+    async () => {
+      if (!options.global) {
+        return 'No global market source is configured, so there is nothing to compare against.'
+      }
+      const [snapshot, token] = await Promise.all([
+        options.global.snapshot(),
+        market.overview(address).catch(() => undefined),
+      ])
+
+      const lines = [
+        'The rest of the market, last 24h:',
+        ...snapshot.assets.map(
+          (asset) =>
+            `  ${asset.symbol} $${asset.priceUsd.toLocaleString('en-US')}` +
+            (asset.change24hPct === undefined
+              ? ''
+              : ` (${asset.change24hPct >= 0 ? '+' : ''}${asset.change24hPct.toFixed(2)}%)`),
+        ),
+        snapshot.totalMarketCapUsd === undefined
+          ? ''
+          : `  total crypto market cap ${compactUsd(snapshot.totalMarketCapUsd)}` +
+            (snapshot.totalChange24hPct === undefined
+              ? ''
+              : ` (${snapshot.totalChange24hPct >= 0 ? '+' : ''}${snapshot.totalChange24hPct.toFixed(2)}%)`),
+        snapshot.btcDominancePct === undefined
+          ? ''
+          : `  BTC dominance ${snapshot.btcDominancePct.toFixed(1)}%`,
+      ].filter(Boolean)
+
+      const change = token?.priceChange.h24
+      if (change === undefined) {
+        return [...lines, '', 'No 24h change for the token, so no comparison can be drawn.'].join('\n')
+      }
+
+      const strength = relativeStrength(change, snapshot)
+      return [
+        ...lines,
+        '',
+        `${options.symbol ?? 'the token'} is ${change >= 0 ? '+' : ''}${change.toFixed(2)}% over the same 24h, ` +
+          `while the market is ${strength.marketDirection}.`,
+        '',
+        strength.beating.length > 0
+          ? ['TRUE POSITIVES YOU CAN LEAD WITH, best first:', ...strength.beating.map((entry) => `  - ${entry}`)].join('\n')
+          : 'It did not outperform any of these over 24h. Do not force a comparison that is ' +
+            'not there -- take the positive from the chart, the holders, or the longer horizon ' +
+            'instead.',
+        '',
+        strength.marketDirection === 'down'
+          ? 'The whole market is red today. Holding up while everything else sells off is the ' +
+            'strongest true thing you can say, and it is the post.'
+          : 'The market is not red today, so outperformance is a smaller claim. Say it plainly ' +
+            'and let the chart carry the rest.',
+      ].join('\n')
+    },
+    {
+      name: 'market_context',
+      description:
+        'How the token is doing against BTC, ETH, SOL and the whole crypto market over the ' +
+        'same 24 hours. Call this on every run: a percentage on its own means little, and ' +
+        'the same number is a quiet day in a green market and a remarkable one in a red one.',
+      schema: z.object({}),
+    },
+  )
+
   const timeframes = tool(
     async () => {
       const reads = await Promise.all(
@@ -499,6 +576,7 @@ export function createMarketTools(options: MarketToolOptions): StructuredToolInt
 
   return [
     overview,
+    context,
     candles,
     technicals,
     timeframes,

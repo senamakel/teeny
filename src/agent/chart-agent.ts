@@ -5,12 +5,14 @@ import { createChatModel, type LlmOptions } from './graph.js'
 import { chartPrompt } from './chart-prompt.js'
 import { createCommunityTools } from './tools/community.js'
 import { createExaClient, createExaTools } from './tools/exa.js'
+import { createNewsTools } from './tools/news.js'
 import { createMarketTools } from './tools/market.js'
 import { createMemoryTools } from './tools/memory.js'
 import { createXTools } from './tools/x.js'
 import type { Persona } from './soul.js'
 import type { ChartRenderer } from '../chart/renderer.js'
 import type { TokenMarket } from '../market/market.js'
+import type { GlobalMarketClient } from '../market/global.js'
 import type { PublishedChartPost } from '../harness/chart-harness.js'
 import type { Agent, AgentRunResult, Memory, XTools } from '../types.js'
 
@@ -33,6 +35,8 @@ export interface ChartAgentOptions {
   outputDir?: string
   /** Off, the agent researches and drafts but `post_chart` refuses. */
   allowPosting?: boolean
+  /** The rest of the market, for relative strength. */
+  global?: GlobalMarketClient
   /** What the community is searched for. Unset, the pulse tool is not built. */
   communityQuery?: string
   /** Where a published post goes so tomorrow's run can see it. */
@@ -84,6 +88,7 @@ export class ChartAgent implements Agent {
         ...(options.outputDir ? { outputDir: options.outputDir } : {}),
         ...(options.allowPosting === false ? { allowPosting: false } : {}),
         ...(options.onPublished ? { onPublished: options.onPublished } : {}),
+        ...(options.global ? { global: options.global } : {}),
       }),
       ...(options.communityQuery
         ? createCommunityTools({
@@ -100,7 +105,14 @@ export class ChartAgent implements Agent {
         allowPosting: false,
         ...(options.searchLimit === undefined ? {} : { searchLimit: options.searchLimit }),
       }),
-      ...(options.exaApiKey ? createExaTools(createExaClient(options.exaApiKey)) : []),
+      ...(options.exaApiKey
+        ? [
+            ...createExaTools(createExaClient(options.exaApiKey)),
+            ...createNewsTools(createExaClient(options.exaApiKey), {
+              defaultTopic: 'crypto market news today bitcoin solana sentiment',
+            }),
+          ]
+        : []),
     ]
   }
 

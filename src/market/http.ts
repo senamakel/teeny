@@ -7,7 +7,47 @@
  */
 export async function fetchJson<T>(
   url: string,
-  options: { timeoutMs?: number; headers?: Record<string, string> } = {},
+  options: {
+    timeoutMs?: number
+    headers?: Record<string, string>
+    /** How many times to retry a 429 or a 5xx. Defaults to two. */
+    retries?: number
+    /** Injected in tests so a backoff does not make the suite wait. */
+    sleep?: (ms: number) => Promise<void>
+  } = {},
+): Promise<T> {
+  const retries = options.retries ?? 2
+  const sleep = options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)))
+  let last: Error | undefined
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await once<T>(url, options)
+    } catch (error) {
+      last = error as Error
+      // A rate limit and a bad gateway are worth waiting out; a 404 is not, and
+      // neither is a malformed request. Retrying those just spends the budget
+      // the retryable ones need.
+      if (!isWorthRetrying(last) || attempt === retries) throw last
+      await sleep(500 * 2 ** attempt)
+    }
+  }
+  throw last ?? new Error(`${url} failed`)
+}
+
+/**
+ * The free tiers behind this service are strict and shared: GeckoTerminal
+ * answered 429 partway through the first run that read four timeframes, and the
+ * post silently lost its holder data because a rate limit looked exactly like a
+ * missing feature.
+ */
+function isWorthRetrying(error: Error): boolean {
+  return /\b(429|500|502|503|504)\b/.test(error.message) || error.name === 'AbortError'
+}
+
+async function once<T>(
+  url: string,
+  options: { timeoutMs?: number; headers?: Record<string, string> },
 ): Promise<T> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 15_000)
