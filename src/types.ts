@@ -19,7 +19,10 @@ export interface XPost {
  */
 export function isWithinOneLevel(post: XPost, botUserId?: string): boolean {
   if (!post.inReplyToUserId) return true
-  if (!botUserId) return true
+  // Unknown identity fails closed. This used to return true, which made every
+  // reply in every thread "close enough" the moment the account's id could not
+  // be resolved -- the widest possible answer to the narrowest question.
+  if (!botUserId) return false
   return post.inReplyToUserId === botUserId
 }
 

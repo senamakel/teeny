@@ -87,8 +87,12 @@ export class XApiClient implements XClient, XTools {
    * did not put the handle in the text. Its own posts and reposts are excluded.
    */
   async findMentions(window: MentionWindow = {}): Promise<XPost[]> {
+    // The live handle, not the configured one: `-from:` is what keeps the
+    // account's own posts out of its own mention search, and a renamed account
+    // excludes nothing (or, worse, excludes whoever took the old handle).
+    const { username } = await this.identity()
     return this.searchPosts(
-      `(@${this.username} OR to:${this.username}) -from:${this.username} -is:retweet`,
+      `(@${username} OR to:${username}) -from:${username} -is:retweet`,
       {
         ...(window.maxResults ? { maxResults: window.maxResults } : {}),
         ...(window.sinceId ? { sinceId: window.sinceId } : {}),
@@ -127,15 +131,43 @@ export class XApiClient implements XClient, XTools {
   }
 
   /** The account's own numeric id, resolved once and cached. */
-  async userId(): Promise<string | undefined> {
-    if (this.cachedUserId === undefined) {
-      const response = await this.readClient.users.getByUsername(this.username)
-      this.cachedUserId = response.data?.id ?? ''
+  /**
+   * The account these credentials act as, read from the token rather than
+   * looked up by handle.
+   *
+   * A handle is a mutable label: the account renamed itself from @TinyMascot to
+   * @teenydroid, the configured name stopped resolving, and every self-check
+   * keyed on the resulting id went quiet at once — the account answered its own
+   * post, then answered that answer. The token cannot go stale that way.
+   *
+   * This goes through the OAuth 1.0a client on purpose. `/2/users/me` is asking
+   * "who am I", which the app-only bearer cannot answer: it identifies the app,
+   * not the account.
+   */
+  async identity(): Promise<{ id: string; username: string }> {
+    if (!this.cachedIdentity) {
+      const response = await this.writeClient.users.getMe({ userFields: ['username'] })
+      const id = response.data?.id
+      if (!id) {
+        throw new Error(
+          `X did not identify the authenticated account: ${JSON.stringify(response.errors ?? response)}`,
+        )
+      }
+      this.cachedIdentity = { id, username: response.data?.username ?? this.username }
     }
-    return this.cachedUserId || undefined
+    return this.cachedIdentity
   }
 
-  private cachedUserId: string | undefined
+  /**
+   * Throws rather than answering "unknown". Every caller uses this to tell the
+   * account's own posts from everybody else's, and an undefined answer used to
+   * disable that check silently instead of stopping the run.
+   */
+  async userId(): Promise<string | undefined> {
+    return (await this.identity()).id
+  }
+
+  private cachedIdentity: { id: string; username: string } | undefined
 
   async createPost(text: string, options: XCreateOptions = {}): Promise<{ id: string }> {
     const response = await this.writeClient.posts.create({

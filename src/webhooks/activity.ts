@@ -41,10 +41,15 @@ function toPost(tweet: ActivityTweet): XPost | undefined {
  */
 export function mentionsFromActivity(
   payload: Record<string, unknown>,
-  options: { botUserId?: string; botUsername: string },
+  options: { botUserId: string; botUsername: string },
 ): XPost[] {
   const events = payload.tweet_create_events
   if (!Array.isArray(events)) return []
+  // Required, not optional. A delivery is mostly the account's own activity,
+  // so without an id to compare against there is no way to tell the account's
+  // posts from anybody else's, and the safe reading of every one of them is
+  // "not a mention".
+  if (!options.botUserId) return []
 
   return (events as ActivityTweet[]).flatMap((tweet) => {
     // A retweet of the account carries "RT @handle: ..." as its text, so it
@@ -56,7 +61,7 @@ export function mentionsFromActivity(
 
     const post = toPost(tweet)
     if (!post) return []
-    if (options.botUserId && post.authorId === options.botUserId) return []
+    if (post.authorId === options.botUserId) return []
     if (!isWorthAnswering(post, options)) return []
     return [post]
   })

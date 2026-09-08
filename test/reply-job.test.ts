@@ -15,6 +15,8 @@ import type {
   XTools,
 } from '../src/types.js'
 
+const BOT_ID = '2094854245468000256'
+
 const POSTS: XPost[] = [
   { id: '11', text: '@bot second' },
   { id: '10', text: '@bot first' },
@@ -155,6 +157,7 @@ describe('ReplyJob', () => {
         logger: logger(),
         dryRun,
         maxReplies: 5,
+        botUserId: async () => BOT_ID,
         ...(options.gifs ? { gifs: options.gifs } : {}),
       }),
     }
@@ -258,6 +261,63 @@ describe('ReplyJob', () => {
     await it_.job.run()
 
     expect(it_.x.createPost).toHaveBeenCalledWith('reply', { replyToPostId: '10' })
+  })
+})
+
+describe('ReplyJob self-reply guards', () => {
+  function subject(
+    pending: XPost[],
+    botUserId: () => Promise<string | undefined>,
+  ) {
+    const x = {
+      createPost: vi.fn().mockResolvedValue({ id: '99' }),
+      reply: vi.fn().mockResolvedValue({ id: '99' }),
+    } as unknown as XClient & XTools
+    const mentions = queue(pending)
+    const model: LanguageModel = {
+      reply: vi.fn().mockResolvedValue({ text: 'reply', incomingTone: 'friendly' }),
+    }
+    const memory: Memory = {
+      recall: vi.fn().mockResolvedValue(''),
+      captureMention: vi.fn(),
+      captureReply: vi.fn(),
+      remember: vi.fn(),
+    } as unknown as Memory
+    return {
+      x,
+      queue: mentions,
+      job: new ReplyJob({
+        x,
+        harness: new ReplyHarness(memory, model),
+        queue: mentions,
+        logger: logger(),
+        dryRun: false,
+        maxReplies: 5,
+        botUserId,
+      }),
+    }
+  }
+
+  // The failure this guards against is not "one wrong reply". The account's
+  // answer is itself activity on the account, so it comes back as the next
+  // mention: answering it produces another, and so on.
+  it('refuses a post the account itself wrote', async () => {
+    const own: XPost = { id: '10', text: 'gm', authorId: BOT_ID }
+    const it_ = subject([own], async () => BOT_ID)
+
+    await it_.job.run()
+
+    expect(it_.x.reply).not.toHaveBeenCalled()
+    expect(it_.queue.markFailed).toHaveBeenCalledWith('10', expect.stringContaining('refused'))
+  })
+
+  it('refuses the whole run when the account cannot be identified', async () => {
+    const it_ = subject([{ id: '10', text: '@bot hi', authorId: '1' }], async () => undefined)
+
+    await it_.job.run()
+
+    expect(it_.x.reply).not.toHaveBeenCalled()
+    expect(it_.queue.markFailed).not.toHaveBeenCalled()
   })
 })
 

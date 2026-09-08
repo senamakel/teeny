@@ -86,9 +86,21 @@ export function buildServer(options: {
     // queued rather than done here: the reply itself takes a model call and
     // several seconds, which is far longer than a webhook may hold the line.
     if (options.queue) {
-      const botUserId = await options.botUserId?.()
+      // Identity first, and nothing is queued without it: a delivery is mostly
+      // the account's own activity, and queuing that is how a self-reply loop
+      // starts. The cron poll is the safety net for anything dropped here.
+      let botUserId: string | undefined
+      try {
+        botUserId = await options.botUserId?.()
+      } catch (error) {
+        request.log.error({ err: error }, 'could not identify the account; queued nothing')
+      }
+      if (!botUserId) {
+        request.log.error('no account id available; refusing to queue webhook activity')
+        return reply.code(200).send({ ok: true })
+      }
       const mentions = mentionsFromActivity(payload, {
-        ...(botUserId ? { botUserId } : {}),
+        botUserId,
         botUsername: options.botUsername ?? '',
       })
       if (mentions.length > 0) {

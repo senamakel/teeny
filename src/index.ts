@@ -32,6 +32,18 @@ const x = new XApiClient({
   accessTokenSecret: config.X_ACCESS_TOKEN_SECRET,
   ...(config.X_BEARER_TOKEN ? { bearerToken: config.X_BEARER_TOKEN } : {}),
 })
+/**
+ * The account's own handle, read from the token rather than trusted from the
+ * environment. `X_BOT_USERNAME` is a fallback for a cold start where X cannot
+ * be reached; when the two disagree, the token is right and the environment is
+ * stale, which is exactly what happened when the account renamed itself.
+ */
+const identity = await x.identity().catch((error: unknown) => {
+  console.error('could not identify the account from its token:', error)
+  return undefined
+})
+const botUsername = identity?.username ?? config.X_BOT_USERNAME
+
 const gifs = config.GIPHY_API_KEY
   ? {
       source: new GiphyClient({
@@ -51,7 +63,7 @@ const agentOptions: AgentOptions = {
   x,
   persona,
   maxEmoji: config.MAX_EMOJI_PER_POST,
-  botUsername: config.X_BOT_USERNAME,
+  botUsername,
   dryRun: config.DRY_RUN,
   llm: {
     baseUrl: config.LLM_BASE_URL,
@@ -71,7 +83,7 @@ const model =
         baseUrl: config.LLM_BASE_URL,
         apiKey: config.LLM_API_KEY,
         model: config.LLM_MODEL,
-        botUsername: config.X_BOT_USERNAME,
+        botUsername,
       })
 const queue = new MongoMentionQueue({
   uri: config.MONGO_URI,
@@ -86,7 +98,7 @@ const app = buildServer({
   ...(config.AGENT_API_TOKEN ? { agentToken: config.AGENT_API_TOKEN } : {}),
   queue,
   botUserId: () => x.userId(),
-  botUsername: config.X_BOT_USERNAME,
+  botUsername,
 })
 const role = config.SERVICE_ROLE
 const runsIngest = role === 'all' || role === 'ingest'
@@ -101,7 +113,7 @@ if (runsIngest) {
     maxResults: config.X_SEARCH_MAX_RESULTS,
     lookbackMinutes: config.MENTION_LOOKBACK_MINUTES,
     botUserId: () => x.userId(),
-    botUsername: config.X_BOT_USERNAME,
+    botUsername,
   })
   cron.schedule(config.INGEST_CRON, () => {
     void ingestJob.run().catch((error: unknown) => app.log.error({ err: error }, 'ingest failed'))
@@ -128,6 +140,10 @@ if (runsReplies) {
 await app.listen({ host: '0.0.0.0', port: config.PORT })
 app.log.info(
   {
+    handle: botUsername,
+    userId: identity?.id ?? 'UNRESOLVED',
+    configuredHandle:
+      identity && identity.username !== config.X_BOT_USERNAME ? config.X_BOT_USERNAME : undefined,
     dryRun: config.DRY_RUN,
     cron: config.REPLY_CRON,
     agentMode: config.AGENT_MODE,

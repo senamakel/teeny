@@ -83,12 +83,16 @@ describe('activity deliveries become queued mentions', () => {
     }
   }
 
-  async function post(payload: string, mentions: ReturnType<typeof queue>) {
+  async function post(
+    payload: string,
+    mentions: ReturnType<typeof queue>,
+    botUserId: () => Promise<string | undefined> = async () => BOT,
+  ) {
     const app = buildServer({
       memory: memory(),
       consumerSecret: 'secret',
       queue: mentions,
-      botUserId: async () => BOT,
+      botUserId,
       botUsername: 'TinyMascot',
     })
     const response = await app.inject({
@@ -136,6 +140,38 @@ describe('activity deliveries become queued mentions', () => {
     ])
 
     expect((await post(payload, mentions)).statusCode).toBe(200)
+    expect(mentions.cache).not.toHaveBeenCalled()
+  })
+
+  // The test above passes an id that always resolves, which is exactly what
+  // production stopped doing: the account was renamed, the id was looked up by
+  // the old handle, and the lookup returned nothing. Every self-check keyed on
+  // that id went quiet at once and the account answered its own post.
+  it('queues nothing when the account cannot be identified', async () => {
+    const mentions = queue()
+    const payload = delivery([
+      { id_str: '901', text: 'gm from the bot', user: { id_str: BOT, screen_name: 'teenydroid' } },
+    ])
+
+    const response = await post(payload, mentions, async () => undefined)
+
+    expect(response.statusCode).toBe(200)
+    expect(mentions.cache).not.toHaveBeenCalled()
+  })
+
+  it('queues nothing when identifying the account fails outright', async () => {
+    const mentions = queue()
+    const payload = delivery([
+      { id_str: '902', text: 'gm from the bot', user: { id_str: BOT, screen_name: 'teenydroid' } },
+    ])
+
+    const response = await post(payload, mentions, () =>
+      Promise.reject(new Error('Could not find user with username: [TinyMascot].')),
+    )
+
+    // Still 200: X retries anything else until it gives up and disables the
+    // webhook, and the cron poll is the safety net for what was dropped.
+    expect(response.statusCode).toBe(200)
     expect(mentions.cache).not.toHaveBeenCalled()
   })
 

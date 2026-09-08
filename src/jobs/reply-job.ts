@@ -67,16 +67,24 @@ export class ReplyJob {
       const queued = await this.dependencies.queue.takePending(this.dependencies.maxReplies)
       if (queued.length === 0) return
 
+      // A self-reply is the failure that compounds -- the answer is itself a
+      // mention, and answering it produces another -- so not knowing which
+      // posts are the account's own stops the run rather than relaxing the
+      // check. Nothing is lost: the queue keeps until the next tick.
       const botUserId = await this.dependencies.botUserId?.()
+      if (!botUserId) {
+        this.dependencies.logger.error(
+          'cannot identify the account; refusing to reply to anything this run',
+        )
+        return
+      }
 
       for (const item of queued) {
         const { post } = item
 
         // Every path upstream already excludes the account's own posts. This
-        // catches the one that does not, because a self-reply is the failure
-        // that compounds: the answer is itself a mention, and answering it
-        // produces another.
-        if (botUserId && post.authorId === botUserId) {
+        // is the last one standing if any of them regresses.
+        if (post.authorId === botUserId) {
           await this.dependencies.queue.markFailed(post.id, 'refused: the account wrote this post')
           this.dependencies.logger.warn(
             { postId: post.id },

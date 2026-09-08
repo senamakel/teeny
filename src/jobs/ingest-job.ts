@@ -74,11 +74,13 @@ export class IngestJob {
       // actually typed the handle. What is dropped is the thread the account was
       // tagged into once and then carried along in every reply after.
       const botUserId = await this.dependencies.botUserId?.()
-      const shallow = retrieved.filter((post) =>
-        isWorthAnswering(post, {
-          ...(botUserId ? { botUserId } : {}),
-          botUsername: this.dependencies.botUsername,
-        }),
+      const shallow = retrieved.filter(
+        (post) =>
+          !(botUserId && post.authorId === botUserId) &&
+          isWorthAnswering(post, {
+            ...(botUserId ? { botUserId } : {}),
+            botUsername: this.dependencies.botUsername,
+          }),
       )
       const cached = await this.dependencies.queue.cache(shallow)
 

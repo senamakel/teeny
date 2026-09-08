@@ -29,8 +29,13 @@ describe('isWithinOneLevel', () => {
     expect(isWithinOneLevel({ id: '1', text: 'yes', inReplyToUserId: '999' }, BOT)).toBe(false)
   })
 
-  it('keeps everything when the account id is unknown, rather than dropping mentions', () => {
-    expect(isWithinOneLevel({ id: '1', text: 'yes', inReplyToUserId: '999' })).toBe(true)
+  // This used to return true, on the reasoning that dropping a mention is
+  // worse than answering a distant one. The account renaming itself made that
+  // reasoning expensive: the id stopped resolving, every post became "close
+  // enough", and it answered its own post and then that answer. A dropped
+  // mention is recovered by the next poll; a public self-reply is not.
+  it('rejects a reply when the account id is unknown, rather than answering everything', () => {
+    expect(isWithinOneLevel({ id: '1', text: 'yes', inReplyToUserId: '999' })).toBe(false)
   })
 })
 
