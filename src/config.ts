@@ -114,6 +114,10 @@ const schema = z.object({
   CHART_BROWSER_CHANNEL: blankable(z.string().min(1)),
   CHART_BROWSER_PATH: blankable(z.string().min(1)),
   CHART_OUTPUT_DIR: z.string().default('data/charts'),
+  // What the community is searched for before the daily post. Blank disables
+  // the pulse tool, and the agent is then writing to holders without having
+  // read anything they said today. One X search per run, floor of ten posts.
+  CHART_COMMUNITY_QUERY: z.string().default('$TINY -is:retweet'),
   // Defaults to the account's own handle at startup.
   CHART_WATERMARK: blankable(z.string().min(1)),
   // A ranked-trader source. Unset, the KOL tool returns nothing and the prompt

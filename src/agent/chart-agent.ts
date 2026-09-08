@@ -3,6 +3,7 @@ import type { StructuredToolInterface } from '@langchain/core/tools'
 import { createReactAgent } from '@langchain/langgraph/prebuilt'
 import { createChatModel, type LlmOptions } from './graph.js'
 import { chartPrompt } from './chart-prompt.js'
+import { createCommunityTools } from './tools/community.js'
 import { createExaClient, createExaTools } from './tools/exa.js'
 import { createMarketTools } from './tools/market.js'
 import { createMemoryTools } from './tools/memory.js'
@@ -10,6 +11,7 @@ import { createXTools } from './tools/x.js'
 import type { Persona } from './soul.js'
 import type { ChartRenderer } from '../chart/renderer.js'
 import type { TokenMarket } from '../market/market.js'
+import type { PublishedChartPost } from '../harness/chart-harness.js'
 import type { Agent, AgentRunResult, Memory, XTools } from '../types.js'
 
 export interface ChartAgentOptions {
@@ -31,6 +33,10 @@ export interface ChartAgentOptions {
   outputDir?: string
   /** Off, the agent researches and drafts but `post_chart` refuses. */
   allowPosting?: boolean
+  /** What the community is searched for. Unset, the pulse tool is not built. */
+  communityQuery?: string
+  /** Where a published post goes so tomorrow's run can see it. */
+  onPublished?: (post: PublishedChartPost) => Promise<void>
 }
 
 /**
@@ -77,7 +83,16 @@ export class ChartAgent implements Agent {
         ...(options.watermark ? { watermark: options.watermark } : {}),
         ...(options.outputDir ? { outputDir: options.outputDir } : {}),
         ...(options.allowPosting === false ? { allowPosting: false } : {}),
+        ...(options.onPublished ? { onPublished: options.onPublished } : {}),
       }),
+      ...(options.communityQuery
+        ? createCommunityTools({
+            x: options.x,
+            query: options.communityQuery,
+            botUsername: options.botUsername,
+            ...(options.searchLimit === undefined ? {} : { searchLimit: options.searchLimit }),
+          })
+        : []),
       // Reading X only. Publishing goes through post_chart, which is the tool
       // that knows how to attach the image and how to count the emoji.
       ...createXTools(options.x, {

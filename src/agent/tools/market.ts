@@ -6,6 +6,7 @@ import type { RenderedChart } from '../../chart/chart.js'
 import { compactUsd, price as formatPrice, signedPercent } from '../../chart/format.js'
 import type { TokenMarket } from '../../market/market.js'
 import { analyse } from '../../ta/analysis.js'
+import type { PublishedChartPost } from '../../harness/chart-harness.js'
 import { applyHouseStyle, countEmoji } from '../house-style.js'
 import { MAX_POST_LENGTH } from './x.js'
 import type { XTools } from '../../types.js'
@@ -25,6 +26,12 @@ export interface MarketToolOptions {
   outputDir?: string
   /** Off, `post_chart` refuses. Used by the dry run and by the research-only agent. */
   allowPosting?: boolean
+  /**
+   * Called with whatever was posted, including in a dry run. This is how the
+   * post reaches memory: the model's own `remember` note is a paraphrase, and
+   * "do not repeat yesterday's angle" needs the actual text.
+   */
+  onPublished?: (post: PublishedChartPost) => Promise<void>
 }
 
 /**
@@ -206,6 +213,7 @@ export function createMarketTools(options: MarketToolOptions): StructuredToolInt
       const { text } = applyHouseStyle(drafted, { maxEmoji, maxLength: MAX_POST_LENGTH })
 
       if (options.dryRun) {
+        await record(options, { text, dryRun: true, ...(chartId ? { chartId } : {}) })
         return `DRY RUN, nothing was published. Would have posted: ${JSON.stringify({
           text,
           chartId,
@@ -220,6 +228,12 @@ export function createMarketTools(options: MarketToolOptions): StructuredToolInt
       const posted = await options.x.createPost(text, {
         ...(mediaIds ? { mediaIds } : {}),
         ...(replyToPostId ? { replyToPostId } : {}),
+      })
+      await record(options, {
+        text,
+        postedId: posted.id,
+        dryRun: false,
+        ...(chartId ? { chartId } : {}),
       })
       return `Published post ${posted.id}${mediaIds ? ' with the chart attached' : ''}.`
     },
@@ -384,6 +398,17 @@ export function createMarketTools(options: MarketToolOptions): StructuredToolInt
     rankedTraders,
     postChart,
   ]
+}
+
+/**
+ * Writing to memory must never lose a post that went out. The post is already
+ * published by the time this runs, so a memory outage is reported to the model
+ * and dropped rather than raised, which would read to the agent as a failed
+ * publish and invite it to post again.
+ */
+async function record(options: MarketToolOptions, post: PublishedChartPost): Promise<void> {
+  if (!options.onPublished) return
+  await options.onPublished(post).catch(() => undefined)
 }
 
 /** Wallets are shown truncated: they are for the agent's reasoning, not for a post. */

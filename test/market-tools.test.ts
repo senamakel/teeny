@@ -153,6 +153,40 @@ describe('market tools', () => {
     expect(x.createPost).not.toHaveBeenCalled()
   })
 
+  it('records the post it published so tomorrow can see the actual text', async () => {
+    const onPublished = vi.fn().mockResolvedValue(undefined)
+    const { tools } = build({ onPublished })
+    await tools.get('render_chart')!.invoke({ timeframe: '1h', bars: 60 } as never)
+    await tools.get('post_chart')!.invoke({ text: 'the level held', chartId: 'chart_1' } as never)
+
+    expect(onPublished).toHaveBeenCalledWith({
+      text: 'the level held',
+      postedId: '999',
+      chartId: 'chart_1',
+      dryRun: false,
+    })
+  })
+
+  it('records a rehearsal too, marked as one', async () => {
+    const onPublished = vi.fn().mockResolvedValue(undefined)
+    const { tools } = build({ dryRun: true, onPublished })
+    await tools.get('post_chart')!.invoke({ text: 'draft' } as never)
+
+    expect(onPublished).toHaveBeenCalledWith({ text: 'draft', dryRun: true })
+  })
+
+  /**
+   * The post is already out by the time memory is written. Raising here would
+   * read to the agent as a failed publish and invite it to post again.
+   */
+  it('does not report a memory outage as a failed post', async () => {
+    const onPublished = vi.fn().mockRejectedValue(new Error('401 MISSING_TOKEN'))
+    const { tools } = build({ onPublished })
+    const output = (await tools.get('post_chart')!.invoke({ text: 'the level held' } as never)) as string
+
+    expect(output).toContain('Published post 999')
+  })
+
   it('publishes nothing in a dry run', async () => {
     const { tools, x } = build({ dryRun: true })
     const output = (await tools.get('post_chart')!.invoke({ text: 'hello' } as never)) as string

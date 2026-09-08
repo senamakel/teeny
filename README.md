@@ -206,6 +206,48 @@ generous waits. The URL is a template, so the useful version of the idea is
 pointing it at a page we serve ourselves; that needs a browser in the runtime
 image, which is why it is opt-in.
 
+### Who it is writing for
+
+The post is addressed to $TINY holders and the people around the project, not to
+a general crypto audience — and the prompt says so, because the difference shows
+up in every line. It holds the token, so "we" is honest; it says what today means
+for people already in rather than what a stranger should do; and on a red day it
+shows up and levels with them instead of going quiet, which is the thing holders
+actually remember.
+
+Two guardrails come with that audience. No promises of any kind — no giveaway, no
+airdrop, no hint of one; the last one cost the account its reach and holders wore
+the reputation for it. And at most one handle in a post, only for something
+visible in a tool result, because a broadcast post with a list of handles in it
+is engagement bait and reads as one.
+
+### Memory, on both sides of the post
+
+`ChartHarness` wraps the agent with the memory work rather than leaving it to the
+model. Before the turn it recalls two things, every run: what this account has
+already posted (so today's angle is not yesterday's) and who the community is —
+who has been showing up, what they have been asking, what the mood is. Both are
+already in the task when the agent starts.
+
+That is deterministic for a reason. Left to `recall_memory`, one run called it
+twice with near-identical queries and burned two turns, and nothing stopped a run
+from skipping the community entirely and posting a technical read into a void.
+Recall failing is not a reason to skip the day, so a failure degrades to "nothing
+recalled — treat today as your first post" and the post still goes out.
+
+Afterwards, `post_chart` writes the published text back through `captureChartPost`
+— the text itself, not the model's summary of it, since "do not repeat yesterday's
+angle" cannot be judged against a paraphrase. Dry runs are captured too and
+labelled unpublished, so a rehearsal leaves a trace without poisoning tomorrow. If
+memory is down at that point the post has already gone out, so the failure is
+swallowed rather than raised: reporting it would read to the agent as a failed
+publish and invite it to post again.
+
+`community_pulse` is the live half — one X search for the cashtag with the
+account's own posts filtered out, so the post can answer something people are
+already talking about. On a quiet day it says the day was quiet, which is a fact
+about the day rather than an invitation to invent enthusiasm.
+
 ### Tools
 
 | Tool | What it does |
@@ -218,6 +260,7 @@ image, which is why it is opt-in.
 | `token_flow` | buy versus sell volume, top buyers and sellers, watchlist wallets |
 | `trader_activity` | one wallet's footprint in the recent-trades window |
 | `ranked_traders` | KOL and smart-money labels, when a provider is configured |
+| `community_pulse` | what holders have actually been posting about the token lately |
 | `post_chart` | publishes one post with a `chartId` attached. The only way it publishes |
 
 It also gets `recall_memory` and `remember`, and read-only X search. It cannot

@@ -2,6 +2,7 @@ import type { Config } from '../config.js'
 import { NativeChartRenderer, ScreenshotChartRenderer, type ChartRenderer } from '../chart/renderer.js'
 import { TokenMarket } from '../market/market.js'
 import { ChartAgent } from './chart-agent.js'
+import { captureChartPost, ChartHarness } from '../harness/chart-harness.js'
 import type { Persona } from './soul.js'
 import type { Memory, XTools } from '../types.js'
 
@@ -22,7 +23,7 @@ export function buildChartAgent(
     dryRun: boolean
     allowPosting?: boolean
   },
-): ChartAgent {
+): ChartHarness {
   const address = config.CHART_TOKEN_ADDRESS
   if (!address) throw new Error('CHART_TOKEN_ADDRESS is not set, so there is no token to chart')
 
@@ -33,7 +34,7 @@ export function buildChartAgent(
     watchlist: config.KOL_WALLETS,
   })
 
-  return new ChartAgent({
+  const agent = new ChartAgent({
     memory: options.memory,
     market,
     charts: buildRenderer(config),
@@ -55,7 +56,13 @@ export function buildChartAgent(
     watermark: config.CHART_WATERMARK ?? `@${options.botUsername}`,
     outputDir: config.CHART_OUTPUT_DIR,
     ...(options.allowPosting === false ? { allowPosting: false } : {}),
+    ...(config.CHART_COMMUNITY_QUERY ? { communityQuery: config.CHART_COMMUNITY_QUERY } : {}),
+    onPublished: (post) => captureChartPost(options.memory, config.CHART_TOKEN_SYMBOL, post),
   })
+
+  // The agent does the work; the harness is what puts memory around it, on both
+  // sides -- what to know before writing, and what to keep afterwards.
+  return new ChartHarness(options.memory, agent, { symbol: config.CHART_TOKEN_SYMBOL })
 }
 
 export function buildRenderer(config: Config): ChartRenderer {
