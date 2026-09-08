@@ -6,6 +6,7 @@ import type { RenderedChart } from '../../chart/chart.js'
 import { compactUsd, price as formatPrice, signedPercent } from '../../chart/format.js'
 import type { TokenMarket } from '../../market/market.js'
 import { analyse } from '../../ta/analysis.js'
+import { readProgress } from '../../ta/progress.js'
 import type { PublishedChartPost } from '../../harness/chart-harness.js'
 import { applyHouseStyle, countEmoji } from '../house-style.js'
 import { MAX_POST_LENGTH } from './x.js'
@@ -141,13 +142,41 @@ export function createMarketTools(options: MarketToolOptions): StructuredToolInt
     {
       name: 'technical_analysis',
       description:
-        'Reads the chart: trend, structure, EMA20/EMA50, RSI, MACD, Bollinger width, ' +
-        'support and resistance levels that have actually been touched, volume against its ' +
-        'average, and a bullish score. Everything it returns is computed from real candles ' +
-        'and is safe to quote. Facts about the past only -- it never predicts.',
+        'Reads the chart the way one of these actually trades: support and resistance ' +
+        'levels that have been defended more than once, whether one has just broken, been ' +
+        'reclaimed or been lost, whether volume confirmed it, how volume compares to ' +
+        'earlier in the window, trend and structure, and a bullish score. No oscillators: ' +
+        'RSI and MACD say nothing useful about a token like this. Everything it returns is ' +
+        'computed from real candles and is safe to quote. Facts about the past only.',
       schema: z.object({
         timeframe: TIMEFRAME.default('1h'),
         bars: z.number().int().min(20).max(500).default(120),
+      }),
+    },
+  )
+
+  const progress = tool(
+    async ({ days }) => {
+      const daily = await market.candles({ address, timeframe: '1d', limit: days })
+      if (daily.length < 2) return 'Not enough daily history to say anything about progress.'
+      const read = readProgress(daily)
+      return [
+        ...read.notes,
+        '',
+        'This is the long horizon: where the token is against where it was, not what it did ' +
+          'in the last hour. It is what a holder who has been here for weeks is actually ' +
+          'asking about.',
+      ].join('\n')
+    },
+    {
+      name: 'token_progress',
+      description:
+        'Long-term progress on the daily: change over 7, 30 and 90 days, how many days ' +
+        'closed green, distance from the daily high and low, and whether the daily lows are ' +
+        'stepping up. Use this whenever the post is about where we are rather than about ' +
+        'today, and always on a day when the short-term read is weak.',
+      schema: z.object({
+        days: z.number().int().min(7).max(365).default(120),
       }),
     },
   )
@@ -391,6 +420,7 @@ export function createMarketTools(options: MarketToolOptions): StructuredToolInt
     overview,
     candles,
     technicals,
+    progress,
     drawChart,
     holders,
     flow,

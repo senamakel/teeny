@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { atr, bollinger, ema, latest, levels, macd, rsi, sma, swings, vwap } from '../src/ta/indicators.js'
+import { atr, bollinger, ema, latest, levels, sma, swings, vwap } from '../src/ta/indicators.js'
 import type { Candle } from '../src/market/types.js'
 
 function series(closes: number[]): Candle[] {
@@ -29,31 +29,6 @@ describe('moving averages', () => {
 
   it('returns nothing at all when the series is shorter than the period', () => {
     expect(ema([1, 2], 5).every((value) => value === undefined)).toBe(true)
-  })
-})
-
-describe('RSI', () => {
-  it('is 100 when nothing has gone down', () => {
-    expect(latest(rsi([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]))).toBe(100)
-  })
-
-  it('sits under 50 in a downtrend', () => {
-    const falling = Array.from({ length: 40 }, (_, index) => 100 - index)
-    expect(latest(rsi(falling))!).toBeLessThan(50)
-  })
-})
-
-describe('MACD', () => {
-  it('starts the signal line where the MACD line starts, not at zero', () => {
-    const values = Array.from({ length: 80 }, (_, index) => 100 + index)
-    const result = macd(values)
-    const firstLine = result.macd.findIndex((value) => value !== undefined)
-    const firstSignal = result.signal.findIndex((value) => value !== undefined)
-
-    // Feeding the undefined head in as zeroes would start the signal at the
-    // same index as the line and drag it down through the warm-up.
-    expect(firstSignal).toBeGreaterThan(firstLine)
-    expect(result.histogram[firstSignal]).toBeDefined()
   })
 })
 

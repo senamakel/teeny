@@ -102,6 +102,7 @@ describe('market tools', () => {
       'token_overview',
       'token_candles',
       'technical_analysis',
+      'token_progress',
       'render_chart',
       'token_holders',
       'token_flow',
@@ -222,6 +223,13 @@ describe('market tools', () => {
     const output = (await tools.get('ranked_traders')!.invoke({} as never)) as string
     expect(output).toMatch(/No ranked-trader source is configured/)
     expect(output).toMatch(/Do not claim any/)
+  })
+
+  it('reads the long horizon off daily candles', async () => {
+    const { tools } = build()
+    const output = (await tools.get('token_progress')!.invoke({ days: 120 } as never)) as string
+    expect(output).toContain('days closed green')
+    expect(output).toContain('long horizon')
   })
 
   it('carries the bullish score with the warning attached to it', async () => {

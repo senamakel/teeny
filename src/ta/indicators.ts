@@ -9,6 +9,14 @@ import type { Candle } from '../market/types.js'
  * is unknown, and a chart that draws it anyway invents a trend line out of the
  * warm-up period. Callers read the last defined value and say nothing when
  * there is not one.
+ *
+ * There is no RSI and no MACD here. Both were written, tested and used, and
+ * both came out: they are mean-reversion tools for instruments that revert,
+ * and a memecoin does not. RSI read "overbought" at 74 through exactly the
+ * kind of move the account exists to talk about, which in a post is a caveat
+ * that argues holders out of their own thesis on a number that never applied.
+ * What is kept describes where price has been -- averages, range, volatility,
+ * and the levels it keeps returning to.
  */
 
 export type Series = Array<number | undefined>
@@ -47,67 +55,6 @@ export function ema(values: number[], period: number): Series {
     out[index] = previous
   }
   return out
-}
-
-/** Wilder's RSI: smoothed averages, not simple ones. */
-export function rsi(values: number[], period = 14): Series {
-  const out: Series = Array.from<number | undefined>({ length: values.length }).fill(undefined)
-  if (values.length <= period) return out
-
-  let gains = 0
-  let losses = 0
-  for (let index = 1; index <= period; index += 1) {
-    const change = (values[index] as number) - (values[index - 1] as number)
-    if (change >= 0) gains += change
-    else losses -= change
-  }
-  gains /= period
-  losses /= period
-  out[period] = losses === 0 ? 100 : 100 - 100 / (1 + gains / losses)
-
-  for (let index = period + 1; index < values.length; index += 1) {
-    const change = (values[index] as number) - (values[index - 1] as number)
-    gains = (gains * (period - 1) + Math.max(change, 0)) / period
-    losses = (losses * (period - 1) + Math.max(-change, 0)) / period
-    out[index] = losses === 0 ? 100 : 100 - 100 / (1 + gains / losses)
-  }
-  return out
-}
-
-export interface Macd {
-  macd: Series
-  signal: Series
-  histogram: Series
-}
-
-export function macd(values: number[], fast = 12, slow = 26, signalPeriod = 9): Macd {
-  const fastLine = ema(values, fast)
-  const slowLine = ema(values, slow)
-  const line: Series = values.map((_, index) => {
-    const a = fastLine[index]
-    const b = slowLine[index]
-    return a === undefined || b === undefined ? undefined : a - b
-  })
-
-  // The signal is an EMA of the MACD line, so it can only start where the line
-  // does; feeding the undefined head in as zeroes drags it below zero for the
-  // whole warm-up and prints a crossover that never happened.
-  const defined = line.flatMap((value) => (value === undefined ? [] : [value]))
-  const offset = line.findIndex((value) => value !== undefined)
-  const signalDefined = offset < 0 ? [] : ema(defined, signalPeriod)
-  const signal: Series = Array.from<number | undefined>({ length: values.length }).fill(undefined)
-  signalDefined.forEach((value, index) => {
-    signal[offset + index] = value
-  })
-
-  return {
-    macd: line,
-    signal,
-    histogram: line.map((value, index) => {
-      const reference = signal[index]
-      return value === undefined || reference === undefined ? undefined : value - reference
-    }),
-  }
 }
 
 export interface Bands {

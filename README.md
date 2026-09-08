@@ -165,11 +165,38 @@ Charting the deepest one drew a flat line through a pool nothing happens in.
 
 ### The technical read
 
-`src/ta/` computes it: EMA, RSI (Wilder), MACD, Bollinger, ATR, VWAP, fractal
-swing points, and support/resistance clustered by relative distance so it works
-the same on a token priced at $0.0007 as on one priced at $40,000. Every series
-returns `undefined` for its warm-up rather than a zero or the first close, so a
-chart never draws a trend line through a period the indicator could not see.
+`src/ta/` computes it: EMA, Bollinger, ATR, VWAP, fractal swing points, and
+support/resistance clustered by relative distance so it works the same on a token
+priced at $0.0007 as on one priced at $40,000. Every series returns `undefined`
+for its warm-up rather than a zero or the first close, so a chart never draws a
+trend line through a period the indicator could not see.
+
+**There are no oscillators.** RSI and MACD were written, tested, used, and then
+removed. They are mean-reversion tools for instruments that mean-revert, and a
+memecoin does not: RSI sat pinned at 74 reading "overbought" through exactly the
+kind of move the account exists to post about. In a post that is worse than
+useless — it is a caveat that argues holders out of their own thesis over a
+number that never applied here. `test/analysis.test.ts` asserts the read computes
+none, and the prompt forbids the words, because a model will happily supply
+"overbought" from memory if the tools stop saying it.
+
+What replaced them is what actually moves one of these. Levels are only levels
+if price has been to them more than once — a line touched once is a coordinate,
+and "broke resistance" about one of those makes an account unreadable. When one
+is crossed, `analyse` reports it as a **breakout**, a **breakdown** or a
+**reclaim** (crossing back over something previously lost, which reads completely
+differently to somebody who held through losing it), notes how many bars ago, and
+marks whether the bar that did it traded above average volume — a break nobody
+traded is a wick that gets given straight back, so it is downgraded rather than
+posted as news. Volume is read twice: the last bar against its average, and the
+recent half of the window against the half before it.
+
+`readProgress` in `src/ta/progress.ts` is the long horizon, on daily candles:
+change over 7, 30 and 90 days, how many days closed green, distance from the
+daily high and low, and whether the daily lows are stepping up. No indicators at
+all — on a daily memecoin series there is not enough history for one to mean
+anything, and the honest long-term signals are arithmetic. A token three weeks
+old falls back to whatever history it has rather than reporting nothing.
 
 `analyse()` turns that into signals, notes, and a `bullishScore` out of 100. The
 score reports bearish signals honestly even though the account is unapologetically
@@ -254,7 +281,8 @@ about the day rather than an invitation to invent enthusiasm.
 | --- | --- |
 | `token_overview` | price, market cap, liquidity, 24h volume, change, buy/sell counts, and the source |
 | `token_candles` | raw OHLCV, for when a post needs one specific bar |
-| `technical_analysis` | the full read: trend, structure, indicators, levels, bullish score |
+| `technical_analysis` | the short-term read: levels, breakouts and reclaims, volume, structure, bullish score |
+| `token_progress` | the long horizon on the daily: 7/30/90-day change, green days, stepping lows |
 | `render_chart` | draws the chart, returns a `chartId` |
 | `token_holders` | supply and concentration from the chain |
 | `token_flow` | buy versus sell volume, top buyers and sellers, watchlist wallets |
