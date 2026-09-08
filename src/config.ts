@@ -100,9 +100,6 @@ const schema = z.object({
   ),
   AIRDROP_TOKEN_SYMBOL: z.string().min(1).default('TINY'),
   AIRDROP_RPC_URL: blankable(z.string()),
-  // Where a sent airdrop can be looked at. `{hash}` is replaced with the
-  // transaction hash; leave it empty to quote the bare hash instead.
-  AIRDROP_EXPLORER_TX_URL: z.string().default('https://rh-scan.com/tx/{hash}'),
   AIRDROPS_COLLECTION: z.string().min(1).default('airdrops'),
   // The ceilings. A turn cannot raise any of them by asking.
   AIRDROP_MAX_PER_AIRDROP: z.coerce.number().int().min(1).default(100),

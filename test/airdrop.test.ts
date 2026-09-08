@@ -509,10 +509,10 @@ describe('the promised amount', () => {
   })
 })
 
-describe('the receipt link', () => {
+describe('the transaction receipt', () => {
   const HASH = '0x' + 'ab'.repeat(32)
 
-  function sender(explorerTxUrl?: string) {
+  function sender() {
     const wallet = {
       address: '0x1',
       balance: vi.fn(),
@@ -535,34 +535,30 @@ describe('the receipt link', () => {
       followsAccount: vi.fn().mockResolvedValue(true),
       limits: LIMITS,
       symbol: 'TINY',
-      ...(explorerTxUrl ? { explorerTxUrl } : {}),
       context: () => ({ post: post(`my address is ${ALICE}`) }),
     }).find((entry) => entry.name === 'airdrop_user')!
   }
 
-  it('hands back a link somebody can open, not a bare hash', async () => {
-    const output = (await sender('https://rh-scan.com/tx/{hash}').invoke({
-      to: ALICE,
-      amount: 100,
-    } as never)) as string
-
-    expect(output).toContain(`https://rh-scan.com/tx/${HASH}`)
-    expect(output).toContain('exactly as written')
-  })
-
-  it('falls back to the hash when no explorer is configured', async () => {
+  // A block-explorer link reads better and cost the account reach: X throttles
+  // posts carrying links, and a giveaway nobody sees is not a giveaway.
+  it('hands back the bare hash and no link', async () => {
     const output = (await sender().invoke({ to: ALICE, amount: 100 } as never)) as string
 
     expect(output).toContain(HASH)
     expect(output).not.toContain('http')
+    expect(output).toContain('do not turn it into a link')
   })
+})
 
-  it('ignores a template that has nowhere to put the hash', async () => {
-    const output = (await sender('https://rh-scan.com/tx/').invoke({
-      to: ALICE,
-      amount: 100,
-    } as never)) as string
+describe('the prompt keeps links out of replies', () => {
+  it('says to quote the hash and name no explorer', () => {
+    const prompt = draftPrompt({
+      botUsername: 'teenydroid',
+      dryRun: false,
+      airdrop: { symbol: 'TINY', maxPerAirdrop: 100 },
+    })
 
-    expect(output).toContain(`Transaction: ${HASH}`)
+    expect(prompt).toContain('Never turn it into a link')
+    expect(prompt).toContain('X throttles')
   })
 })

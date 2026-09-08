@@ -65,9 +65,10 @@ function airdropRules(options: PromptOptions): string[] {
           '  never quote a hash. Reply as though you had decided not to send.',
         ]
       : [
-          '- When it succeeds you get a receipt link. Put it in the reply exactly as the tool',
-          '  wrote it: it is how somebody checks the tokens really arrived. Never retype it,',
-          '  never shorten it, and never quote the bare hash instead.',
+          '- When it succeeds you get a transaction hash. Quote it exactly, or not at all.',
+          '- Never turn it into a link and never name a block explorer. X throttles the',
+          '  reach of posts carrying links, and a giveaway nobody sees is not a giveaway.',
+          '  The bare hash is enough for anyone who wants to check it.',
         ]),
   ]
 }
