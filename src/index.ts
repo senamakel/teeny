@@ -107,6 +107,7 @@ const airdrop = (() => {
     },
     symbol: config.AIRDROP_TOKEN_SYMBOL,
     standardAmount: config.AIRDROP_STANDARD_AMOUNT,
+    explorerTxUrl: config.AIRDROP_EXPLORER_TX_URL,
     dryRun: config.AIRDROP_DRY_RUN,
   }
 })()

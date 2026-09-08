@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyHouseStyle, countEmoji } from '../src/agent/house-style.js'
+import { applyHouseStyle, countEmoji, truncateAtBoundary } from '../src/agent/house-style.js'
 
 describe('countEmoji', () => {
   it('counts a sequence once', () => {
@@ -91,5 +91,30 @@ describe('repeated handles', () => {
   it('leaves a third party tagged, which may be deliberate', () => {
     const result = applyHouseStyle('say hi to @someoneelse for me', { replyingTo: 'rafaelitewrld' })
     expect(result.text).toBe('say hi to @someoneelse for me')
+  })
+})
+
+describe('truncateAtBoundary', () => {
+  it('leaves text that already fits alone', () => {
+    expect(truncateAtBoundary('short enough', 100)).toBe('short enough')
+  })
+
+  // The published failure: a reply ended "that's OpenHum".
+  it('cuts at a word rather than through one', () => {
+    expect(truncateAtBoundary('we are building OpenHumans together', 20)).toBe('we are building')
+  })
+
+  // Half a URL is not a shorter receipt, it is a broken one, and it looks like
+  // a working link until somebody taps it.
+  it('drops a receipt link whole rather than publishing half of it', () => {
+    const text = `sent! receipt: https://rh-scan.com/tx/0x${'ab'.repeat(32)}`
+    const cut = truncateAtBoundary(text, 40)
+
+    expect(cut).toBe('sent! receipt:')
+    expect(cut).not.toContain('rh-scan')
+  })
+
+  it('still cuts a single unbroken token, since half of it is meaningless anyway', () => {
+    expect(truncateAtBoundary('a'.repeat(50), 10)).toBe('a'.repeat(10))
   })
 })

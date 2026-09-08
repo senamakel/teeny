@@ -94,6 +94,7 @@ const airdrop =
           requireFollow: config.AIRDROP_REQUIRE_FOLLOW,
         },
         symbol: config.AIRDROP_TOKEN_SYMBOL,
+        explorerTxUrl: config.AIRDROP_EXPLORER_TX_URL,
         dryRun: true,
       }
     : undefined

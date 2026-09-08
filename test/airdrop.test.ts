@@ -508,3 +508,61 @@ describe('the promised amount', () => {
     expect(prompt).not.toContain('THE AMOUNT IS')
   })
 })
+
+describe('the receipt link', () => {
+  const HASH = '0x' + 'ab'.repeat(32)
+
+  function sender(explorerTxUrl?: string) {
+    const wallet = {
+      address: '0x1',
+      balance: vi.fn(),
+      gasBalance: vi.fn(),
+      send: vi.fn().mockResolvedValue({ txHash: HASH }),
+    } as unknown as TokenWallet
+    const ledger = {
+      sentToday: vi.fn().mockResolvedValue(0),
+      paidRecipientCount: vi.fn().mockResolvedValue(0),
+      forPost: vi.fn().mockResolvedValue(undefined),
+      claim: vi.fn().mockResolvedValue(true),
+      settle: vi.fn(),
+      fail: vi.fn(),
+      close: vi.fn(),
+    } as unknown as AirdropLedger
+    return createAirdropTools({
+      wallet,
+      ledger,
+      registry: registry(),
+      followsAccount: vi.fn().mockResolvedValue(true),
+      limits: LIMITS,
+      symbol: 'TINY',
+      ...(explorerTxUrl ? { explorerTxUrl } : {}),
+      context: () => ({ post: post(`my address is ${ALICE}`) }),
+    }).find((entry) => entry.name === 'airdrop_user')!
+  }
+
+  it('hands back a link somebody can open, not a bare hash', async () => {
+    const output = (await sender('https://rh-scan.com/tx/{hash}').invoke({
+      to: ALICE,
+      amount: 100,
+    } as never)) as string
+
+    expect(output).toContain(`https://rh-scan.com/tx/${HASH}`)
+    expect(output).toContain('exactly as written')
+  })
+
+  it('falls back to the hash when no explorer is configured', async () => {
+    const output = (await sender().invoke({ to: ALICE, amount: 100 } as never)) as string
+
+    expect(output).toContain(HASH)
+    expect(output).not.toContain('http')
+  })
+
+  it('ignores a template that has nowhere to put the hash', async () => {
+    const output = (await sender('https://rh-scan.com/tx/').invoke({
+      to: ALICE,
+      amount: 100,
+    } as never)) as string
+
+    expect(output).toContain(`Transaction: ${HASH}`)
+  })
+})

@@ -64,7 +64,11 @@ function airdropRules(options: PromptOptions): string[] {
           '- AIRDROP DRY RUN is on. Nothing reaches anybody, so never say you sent tokens and',
           '  never quote a hash. Reply as though you had decided not to send.',
         ]
-      : ['- When it succeeds you get a transaction hash. Quote it exactly, or not at all.']),
+      : [
+          '- When it succeeds you get a receipt link. Put it in the reply exactly as the tool',
+          '  wrote it: it is how somebody checks the tokens really arrived. Never retype it,',
+          '  never shorten it, and never quote the bare hash instead.',
+        ]),
   ]
 }
 

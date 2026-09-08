@@ -53,6 +53,15 @@ export interface AirdropToolOptions {
   symbol: string
   /** What the campaign publicly promises, quoted back in the tool's own text. */
   standardAmount?: number
+  /**
+   * Where a transaction can be looked at, as a template containing `{hash}`.
+   *
+   * The tool hands back a link rather than a bare hash because a hash is a
+   * receipt only for somebody who already knows what to do with it, and a reply
+   * is read by people who do not. It is built here rather than left to the
+   * model, which would otherwise be inventing a URL from memory.
+   */
+  explorerTxUrl?: string
   /** Nothing is broadcast while this is true; the ledger still records it. */
   dryRun?: boolean
   /** What is being answered right now. Read per call, never cached. */
@@ -259,7 +268,17 @@ export function createAirdropTools(options: AirdropToolOptions): StructuredToolI
           // A note that fails to write must not undo a transfer that already
           // happened: the ledger is what enforces, and it is already settled.
           .catch(() => undefined)
-        return `Sent ${decision.amount} ${options.symbol} to ${to}. Transaction: ${txHash}. Quote that hash exactly; do not invent or shorten it.`
+        const link = options.explorerTxUrl?.includes('{hash}')
+          ? options.explorerTxUrl.replace('{hash}', txHash)
+          : undefined
+        return (
+          `Sent ${decision.amount} ${options.symbol} to ${to}. ` +
+          (link
+            ? `Receipt: ${link} -- put that link in your reply, exactly as written. Do not ` +
+              'shorten it, do not rebuild it from the hash, and do not quote the bare hash ' +
+              'instead.'
+            : `Transaction: ${txHash}. Quote that hash exactly; do not invent or shorten it.`)
+        )
       } catch (error) {
         const message = (error as Error).message
         await options.ledger.fail(postId, message)

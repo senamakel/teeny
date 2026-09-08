@@ -2,6 +2,7 @@ import { HumanMessage } from '@langchain/core/messages'
 import { createReactAgent } from '@langchain/langgraph/prebuilt'
 import { z } from 'zod'
 import { buildTools, createChatModel, type AgentOptions } from './graph.js'
+import { truncateAtBoundary } from './house-style.js'
 import { findOwnTokenAddresses, ownTokenNote } from './own-token.js'
 import { draftPrompt } from './prompt.js'
 import type { LanguageModel, ReplyDraft, XPost } from '../types.js'
@@ -136,7 +137,7 @@ export class AgentReplyModel implements LanguageModel {
     if (!parsed.success) throw new Error('The reply agent returned no usable reply text')
     const gifQuery = parsed.data.gifQuery?.trim()
     return {
-      text: parsed.data.reply.trim().slice(0, MAX_REPLY_LENGTH),
+      text: truncateAtBoundary(parsed.data.reply.trim(), MAX_REPLY_LENGTH),
       ...(gifQuery ? { gifQuery } : {}),
       incomingTone: parsed.data.incomingTone === 'negative' ? 'negative' : parsed.data.incomingTone,
     }

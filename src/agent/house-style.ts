@@ -35,6 +35,27 @@ function capEmoji(text: string, maxEmoji: number): string {
     .trim()
 }
 
+/**
+ * Cuts text to a length without cutting through a word or a URL.
+ *
+ * A blunt slice is how "that's OpenHumans" became "that's OpenHum" in a
+ * published reply, and it matters more now that a reply can carry a receipt
+ * link: half a URL is not a shorter receipt, it is a broken one, and it is
+ * indistinguishable from a working link until somebody taps it.
+ *
+ * So the cut falls back to the last whitespace, and if the tail it would leave
+ * behind is a URL, that whole URL goes rather than being published in pieces.
+ */
+export function truncateAtBoundary(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text
+
+  const cut = text.slice(0, maxLength)
+  const lastSpace = cut.search(/\s\S*$/)
+  // No whitespace at all: one very long token, and half of it is meaningless.
+  const trimmed = lastSpace > 0 ? cut.slice(0, lastSpace) : cut
+  return trimmed.replace(/\s*\S*:\/\/\S*$/, '').trimEnd()
+}
+
 export function applyHouseStyle(
   draft: string,
   options: { maxEmoji?: number; maxLength?: number; replyingTo?: string } = {},
@@ -92,7 +113,7 @@ export function applyHouseStyle(
   }
 
   if (text.length > maxLength) {
-    text = text.slice(0, maxLength).trimEnd()
+    text = truncateAtBoundary(text, maxLength)
     fixes.push(`trimmed to ${maxLength} characters`)
   }
 
