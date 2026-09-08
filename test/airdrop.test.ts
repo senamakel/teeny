@@ -409,15 +409,15 @@ describe('airdrop_check', () => {
   it('tells it to invite somebody who does not follow yet', async () => {
     const output = (await checker({ follows: false }).invoke({} as never)) as string
 
-    expect(output).toContain('Following the account: no')
-    expect(output).toContain('Invite them to follow')
+    expect(output).toContain('status: NOT_FOLLOWING')
+    expect(output).toContain('a follow is all it takes')
   })
 
   it('tells it to ask a follower with no address for one', async () => {
     const output = (await checker({ follows: true }).invoke({} as never)) as string
 
-    expect(output).toContain('no wallet address')
-    expect(output).toContain('ask them for their EVM wallet address')
+    expect(output).toContain('status: NEEDS_ADDRESS')
+    expect(output).toContain('Ask for their EVM wallet address')
   })
 
   it('tells it to send when the address is there', async () => {
@@ -426,21 +426,36 @@ describe('airdrop_check', () => {
       text: `my address is ${ALICE}`,
     }).invoke({} as never)) as string
 
+    expect(output).toContain('status: CAN_SEND')
     expect(output).toContain(ALICE)
-    expect(output).toContain('good to go')
   })
 
   it('is warm about somebody who has already had one', async () => {
     const output = (await checker({ follows: true, paid: 1 }).invoke({} as never)) as string
 
-    expect(output).toContain('already had')
-    expect(output).toContain('they are already a fren')
+    expect(output).toContain('status: ALREADY_SENT')
+    expect(output).toContain('one per fren')
   })
 
   it('reports the budget rather than pretending there is more', async () => {
-    const output = (await checker({ follows: true, sentToday: 500 }).invoke({} as never)) as string
+    const output = (await checker({
+      follows: true,
+      sentToday: 500,
+      text: `my address is ${ALICE}`,
+    }).invoke({} as never)) as string
 
+    expect(output).toContain('status: BUDGET_SPENT')
     expect(output).toContain("Today's remaining budget: 0")
+  })
+
+  // X being unreachable must not read as "no tokens for you": the account has
+  // a wallet now, and the reply it used to give -- that it has nothing to give
+  // -- is no longer true.
+  it('says the follow is unknown rather than refusing outright', async () => {
+    const output = (await checker({ follows: undefined }).invoke({} as never)) as string
+
+    expect(output).toContain('status: UNKNOWN_FOLLOW')
+    expect(output).toContain('talk normally')
   })
 
   it('spends nothing: it is a read', async () => {

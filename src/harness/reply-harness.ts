@@ -38,11 +38,26 @@ export class ReplyHarness {
     // answered into memory before the lookup, so the agent reads its own input
     // back as history and greets a stranger with "good to see you again".
     const person = personOf(post)
+
+    // The thread is read before the recall, not after, so memory can be asked
+    // about the conversation rather than about its last line. A reply deep in
+    // a thread often says almost nothing alone -- "sure, go on" -- and a lookup
+    // keyed on that finds nothing, where the same lookup keyed on the whole
+    // exchange finds the person, the project, and what was promised earlier.
+    const thread = await this.readThread(post)
+    const conversation = thread
+      .map(
+        (entry) =>
+          `${entry.authorUsername ? `@${entry.authorUsername}` : 'someone'}: ${entry.text}`,
+      )
+      .join('\n')
+
     const recalled = await this.memory.recall(
-      `What context, past interactions, product facts, and tone are relevant to replying to this X post? ${post.text}`,
+      'What context, past interactions, product facts, and tone are relevant to replying to ' +
+        `this X post? ${post.text}` +
+        (conversation ? `\n\nThe conversation it sits in:\n${conversation}` : ''),
       person ? { person } : {},
     )
-    const thread = await this.readThread(post)
     const draft = await this.model.reply({
       post,
       memory: recalled,

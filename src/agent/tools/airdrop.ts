@@ -98,27 +98,48 @@ export function createAirdropTools(options: AirdropToolOptions): StructuredToolI
           `${options.limits.maxPerAirdrop} in one go.`,
       ]
 
-      if (follows === false) {
-        lines.push('So: no airdrop yet. Invite them to follow, warmly, and mean it.')
-      } else if (paidCount > 0) {
-        lines.push('So: no second airdrop. Be nice about it, they are already a fren.')
-      } else if (!address) {
-        lines.push('So: ask them for their EVM wallet address and send it once they reply.')
-      } else if (budgetLeft <= 0) {
-        lines.push("So: today's budget is gone. Tell them to catch you tomorrow.")
-      } else {
-        lines.push('So: they are good to go. Call airdrop_user with that address.')
-      }
-      return lines.join('\n')
+      // One status word first, because the rest of this is prose and prose is
+      // what a model skims. Every branch names what to do next, so there is no
+      // case where the answer is a fact with no action attached to it.
+      const [status, next] =
+        follows === undefined
+          ? ['UNKNOWN_FOLLOW', 'Could not check X. Do not promise an airdrop; talk normally.']
+          : follows === false
+            ? ['NOT_FOLLOWING', 'No airdrop yet. Tell them warmly that a follow is all it takes.']
+            : paidCount > 0
+              ? [
+                  'ALREADY_SENT',
+                  'They have had their airdrop, which is one per fren. Be pleased to see ' +
+                    'them and say so kindly; do not lecture and do not offer a second.',
+                ]
+              : !address
+                ? [
+                    'NEEDS_ADDRESS',
+                    'They qualify. Ask for their EVM wallet address and say you will send ' +
+                      'once they drop it.',
+                  ]
+                : budgetLeft <= 0
+                  ? [
+                      'BUDGET_SPENT',
+                      "Today's budget is gone. Tell them to catch you tomorrow, and mean it.",
+                    ]
+                  : [
+                      'CAN_SEND',
+                      `Good to go. Call airdrop_user with ${address} and up to ` +
+                        `${options.limits.maxPerAirdrop} ${options.symbol}.`,
+                    ]
+
+      return [`status: ${status}`, ...lines, `So: ${next}`].join('\n')
     },
     {
       name: 'airdrop_check',
       description:
         'Check whether the person you are replying to can receive an airdrop, before you ' +
-        'offer them one. Tells you whether they follow the account, whether they have had ' +
-        'one already, whether their post contains a wallet address, and what is left in ' +
-        "today's budget. Costs nothing and sends nothing. Call it whenever somebody asks " +
-        'for tokens, and let the answer shape the reply.',
+        'offer them one. Returns a status -- CAN_SEND, NEEDS_ADDRESS, NOT_FOLLOWING, ' +
+        'ALREADY_SENT, BUDGET_SPENT or UNKNOWN_FOLLOW -- with the reason and what to do ' +
+        'next. Costs nothing and sends nothing. Call it whenever somebody asks for tokens, ' +
+        'whenever a post is just a wallet address, and before you tell anybody you cannot ' +
+        'give them anything: you have a wallet now, so never assume the answer is no.',
       schema: z.object({}),
     },
   )
