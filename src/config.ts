@@ -66,10 +66,13 @@ const schema = z.object({
   // How long the worker waits after finding an empty queue. One indexed query
   // per tick, so this is cheap; it is latency, not load.
   REPLY_IDLE_MS: z.coerce.number().int().min(250).max(60_000).default(2_000),
-  // The least time between two published replies. A giveaway had the account
-  // answering a hundred people in an hour and X throttled its reach for it;
-  // a minute apart, the same replies read as a conversation. Zero disables it.
-  REPLY_MIN_INTERVAL_MS: z.coerce.number().int().min(0).max(3_600_000).default(60_000),
+  // The gap between two published replies, picked at random in this range. A
+  // giveaway had the account answering a hundred people in an hour and X
+  // throttled its reach for it. The range rather than a single number because
+  // a reply exactly every sixty seconds is its own signature: no one typing by
+  // hand is that regular. Set the minimum to zero to disable pacing entirely.
+  REPLY_MIN_INTERVAL_MS: z.coerce.number().int().min(0).max(3_600_000).default(30_000),
+  REPLY_MAX_INTERVAL_MS: z.coerce.number().int().min(0).max(3_600_000).default(60_000),
   MONGO_URI: z.string().min(1).default('mongodb://mongo:27017'),
   MONGO_DATABASE: z.string().min(1).default('teeny'),
   MENTIONS_COLLECTION: z.string().min(1).default('mentions'),

@@ -27,18 +27,27 @@ export class ReplyJob {
       /** Last line of defence against answering the account's own posts. */
       botUserId?: () => Promise<string | undefined>
       /**
-       * The least time between two published replies.
+       * How long to wait between published replies, as a range.
        *
-       * Not a rate limit in the API sense -- X was fine with the volume. It is
-       * a pacing brake, added after a giveaway had the account answering a
-       * hundred people in an hour and X throttled its reach for it. A hundred
+       * Not a rate limit in the API sense -- every call was within X's limits.
+       * It is a pacing brake, added after a giveaway had the account answering
+       * a hundred people in an hour and X throttled its reach for it: a hundred
        * near-identical posts in quick succession is the shape of spam however
-       * sincerely each one is meant, and a minute apart it is a conversation.
+       * sincerely each one is meant.
+       *
+       * The gap is random within the range rather than fixed, because a fixed
+       * one is its own signature. Nothing that types replies by hand produces
+       * one exactly every sixty seconds, and a cadence that regular is easier
+       * to spot than the volume was.
        *
        * It lives here rather than in the worker on purpose: the worker's batch
        * size would otherwise still let five replies leave back to back.
        */
       minReplyIntervalMs?: number
+      /** The top of that range. Defaults to the minimum, i.e. a fixed gap. */
+      maxReplyIntervalMs?: number
+      /** Injectable for the tests; defaults to Math.random. */
+      random?: () => number
     },
   ) {}
 
@@ -46,19 +55,23 @@ export class ReplyJob {
   private lastReplyAt = 0
 
   /**
-   * Holds the next reply back until the interval has passed.
+   * Holds the next reply back for a randomly chosen gap.
    *
-   * A plain sleep, so a shutdown can be up to one interval late. That is the
-   * accepted cost of the brake: the alternative is a reply mid-flight when the
-   * container goes, which is worse.
+   * A plain sleep, so a shutdown can be up to one gap late. That is the
+   * accepted cost of the brake: the alternative is cutting a reply off
+   * mid-flight when the container is replaced, which is worse.
    */
   private async pace(): Promise<void> {
-    const interval = this.dependencies.minReplyIntervalMs ?? 0
-    if (interval <= 0) return
+    const min = this.dependencies.minReplyIntervalMs ?? 0
+    if (min <= 0) return
+    const max = Math.max(min, this.dependencies.maxReplyIntervalMs ?? min)
+    const random = this.dependencies.random ?? Math.random
+    const gap = Math.round(min + random() * (max - min))
+
     const waited = Date.now() - this.lastReplyAt
-    if (this.lastReplyAt > 0 && waited < interval) {
-      const remaining = interval - waited
-      this.dependencies.logger.info({ remaining }, 'pacing: holding the next reply')
+    if (this.lastReplyAt > 0 && waited < gap) {
+      const remaining = gap - waited
+      this.dependencies.logger.info({ gap, remaining }, 'pacing: holding the next reply')
       await new Promise((resolve) => setTimeout(resolve, remaining))
     }
     this.lastReplyAt = Date.now()

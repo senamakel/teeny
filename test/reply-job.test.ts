@@ -492,3 +492,77 @@ describe('pacing', () => {
     expect(Date.now() - started).toBeLessThan(1_000)
   })
 })
+
+describe('the gap is random, not a metronome', () => {
+  const BOT = '2094854245468000256'
+
+  function paced(random: () => number, min: number, max: number) {
+    const x = {
+      createPost: vi.fn().mockResolvedValue({ id: '99' }),
+      reply: vi.fn().mockResolvedValue({ id: '99' }),
+    } as unknown as XClient & XTools
+    const memory = {
+      recall: vi.fn().mockResolvedValue(''),
+      captureMention: vi.fn(),
+      captureReply: vi.fn(),
+    } as unknown as Memory
+    const log = logger()
+    return {
+      log,
+      job: new ReplyJob({
+        x,
+        harness: new ReplyHarness(memory, {
+          reply: vi.fn().mockResolvedValue({ text: 'hi', incomingTone: 'friendly' }),
+        } as unknown as LanguageModel),
+        queue: queue([
+          { id: '1', text: '@bot one', authorId: 'a' },
+          { id: '2', text: '@bot two', authorId: 'b' },
+        ]),
+        logger: log,
+        dryRun: false,
+        maxReplies: 5,
+        botUserId: async () => BOT,
+        minReplyIntervalMs: min,
+        maxReplyIntervalMs: max,
+        random,
+      }),
+    }
+  }
+
+  function chosenGaps(log: ReturnType<typeof logger>) {
+    return (log.info as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      .map(([first]) => first as { gap?: number })
+      .filter((entry) => typeof entry?.gap === 'number')
+      .map((entry) => entry.gap!)
+  }
+
+  it('takes the bottom of the range when the roll is low', async () => {
+    const it_ = paced(() => 0, 20, 100)
+    await it_.job.run()
+
+    expect(chosenGaps(it_.log)).toEqual([20])
+  })
+
+  it('takes the top of the range when the roll is high', async () => {
+    const it_ = paced(() => 1, 20, 100)
+    await it_.job.run()
+
+    expect(chosenGaps(it_.log)).toEqual([100])
+  })
+
+  it('lands in between for anything else', async () => {
+    const it_ = paced(() => 0.5, 20, 120)
+    await it_.job.run()
+
+    expect(chosenGaps(it_.log)).toEqual([70])
+  })
+
+  // A range that is backwards, or a maximum below the minimum, must not
+  // produce a negative wait and quietly disable the brake.
+  it('never goes below the minimum, whatever the range says', async () => {
+    const it_ = paced(() => 0.9, 50, 10)
+    await it_.job.run()
+
+    expect(chosenGaps(it_.log)).toEqual([50])
+  })
+})

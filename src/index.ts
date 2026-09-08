@@ -138,6 +138,7 @@ if (runsReplies) {
     maxReplies: config.MAX_REPLIES_PER_RUN,
     maxEmoji: config.MAX_EMOJI_PER_POST,
     minReplyIntervalMs: config.REPLY_MIN_INTERVAL_MS,
+    maxReplyIntervalMs: config.REPLY_MAX_INTERVAL_MS,
     botUserId: () => x.userId(),
     ...(gifs ? { gifs: gifs.source } : {}),
   })
@@ -174,7 +175,9 @@ app.log.info(
     giphy: gifs ? config.GIPHY_CHANNEL : false,
     role,
     ingestCron: runsIngest ? config.INGEST_CRON : false,
-    minReplyGapMs: runsReplies ? config.REPLY_MIN_INTERVAL_MS : false,
+    replyGapMs: runsReplies
+      ? `${config.REPLY_MIN_INTERVAL_MS}-${config.REPLY_MAX_INTERVAL_MS} random`
+      : false,
     replies: runsReplies
       ? config.REPLY_MODE === 'worker'
         ? `worker, ${config.REPLY_IDLE_MS}ms idle`
