@@ -19,7 +19,8 @@
     "lint": "oxlint src test",
     "webhook": "tsx src/scripts/webhook.ts",
     "airdrop-sim": "tsx src/scripts/airdrop-sim.ts",
-    "unsay": "tsx src/scripts/unsay.ts"
+    "unsay": "tsx src/scripts/unsay.ts",
+    "requeue-unpaid": "tsx src/scripts/requeue-unpaid.ts"
   },
   "dependencies": {
     "@langchain/core": "^1.2.9",
