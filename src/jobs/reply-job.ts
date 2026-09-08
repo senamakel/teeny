@@ -26,8 +26,43 @@ export class ReplyJob {
       maxEmoji?: number
       /** Last line of defence against answering the account's own posts. */
       botUserId?: () => Promise<string | undefined>
+      /**
+       * The least time between two published replies.
+       *
+       * Not a rate limit in the API sense -- X was fine with the volume. It is
+       * a pacing brake, added after a giveaway had the account answering a
+       * hundred people in an hour and X throttled its reach for it. A hundred
+       * near-identical posts in quick succession is the shape of spam however
+       * sincerely each one is meant, and a minute apart it is a conversation.
+       *
+       * It lives here rather than in the worker on purpose: the worker's batch
+       * size would otherwise still let five replies leave back to back.
+       */
+      minReplyIntervalMs?: number
     },
   ) {}
+
+  /** When the last reply was actually published, across runs. */
+  private lastReplyAt = 0
+
+  /**
+   * Holds the next reply back until the interval has passed.
+   *
+   * A plain sleep, so a shutdown can be up to one interval late. That is the
+   * accepted cost of the brake: the alternative is a reply mid-flight when the
+   * container goes, which is worse.
+   */
+  private async pace(): Promise<void> {
+    const interval = this.dependencies.minReplyIntervalMs ?? 0
+    if (interval <= 0) return
+    const waited = Date.now() - this.lastReplyAt
+    if (this.lastReplyAt > 0 && waited < interval) {
+      const remaining = interval - waited
+      this.dependencies.logger.info({ remaining }, 'pacing: holding the next reply')
+      await new Promise((resolve) => setTimeout(resolve, remaining))
+    }
+    this.lastReplyAt = Date.now()
+  }
 
   /**
    * Resolves the drafter's GIF query to an uploaded media id. A GIF is a nice
@@ -114,12 +149,17 @@ export class ReplyJob {
             this.dependencies.dryRun || !drafted.gifQuery
               ? undefined
               : await this.attachGif(drafted.gifQuery)
-          const posted = this.dependencies.dryRun
-            ? undefined
-            : await this.dependencies.x.createPost(styled.text, {
-                replyToPostId: post.id,
-                ...(mediaIds ? { mediaIds } : {}),
-              })
+          // Immediately before publishing, not before drafting: the model call
+          // takes seconds of its own, and pacing from the start of the turn
+          // would make the real gap between two posts whatever was left over.
+          let posted: { id: string } | undefined
+          if (!this.dependencies.dryRun) {
+            await this.pace()
+            posted = await this.dependencies.x.createPost(styled.text, {
+              replyToPostId: post.id,
+              ...(mediaIds ? { mediaIds } : {}),
+            })
+          }
 
           await this.dependencies.harness.remember(
             post,

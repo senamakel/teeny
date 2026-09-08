@@ -391,3 +391,104 @@ describe('thread depth', () => {
     expect(it_.state.get().sinceId).toBe('41')
   })
 })
+
+describe('pacing', () => {
+  const BOT = '2094854245468000256'
+
+  function subject(minReplyIntervalMs: number, pending: XPost[]) {
+    const x = {
+      createPost: vi.fn().mockResolvedValue({ id: '99' }),
+      reply: vi.fn().mockResolvedValue({ id: '99' }),
+    } as unknown as XClient & XTools
+    const memory = {
+      recall: vi.fn().mockResolvedValue(''),
+      captureMention: vi.fn(),
+      captureReply: vi.fn(),
+    } as unknown as Memory
+    const model: LanguageModel = {
+      reply: vi.fn().mockResolvedValue({ text: 'hi', incomingTone: 'friendly' }),
+    }
+    return {
+      x,
+      job: new ReplyJob({
+        x,
+        harness: new ReplyHarness(memory, model),
+        queue: queue(pending),
+        logger: logger(),
+        dryRun: false,
+        maxReplies: 5,
+        botUserId: async () => BOT,
+        minReplyIntervalMs,
+      }),
+    }
+  }
+
+  // A batch of five used to leave five posts back to back, which is what X
+  // read as spam. The brake belongs at the publish site so the batch size
+  // cannot reintroduce the burst.
+  it('holds the second reply of a batch back', async () => {
+    const posts: XPost[] = [
+      { id: '1', text: '@bot one', authorId: 'a' },
+      { id: '2', text: '@bot two', authorId: 'b' },
+    ]
+    const it_ = subject(80, posts)
+
+    const started = Date.now()
+    await it_.job.run()
+
+    expect(it_.x.createPost).toHaveBeenCalledTimes(2)
+    expect(Date.now() - started).toBeGreaterThanOrEqual(70)
+  })
+
+  it('does not delay the first reply', async () => {
+    const it_ = subject(10_000, [{ id: '1', text: '@bot one', authorId: 'a' }])
+
+    const started = Date.now()
+    await it_.job.run()
+
+    expect(it_.x.createPost).toHaveBeenCalledTimes(1)
+    expect(Date.now() - started).toBeLessThan(1_000)
+  })
+
+  it('keeps the gap across runs, not just within a batch', async () => {
+    const it_ = subject(80, [{ id: '1', text: '@bot one', authorId: 'a' }])
+    await it_.job.run()
+
+    const started = Date.now()
+    await it_.job.run()
+
+    expect(Date.now() - started).toBeGreaterThanOrEqual(70)
+  })
+
+  it('does not pace a dry run, which publishes nothing', async () => {
+    const x = {
+      createPost: vi.fn(),
+      reply: vi.fn(),
+    } as unknown as XClient & XTools
+    const memory = {
+      recall: vi.fn().mockResolvedValue(''),
+      captureMention: vi.fn(),
+      captureReply: vi.fn(),
+    } as unknown as Memory
+    const job = new ReplyJob({
+      x,
+      harness: new ReplyHarness(memory, {
+        reply: vi.fn().mockResolvedValue({ text: 'hi', incomingTone: 'friendly' }),
+      } as unknown as LanguageModel),
+      queue: queue([
+        { id: '1', text: '@bot one', authorId: 'a' },
+        { id: '2', text: '@bot two', authorId: 'b' },
+      ]),
+      logger: logger(),
+      dryRun: true,
+      maxReplies: 5,
+      botUserId: async () => BOT,
+      minReplyIntervalMs: 10_000,
+    })
+
+    const started = Date.now()
+    await job.run()
+
+    expect(Date.now() - started).toBeLessThan(1_000)
+  })
+})
