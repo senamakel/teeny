@@ -37,6 +37,8 @@ export interface AgentOptions {
   gifs?: { source: GifSource; channel: string }
   /** Cap on posts pulled per search by the agent's own X tools. */
   searchLimit?: number
+  /** The account's own token contracts, recognised before drafting. */
+  ownTokenAddresses?: string[]
   /**
    * The wallet, its ledger and its ceilings. Absent, there is no signer in the
    * tool set at all and no amount of prompting can conjure one.

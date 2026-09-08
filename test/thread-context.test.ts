@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { ReplyHarness } from '../src/harness/reply-harness.js'
 import { AgentReplyModel } from '../src/agent/reply-model.js'
+import { findOwnTokenAddresses, ownTokenNote } from '../src/agent/own-token.js'
 import type { LanguageModel, Memory, XPost, XTools } from '../src/types.js'
 
 /**
@@ -150,5 +151,42 @@ describe('the drafter renders it', () => {
 
   it('renders nothing at all for an empty thread', () => {
     expect(prompt([])).toBe('')
+  })
+})
+
+describe('recognising its own token', () => {
+  const SOLANA = '2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump'
+  const ERC20 = '0xb9CE619b168f325b4eb8C2E8E073501838C7A407'
+  const OWN = [SOLANA, ERC20]
+
+  it('finds the contract however it is embedded in a post', () => {
+    expect(
+      findOwnTokenAddresses(`@teenydroid maybe buy some more solana:${SOLANA} ? 👀`, OWN),
+    ).toEqual([SOLANA])
+  })
+
+  it('matches the ERC-20 regardless of checksum casing', () => {
+    expect(findOwnTokenAddresses(`send to ${ERC20.toLowerCase()}`, OWN)).toEqual([ERC20])
+  })
+
+  it('says nothing about a contract that is not the account\'s own', () => {
+    expect(findOwnTokenAddresses('buy 0x1234567890123456789012345678901234567890', OWN)).toEqual([])
+  })
+
+  it('says nothing when no addresses are configured', () => {
+    expect(findOwnTokenAddresses(`buy ${SOLANA}`, [])).toEqual([])
+  })
+
+  // The exact correction that was needed: the reply called its own token
+  // somebody else's shill.
+  it('tells the drafter it is looking at its own token, not a shill', () => {
+    const note = ownTokenNote([SOLANA]).join('\n')
+
+    expect(note).toContain('YOUR OWN $TINY contract address')
+    expect(note).toContain('not somebody shilling you a different coin')
+  })
+
+  it('adds nothing at all when there is nothing to correct', () => {
+    expect(ownTokenNote([])).toEqual([])
   })
 })

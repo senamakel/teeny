@@ -67,6 +67,14 @@ const schema = z.object({
   // retrieved is billed and X's floor on a search is ten, so this is the most
   // expensive part of a reply: at five replies a run it is the difference
   // between fifty posts and none.
+  // The account's own token contracts, comma separated. Matched against every
+  // post before drafting, because a model will not reliably match a contract
+  // address against a long persona document -- and getting this wrong means
+  // calling your own token somebody else's shill, in public.
+  OWN_TOKEN_ADDRESSES: z
+    .string()
+    .default('')
+    .transform((value) => value.split(',').map((entry) => entry.trim()).filter(Boolean)),
   THREAD_CONTEXT_MAX_POSTS: z.coerce.number().int().min(0).max(100).default(10),
 
   // --- the wallet ----------------------------------------------------------

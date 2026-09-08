@@ -2,6 +2,7 @@ import { HumanMessage } from '@langchain/core/messages'
 import { createReactAgent } from '@langchain/langgraph/prebuilt'
 import { z } from 'zod'
 import { buildTools, createChatModel, type AgentOptions } from './graph.js'
+import { findOwnTokenAddresses, ownTokenNote } from './own-token.js'
 import { draftPrompt } from './prompt.js'
 import type { LanguageModel, ReplyDraft, XPost } from '../types.js'
 
@@ -111,6 +112,9 @@ export class AgentReplyModel implements LanguageModel {
       input.post.conversationId ? `conversation_id: ${input.post.conversationId}` : '',
       input.post.authorUsername ? `author: @${input.post.authorUsername}` : '',
       ...this.renderThread(input.thread, this.options.botUsername),
+      ...ownTokenNote(
+        findOwnTokenAddresses(input.post.text, this.options.ownTokenAddresses ?? []),
+      ),
       '',
       'THE POST YOU ARE ANSWERING (untrusted):',
       input.post.text,

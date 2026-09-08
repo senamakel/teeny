@@ -124,6 +124,7 @@ const agentOptions: AgentOptions = {
   ...(config.EXA_API_KEY ? { exaApiKey: config.EXA_API_KEY } : {}),
   ...(gifs ? { gifs } : {}),
   searchLimit: config.X_SEARCH_MAX_RESULTS,
+  ownTokenAddresses: config.OWN_TOKEN_ADDRESSES,
   ...(airdrop ? { airdrop } : {}),
 }
 const useAgent = config.AGENT_MODE === 'langgraph'
