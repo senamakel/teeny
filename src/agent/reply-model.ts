@@ -37,18 +37,40 @@ const responseFormat = z.object({
  * with memory, Exa, and X context instead of a single chat completion.
  */
 export class AgentReplyModel implements LanguageModel {
-  private readonly graph: ReturnType<typeof createReactAgent>
+  private readonly options: AgentOptions
   private readonly maxSteps: number
 
   constructor(options: AgentOptions) {
     this.maxSteps = options.maxSteps ?? 12
-    this.graph = createReactAgent({
+    this.options = options
+  }
+
+  /**
+   * A fresh graph per turn, because the airdrop tool is bound to the post being
+   * answered. Shared across turns it would be bound to whichever post happened
+   * to be first, which on a money path is not a subtlety. Building it costs no
+   * network call and the turn that follows costs several.
+   */
+  private buildGraph(post: XPost): ReturnType<typeof createReactAgent> {
+    const options = this.options
+    return createReactAgent({
       llm: createChatModel(options.llm),
-      tools: buildTools({ ...options, allowPosting: false }),
+      tools: buildTools({ ...options, allowPosting: false }, () => ({ post })),
       prompt: draftPrompt({
         botUsername: options.botUsername,
         dryRun: options.dryRun,
         ...(options.persona ? { persona: options.persona } : {}),
+        ...(options.airdrop
+          ? {
+              airdrop: {
+                symbol: options.airdrop.symbol,
+                maxPerAirdrop: options.airdrop.limits.maxPerAirdrop,
+                ...(options.airdrop.dryRun === undefined
+                  ? {}
+                  : { dryRun: options.airdrop.dryRun }),
+              },
+            }
+          : {}),
       }),
       responseFormat,
     })
@@ -74,7 +96,7 @@ export class AgentReplyModel implements LanguageModel {
       .filter((line) => line !== '')
       .join('\n')
 
-    const result = await this.graph.invoke(
+    const result = await this.buildGraph(input.post).invoke(
       { messages: [new HumanMessage(task)] },
       { recursionLimit: this.maxSteps * 2 },
     )

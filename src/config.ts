@@ -5,6 +5,12 @@ const booleanFromString = z
   .default('true')
   .transform((value) => value === 'true')
 
+/** For switches whose safe position is off rather than on. */
+const offByDefault = z
+  .enum(['true', 'false'])
+  .default('false')
+  .transform((value) => value === 'true')
+
 const schema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3001),
   LOG_LEVEL: z.string().default('info'),
@@ -44,6 +50,34 @@ const schema = z.object({
   MONGO_URI: z.string().min(1).default('mongodb://mongo:27017'),
   MONGO_DATABASE: z.string().min(1).default('teeny'),
   MENTIONS_COLLECTION: z.string().min(1).default('mentions'),
+
+  // --- the wallet ----------------------------------------------------------
+  // Off unless switched on, and switched on it still needs a key and a token
+  // address, so a half-filled environment gets no signer rather than a signer
+  // pointed at nothing. AIRDROP_DRY_RUN is separate from DRY_RUN on purpose:
+  // publishing replies and spending money are different decisions, and the
+  // second one defaults to off even once the first is on.
+  AIRDROP_ENABLED: offByDefault,
+  AIRDROP_DRY_RUN: booleanFromString,
+  AIRDROP_PRIVATE_KEY: z
+    .string()
+    .regex(/^(0x)?[0-9a-fA-F]{64}$/, 'must be a 32-byte hex private key')
+    .optional(),
+  AIRDROP_TOKEN_ADDRESS: z
+    .string()
+    .regex(/^0x[0-9a-fA-F]{40}$/, 'must be a contract address')
+    .optional(),
+  AIRDROP_TOKEN_SYMBOL: z.string().min(1).default('TINY'),
+  AIRDROP_RPC_URL: z.string().optional(),
+  AIRDROPS_COLLECTION: z.string().min(1).default('airdrops'),
+  // The ceilings. A turn cannot raise any of them by asking.
+  AIRDROP_MAX_PER_AIRDROP: z.coerce.number().int().min(1).default(100),
+  AIRDROP_MAX_PER_DAY: z.coerce.number().int().min(1).default(1000),
+  AIRDROP_MAX_PER_RECIPIENT: z.coerce.number().int().min(1).default(1),
+  // Off, this pays any address anywhere in the turn -- including one that came
+  // from a search result or a recalled memory rather than from the person
+  // being answered. Leave it on unless you know why you are turning it off.
+  AIRDROP_REQUIRE_ADDRESS_IN_POST: booleanFromString,
 })
 
 export type Config = z.infer<typeof schema>

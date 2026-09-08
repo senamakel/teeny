@@ -3,6 +3,7 @@ import type { StructuredToolInterface } from '@langchain/core/tools'
 import { ChatOpenAI } from '@langchain/openai'
 import { MemorySaver } from '@langchain/langgraph'
 import { createReactAgent } from '@langchain/langgraph/prebuilt'
+import { createAirdropTools, type AirdropContext, type AirdropToolOptions } from './tools/airdrop.js'
 import { createExaClient, createExaTools } from './tools/exa.js'
 import { createGiphyTools } from './tools/giphy.js'
 import { createMemoryTools } from './tools/memory.js'
@@ -36,6 +37,11 @@ export interface AgentOptions {
   gifs?: { source: GifSource; channel: string }
   /** Cap on posts pulled per search by the agent's own X tools. */
   searchLimit?: number
+  /**
+   * The wallet, its ledger and its ceilings. Absent, there is no signer in the
+   * tool set at all and no amount of prompting can conjure one.
+   */
+  airdrop?: Omit<AirdropToolOptions, 'context'>
 }
 
 export function createChatModel(options: LlmOptions): ChatOpenAI {
@@ -47,7 +53,19 @@ export function createChatModel(options: LlmOptions): ChatOpenAI {
   })
 }
 
-export function buildTools(options: AgentOptions): StructuredToolInterface[] {
+/**
+ * The tools for one turn.
+ *
+ * `airdropContext` is what binds the signer to the post being answered, and the
+ * airdrop tool is only built when it is supplied. That is the whole reason this
+ * takes a second argument: a tool set built once and reused across turns would
+ * let one turn pay out against another turn's post, and the operator endpoint,
+ * which answers a task rather than a post, gets no signer by construction.
+ */
+export function buildTools(
+  options: AgentOptions,
+  airdropContext?: () => AirdropContext,
+): StructuredToolInterface[] {
   return [
     ...createMemoryTools(options.memory),
     ...createXTools(options.x, {
@@ -59,6 +77,9 @@ export function buildTools(options: AgentOptions): StructuredToolInterface[] {
     }),
     ...(options.exaApiKey ? createExaTools(createExaClient(options.exaApiKey)) : []),
     ...(options.gifs ? createGiphyTools(options.gifs.source, options.gifs.channel) : []),
+    ...(options.airdrop && airdropContext
+      ? createAirdropTools({ ...options.airdrop, context: airdropContext })
+      : []),
   ]
 }
 

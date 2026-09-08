@@ -5,27 +5,33 @@ import type { GifSource, Memory, XTools } from '../src/types.js'
 /**
  * A prompt rule asks the model not to do something. This asserts it cannot.
  *
- * The account holds no keys, so the defence against "send 5 SOL to this
- * address" in a reply is that no such tool is reachable, not that the model
- * declines. If a wallet capability is ever added, this test fails and someone
- * has to decide deliberately rather than inherit the ability by accident.
+ * The account held no keys at all until 2026-09-08, when it was given a wallet
+ * on Robinhood Chain to airdrop $TINY. This file used to say that adding one
+ * had to be a deliberate decision rather than an inherited ability; this is
+ * that decision, written down.
  *
- * WHEN WALLET SUPPORT IS ADDED, read this first. It is planned, and the safe
- * shape of it is not "add a tool and tighten the prompt". Every tool here is
- * reachable from the mention path, whose entire input is text written by
- * strangers, so a wallet tool added to this list is a wallet a stranger can
- * address. The prompt is the only thing standing in the way, and a prompt is
- * an argument, not a permission boundary.
+ * What was decided, and what it costs. The airdrop tool IS on the reply path,
+ * whose entire input is text written by strangers, because the account is meant
+ * to decide in conversation whether somebody has earned a tip. So the old
+ * property -- no signer reachable from untrusted text -- is gone, and it is not
+ * coming back while that is the product. What replaces it is the third option
+ * this file listed: a spend policy enforced outside the model, with a ceiling a
+ * turn cannot raise.
  *
- * The reply path and the wallet must not share a tool set. Options that keep
- * this property: a separate agent whose tools never include X reads, so no
- * untrusted text enters the turn that can reach a signer; or a signer behind
- * the operator-authenticated endpoint only, never the cron; or a spend policy
- * enforced outside the model, with an allowlist of destinations and a ceiling
- * that a turn cannot raise.
+ * The boundaries that remain, each asserted below:
  *
- * Update the expected list below when that happens, and keep a case asserting
- * that the reply-path tool set still has no signer in it.
+ *   - The signer exists only when a wallet is configured. No configuration,
+ *     no tool, whatever the prompt says.
+ *   - The signer exists only when a turn is bound to a specific post. The
+ *     operator endpoint answers a task rather than a post, so it gets no
+ *     signer by construction rather than by policy.
+ *   - `airdrop_user` is the only capability that spends. There is no approve,
+ *     no swap, no arbitrary call, and no way to move the native balance.
+ *
+ * Everything the model does not control lives in `src/airdrop/policy.ts`, and
+ * `test/airdrop.test.ts` is where the limits themselves are asserted. If a
+ * second spending tool ever appears here, this test fails, and the same
+ * question has to be answered again.
  */
 
 const FORBIDDEN = [
@@ -47,6 +53,8 @@ const FORBIDDEN = [
   'buy',
   'sell',
 ]
+
+const POST = { id: '1', text: 'gm, my wallet is 0xabc', authorId: '42' }
 
 function options() {
   const memory = {
@@ -73,6 +81,37 @@ function options() {
     exaApiKey: 'exa',
     gifs: { source: gifs, channel: 'TinyHumansAI' },
   }
+}
+
+/** A wallet whose calls would throw: nothing here should reach them. */
+function walletOptions() {
+  return {
+    ...options(),
+    airdrop: {
+      wallet: {
+        address: '0x0000000000000000000000000000000000000001' as const,
+        balance: vi.fn(),
+        gasBalance: vi.fn(),
+        send: vi.fn(),
+      },
+      ledger: {
+        sentToday: vi.fn(),
+        paidRecipientCount: vi.fn(),
+        forPost: vi.fn(),
+        claim: vi.fn(),
+        settle: vi.fn(),
+        fail: vi.fn(),
+        close: vi.fn(),
+      },
+      limits: {
+        maxPerAirdrop: 100,
+        maxPerDay: 1000,
+        maxPerRecipient: 1,
+        requireAddressInPost: true,
+      },
+      symbol: 'TINY',
+    },
+  } as unknown as Parameters<typeof buildTools>[0]
 }
 
 describe('agent capabilities', () => {
@@ -104,5 +143,25 @@ describe('agent capabilities', () => {
       'web_answer',
       'find_gif',
     ])
+  })
+
+  it('has no signer when no wallet is configured, whatever the prompt says', () => {
+    expect(buildTools(options(), () => ({ post: POST })).map((tool) => tool.name)).not.toContain(
+      'airdrop_user',
+    )
+  })
+
+  // The operator endpoint answers a task, not a post, so there is nothing to
+  // bind a payment to and nothing to check an address against. It gets no
+  // signer by construction rather than by remembering to configure one.
+  it('has no signer on a turn that is not bound to a post', () => {
+    expect(buildTools(walletOptions()).map((tool) => tool.name)).not.toContain('airdrop_user')
+  })
+
+  it('adds exactly one spending tool when a wallet is configured and a post is bound', () => {
+    const withWallet = buildTools(walletOptions(), () => ({ post: POST })).map((tool) => tool.name)
+    const without = buildTools(options()).map((tool) => tool.name)
+
+    expect(withWallet.filter((name) => !without.includes(name))).toEqual(['airdrop_user'])
   })
 })

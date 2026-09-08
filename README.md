@@ -121,6 +121,53 @@ checkpointer; that state is lost on restart. The endpoint returns 503 while
 `AGENT_MODE=simple` or `AGENT_API_TOKEN` is unset, and the agent still honours
 `DRY_RUN`, so nothing is published until you turn it off.
 
+## The wallet
+
+The account holds a wallet on Robinhood Chain (an Arbitrum L2, chain id 4663,
+gas in ETH) and can send small $TINY airdrops from inside a conversation. It
+decides for itself whether somebody has earned one.
+
+```text
+airdrop_user(to, amount)  ->  "Sent 50 TINY to 0x... Transaction: 0x..."
+                          ->  "No airdrop was sent: <reason>"
+```
+
+This is the one tool that spends, and it was added against the explicit advice
+recorded in `test/capabilities.test.ts`, which is worth reading before changing
+any of it. The argument there is sound: every tool on the reply path is
+reachable from text written by strangers, so a wallet tool there is a wallet a
+stranger can address, and a prompt is an argument rather than a permission
+boundary. The account is meant to tip people in conversation, so the tool is on
+that path anyway and the defence is placed elsewhere.
+
+**Nothing that matters is decided by the model.** `src/airdrop/policy.ts` is
+checked after the model has already asked, against the ledger:
+
+| Limit | What it stops |
+| --- | --- |
+| the address must appear in the post being answered | an address from a search result, a memory, or somebody else in the thread being paid |
+| the post's author is the only one who can claim it | publishing an address and having a later reply pay it |
+| `AIRDROP_MAX_PER_AIRDROP` | the amount being argued upward |
+| `AIRDROP_MAX_PER_RECIPIENT` | the same account being paid twice |
+| `AIRDROP_MAX_PER_DAY` | a bad day costing more than a day's budget |
+| a unique index on the post id | one post being paid twice by two turns at once |
+
+The worst case is therefore boring: the most persuasive post anyone can write
+gets its own author, once, at most one call's cap, while the budget lasts.
+That is an airdrop working, not an exploit.
+
+Two operational details worth knowing. The ledger row is claimed *before* the
+transfer is broadcast, so a crash between the two blocks a retry rather than
+paying twice — an airdrop that may not have happened is the safe way to be
+wrong. And the airdrop happens while the reply is being drafted, so a reply that
+fails to publish afterwards leaves tokens sent with nothing posted; the ledger
+has it, X does not.
+
+`AIRDROP_ENABLED=false` removes the tool entirely rather than making it fail,
+and `AIRDROP_DRY_RUN=true` runs the whole path and broadcasts nothing. Both are
+independent of `DRY_RUN`, because publishing replies and spending money are
+different decisions.
+
 ## Tone and what gets remembered
 
 The drafter judges how the incoming post read, and that judgement picks the
