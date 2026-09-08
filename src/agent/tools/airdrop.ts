@@ -51,6 +51,8 @@ export interface AirdropToolOptions {
   limits: AirdropLimits
   /** The token's ticker, for the text the model reads back. */
   symbol: string
+  /** What the campaign publicly promises, quoted back in the tool's own text. */
+  standardAmount?: number
   /** Nothing is broadcast while this is true; the ledger still records it. */
   dryRun?: boolean
   /** What is being answered right now. Read per call, never cached. */
@@ -125,8 +127,11 @@ export function createAirdropTools(options: AirdropToolOptions): StructuredToolI
                     ]
                   : [
                       'CAN_SEND',
-                      `Good to go. Call airdrop_user with ${address} and up to ` +
-                        `${options.limits.maxPerAirdrop} ${options.symbol}.`,
+                      `Good to go. Call airdrop_user with ${address} and ` +
+                        (options.standardAmount
+                          ? `${options.standardAmount} ${options.symbol}, which is what the ` +
+                            'campaign promised.'
+                          : `up to ${options.limits.maxPerAirdrop} ${options.symbol}.`),
                     ]
 
       return [`status: ${status}`, ...lines, `So: ${next}`].join('\n')
@@ -282,8 +287,10 @@ export function createAirdropTools(options: AirdropToolOptions): StructuredToolI
           .int()
           .positive()
           .describe(
-            `Whole ${options.symbol} to send, at most ${options.limits.maxPerAirdrop}. ` +
-              'Choose the low end for a nice word and the high end for real work.',
+            options.standardAmount
+            ? `Whole ${options.symbol} to send. Use ${options.standardAmount}: it is what ` +
+              `the campaign promised everybody. At most ${options.limits.maxPerAirdrop}.`
+            : `Whole ${options.symbol} to send, at most ${options.limits.maxPerAirdrop}.`,
           ),
       }),
     },

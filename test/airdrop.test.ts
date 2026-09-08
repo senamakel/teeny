@@ -483,3 +483,28 @@ describe('airdrop_check', () => {
     expect(wallet.send).not.toHaveBeenCalled()
   })
 })
+
+describe('the promised amount', () => {
+  it('tells the model the number the campaign committed to', () => {
+    const prompt = draftPrompt({
+      botUsername: 'teenydroid',
+      dryRun: false,
+      airdrop: { symbol: 'TINY', maxPerAirdrop: 100, standardAmount: 100 },
+    })
+
+    // The campaign post promised 100 and it was sending 10. Announcing a number
+    // and then quietly paying less is worse than not running a campaign.
+    expect(prompt).toContain('THE AMOUNT IS 100 TINY')
+    expect(prompt).toContain('worse than sending nothing at all')
+  })
+
+  it('says nothing about a standard amount when there is not one', () => {
+    const prompt = draftPrompt({
+      botUsername: 'teenydroid',
+      dryRun: false,
+      airdrop: { symbol: 'TINY', maxPerAirdrop: 100 },
+    })
+
+    expect(prompt).not.toContain('THE AMOUNT IS')
+  })
+})

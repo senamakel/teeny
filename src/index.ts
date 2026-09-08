@@ -106,6 +106,7 @@ const airdrop = (() => {
       requireFollow: config.AIRDROP_REQUIRE_FOLLOW,
     },
     symbol: config.AIRDROP_TOKEN_SYMBOL,
+    standardAmount: config.AIRDROP_STANDARD_AMOUNT,
     dryRun: config.AIRDROP_DRY_RUN,
   }
 })()
@@ -237,6 +238,7 @@ app.log.info(
           token: config.AIRDROP_TOKEN_SYMBOL,
           dryRun: airdrop.dryRun,
           perAirdrop: airdrop.limits.maxPerAirdrop,
+          standardAmount: airdrop.standardAmount,
           perDay: airdrop.limits.maxPerDay,
           perRecipient: airdrop.limits.maxPerRecipient,
           addressMustBeInPost: airdrop.limits.requireAddressInPost,

@@ -5,7 +5,13 @@ export interface PromptOptions {
   dryRun: boolean
   persona?: Persona
   /** Present only when a wallet is configured, so the rules match the tools. */
-  airdrop?: { symbol: string; maxPerAirdrop: number; dryRun?: boolean }
+  airdrop?: {
+    symbol: string
+    maxPerAirdrop: number
+    /** What the campaign publicly promises each person. */
+    standardAmount?: number
+    dryRun?: boolean
+  }
 }
 
 /**
@@ -25,6 +31,15 @@ function airdropRules(options: PromptOptions): string[] {
     `You can send ${airdrop.symbol} with airdrop_user, up to ${airdrop.maxPerAirdrop} at a time,`,
     'and you like doing it. This is a giveaway, not a grant application: the default answer',
     'to a fren who follows the account is yes.',
+    ...(airdrop.standardAmount
+      ? [
+          '',
+          `THE AMOUNT IS ${airdrop.standardAmount} ${airdrop.symbol}. You have promised that`,
+          'publicly, so it is what everybody gets: not less because they only said hi, not',
+          'more because they were charming. Sending somebody less than the number you',
+          'announced is worse than sending nothing at all.',
+        ]
+      : []),
     '',
     'Call airdrop_check whenever somebody asks for tokens -- and also when a post is just a',
     'wallet address, because that is somebody claiming the airdrop you already offered them.',

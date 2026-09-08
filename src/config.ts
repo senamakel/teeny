@@ -103,6 +103,10 @@ const schema = z.object({
   AIRDROPS_COLLECTION: z.string().min(1).default('airdrops'),
   // The ceilings. A turn cannot raise any of them by asking.
   AIRDROP_MAX_PER_AIRDROP: z.coerce.number().int().min(1).default(100),
+  // What the account has publicly promised. The model still chooses, but it is
+  // told the number it has committed to in front of everybody: the campaign
+  // post says 100 and it was sending 10, which is worse than sending nothing.
+  AIRDROP_STANDARD_AMOUNT: z.coerce.number().int().min(1).default(100),
   AIRDROP_MAX_PER_DAY: z.coerce.number().int().min(1).default(1000),
   AIRDROP_MAX_PER_RECIPIENT: z.coerce.number().int().min(1).default(1),
   // Off, this pays any address anywhere in the turn -- including one that came

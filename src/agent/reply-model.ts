@@ -66,6 +66,9 @@ export class AgentReplyModel implements LanguageModel {
               airdrop: {
                 symbol: options.airdrop.symbol,
                 maxPerAirdrop: options.airdrop.limits.maxPerAirdrop,
+                ...(options.airdrop.standardAmount === undefined
+                  ? {}
+                  : { standardAmount: options.airdrop.standardAmount }),
                 ...(options.airdrop.dryRun === undefined
                   ? {}
                   : { dryRun: options.airdrop.dryRun }),
