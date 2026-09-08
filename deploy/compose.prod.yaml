@@ -153,15 +153,14 @@ services:
       start_period: 20s
 
   mongo:
-    # 7.0, and the version is the whole point on this box's kernel (7.0.0):
-    # 8.2 segfaults in a loop (`die 139`, no backtrace, reproducible with an
-    # empty volume and no client), 8.0 refuses to start at all
-    # (SERVER-121912), 7.0 and 6.0 run. Re-check before upgrading.
+    # 8.0, matching what the stonks stack already runs on this box (kernel
+    # 6.8). Do not copy the newer box's pin of 7.0 over: that one is on kernel
+    # 7.0.0, where 8.x either refuses to start or segfaults in a loop.
     #
-    # Unlike the stonks database, this one is NOT derived: it is the mention
-    # queue, and X's search only reaches back 7 days, so a dropped volume
-    # loses any mention older than that for good. Migrate it, do not recreate.
-    image: mongo:7.0
+    # This database is NOT derived data: it is the mention queue, and X's
+    # search only reaches back 7 days, so a dropped volume loses any mention
+    # older than that for good. Migrate it, never recreate it.
+    image: mongo:8.0
     restart: unless-stopped
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:-teeny}

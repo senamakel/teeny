@@ -3,6 +3,7 @@
 #
 #   ./deploy/deploy.sh                # check, sync, build, release, health check
 #   ./deploy/deploy.sh --skip-checks  # skip the local lint/typecheck/test pass
+#   ./deploy/deploy.sh --build-only   # check, sync and build; start nothing
 #   ./deploy/deploy.sh --logs         # tail the running stack and exit
 #   ./deploy/deploy.sh --down         # stop the stack (volumes are kept)
 #   ./deploy/deploy.sh --rollback     # put the previous image back
@@ -27,9 +28,9 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-DEPLOY_HOST="${DEPLOY_HOST:-root@168.100.10.208}"
-DEPLOY_KEY="${DEPLOY_KEY:-$REPO_ROOT/key.pem}"
-REMOTE_DIR="${REMOTE_DIR:-/root/teeny}"
+DEPLOY_HOST="${DEPLOY_HOST:-droid@174.138.35.76}"
+DEPLOY_KEY="${DEPLOY_KEY:-$HOME/.ssh/id_rsa}"
+REMOTE_DIR="${REMOTE_DIR:-/home/droid/teeny}"
 PROJECT="teeny"
 NETWORK="${NETWORK:-${PROJECT}_default}"
 LADDER="${LADDER:-ladder}"
@@ -38,13 +39,15 @@ SKIP_CHECKS=0
 ROLLBACK=0
 LOGS=0
 DOWN=0
+BUILD_ONLY=0
 for arg in "$@"; do
   case "$arg" in
     --skip-checks) SKIP_CHECKS=1 ;;
+    --build-only) BUILD_ONLY=1 ;;
     --rollback) ROLLBACK=1 ;;
     --logs) LOGS=1 ;;
     --down) DOWN=1 ;;
-    -h|--help) sed -n '2,10p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help) sed -n '2,11p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -152,7 +155,13 @@ scp -q -i "$DEPLOY_KEY" deploy/.env "$DEPLOY_HOST:$REMOTE_DIR/deploy/.env"
 # healthy deploy from the outside. Prove it is reachable before releasing.
 LADDER_URL="$(envval LADDER_URL deploy/.env)"
 say "Checking the model endpoint"
-remote "docker network inspect $NETWORK >/dev/null 2>&1 || docker network create $NETWORK" >/dev/null
+# Created here rather than by compose because the ladder has to be attached
+# before anything starts. Compose refuses to adopt a network it cannot
+# recognise as its own, so it is created wearing compose's own labels.
+remote "docker network inspect $NETWORK >/dev/null 2>&1 || docker network create \
+  --label com.docker.compose.project=$PROJECT \
+  --label com.docker.compose.network=default \
+  $NETWORK" >/dev/null
 if [ -z "$LADDER_URL" ] || [ "$LADDER_URL" = "http://$LADDER:6969/v1" ]; then
   if remote "docker inspect $LADDER >/dev/null 2>&1"; then
     remote "docker network connect $NETWORK $LADDER 2>/dev/null || true"
@@ -176,6 +185,13 @@ remote "$COMPOSE build" || die "image build failed"
 # Keep the outgoing image so a bad deploy can be undone in one command.
 remote "docker image inspect $PROJECT:current >/dev/null 2>&1 && docker tag $PROJECT:current $PROJECT:previous || true"
 remote "docker tag $PROJECT:current $PROJECT:$GIT_SHA || true"
+
+if [ "$BUILD_ONLY" -eq 1 ]; then
+  # cutover.sh needs the image on the box before it stops the old agent, so
+  # that the account is quiet for seconds rather than for a build.
+  say "Built $GIT_SHA. Nothing was started (--build-only)."
+  exit 0
+fi
 
 # --- release ---------------------------------------------------------------
 say "Starting the stack"

@@ -1,9 +1,9 @@
 # Deploying teeny
 
-teeny runs on `168.100.10.208` (root, SSH key `key.pem` in the repo root;
-override with `DEPLOY_HOST` / `DEPLOY_KEY`) as a small Docker Compose stack. It
-takes no public port: the box's host nginx owns :80 and :443 and fronts several
-projects, so everything here publishes on `127.0.0.1` only.
+teeny runs on `174.138.35.76` (`robot1`, user `droid`, key `~/.ssh/id_rsa`;
+override with `DEPLOY_HOST` / `DEPLOY_KEY`) as a Docker Compose stack. The box
+is teeny's alone now, but nothing here takes a public port anyway: host nginx
+owns :80 and :443 and proxies the one HTTP surface that faces outward.
 
 ```sh
 cp .env.example .env                 # the agent's credentials: X, Exa, Giphy
@@ -13,6 +13,7 @@ cp deploy/.env.example deploy/.env   # the infrastructure around it
 
 ```sh
 ./deploy/deploy.sh --skip-checks   # skip the local lint/typecheck/test pass
+./deploy/deploy.sh --build-only    # sync and build, start nothing
 ./deploy/deploy.sh --logs          # tail the running stack
 ./deploy/deploy.sh --down          # stop it (volumes are kept)
 ./deploy/deploy.sh --rollback      # put the previous image back
@@ -20,46 +21,48 @@ cp deploy/.env.example deploy/.env   # the infrastructure around it
 
 ## The stack
 
-| Service     | What it does                                    | Host port        |
-| ----------- | ----------------------------------------------- | ---------------- |
-| `bot`       | X ingest + the webhook + `/agent/run`           | `127.0.0.1:3110` |
-| `bot-reply` | drains the mention queue and posts replies       | none             |
-| `cortexdb`  | long-term memory                                 | `127.0.0.1:3142` |
-| `tika`      | text extraction for CortexDB                     | none             |
-| `mongo`     | the mention queue                                | `127.0.0.1:27020`|
+| Container          | What it does                              | Host port         |
+| ------------------ | ----------------------------------------- | ----------------- |
+| `teeny-bot-1`      | X ingest, the webhook, `/agent/run`       | `127.0.0.1:3110`  |
+| `teeny-bot-reply-1`| drains the queue and posts the replies     | none              |
+| `teeny-cortexdb-1` | long-term memory                           | `127.0.0.1:3142`  |
+| `teeny-tika-1`     | text extraction for CortexDB               | none              |
+| `teeny-mongo-1`    | the mention queue                          | `127.0.0.1:27020` |
+| `ladder`           | the model endpoint, owned by no project    | `127.0.0.1:6969`  |
 
 Ingest and reply are two containers over one queue because they fail
 differently. Retrieval has a deadline and a meter on it — X's search reaches
-back only 7 days and every post retrieved is billed — so a mention missed
-while the model was down is gone for good. Replying has neither, which is why
-the reply half can be restarted or paused without touching the half that
-cannot afford to stop.
-
-Ports avoid what the other stacks on this box already hold: 3000 and 8080
-(prmpt), 3100 and 27019 (stonks).
+back only 7 days and every post retrieved is billed — so a mention missed while
+the model was down is gone for good. Replying has neither, which is why the
+reply half can be restarted or paused without touching the half that cannot
+afford to stop.
 
 ## The ladder
 
-The agent and CortexDB both talk to the ladder, so there is one egress path and
+The agent and CortexDB both call the ladder, so there is one egress path and
 one set of provider keys on the box rather than a second copy inside a
-database. The ladder is a container this project does not own, and it binds
+database. It is a container this project does not own and it binds
 `127.0.0.1`, which a container cannot reach through `host.docker.internal`.
 Two ways to point at it, both in `deploy/.env`:
 
-- **Same box.** Leave `LADDER_URL` empty. `deploy.sh` joins the container named
-  `ladder` to `teeny_default`, which is what makes `http://ladder:6969` resolve.
-  Compose cannot adopt a container it did not create, which is why this is a
-  script step rather than a compose entry. It has to be repeated whenever that
-  container is recreated — re-running the deploy does it.
+- **Same box** (what runs today). Leave `LADDER_URL` empty. `deploy.sh` joins
+  the container named `ladder` to `teeny_default`, which is what makes
+  `http://ladder:6969` resolve. Compose cannot adopt a container it did not
+  create, so this is a script step rather than a compose entry, and it has to
+  be repeated whenever the ladder container is recreated — re-running the
+  deploy does it. The network is created wearing compose's own labels, because
+  compose refuses to use one it cannot recognise as its own.
 - **Another box.** Set `LADDER_URL` to something reachable *from a container
   here*. `deploy.sh` proves it answers `/models` before releasing.
 
-Without either, `deploy.sh` refuses to deploy. That is deliberate: the agent
-boots fine with no model endpoint and then fails every single turn, which from
-the outside looks exactly like a healthy deployment.
-
-**As of the last check there is no `ladder` container on `168.100.10.208`.**
-It runs on the prmpt box. Either start one here or set `LADDER_URL`.
+**This is the failure that took teeny offline before it had a repo.** The
+ladder container was recreated, its attachment to the stack's network went with
+it, and from then on every model call failed DNS: no replies drafted, and
+CortexDB's consolidation erroring on every pass. Nothing crashed and nothing
+looked unhealthy — the ingest half kept polling X and logging clean lines for
+days. That is why `deploy.sh` refuses to release without proving the model
+endpoint answers, and why the cutover proves it again from inside the running
+container.
 
 ## The two .env files
 
@@ -73,45 +76,72 @@ from two sides — the service's own key, and the client's copy of it. They are
 checked against each other before every deploy, because a mismatch fails at the
 first recall rather than at boot.
 
+`CORTEX_ACTOR` and `CORTEX_SCOPE` are `agent:tiny-x-bot` and must stay that
+way: everything Tiny remembers is filed under that scope, and changing it does
+not migrate the memory, it hides it.
+
 `DRY_RUN=false` in `.env` is the only thing between a drafted reply and a
 published one. The deploy prints which of the two it is shipping.
 
-## Before the first real deploy
+## The webhook
+
+X delivers to `https://stonks.rocks/webhooks/x`, which is registered in the X
+developer console and stays that way — the vhost on the box proxies that one
+location to `127.0.0.1:3110`. The cron poll is the safety net underneath it:
+a webhook delivery that fails is retried for a while and then dropped, and an
+account that misses a mention entirely has no way to notice.
+
+`deploy/nginx/teeny.conf` is a standalone vhost for the day teeny gets its own
+hostname. It is not installed; the stonks.rocks vhost carries the webhook
+today.
+
+`/health` and `/queue` are deliberately not published. Read them over SSH:
+
+```sh
+ssh droid@174.138.35.76 'curl -sS http://127.0.0.1:3110/queue'
+```
+
+## How teeny got here
+
+teeny ran on this box for weeks before it had a repository, as `stonks-bot-1`
+and `stonks-bot-reply-1` inside the stonks.rocks stack. `deploy/cutover.sh`
+performed the move, once, on 2026-09-08:
+
+- the old halves were stopped **before** the new ones started — both reply as
+  @TinyMascot off one queue, so running them together means two answers to one
+  mention, from one account, in public;
+- `stonks_cortexdb-data` (1415 events, 1574 vectors), `stonks_bot-data` (the
+  ingest cursor) and the 34-document `mentions` collection were copied, not
+  moved, into teeny's own volumes;
+- the webhook upstream was repointed from :3101 to :3110, so nothing had to be
+  re-registered with X;
+- the rest of the box — the stonks website and the whole of prmpt — was
+  stopped at the same time, on request. Stopped, not removed: every container
+  and every volume is still there.
+
+`./deploy/cutover.sh --undo` reverses all of it. The script is kept because it
+documents what the state actually is, not because it should ever run twice.
+
+Once teeny has been answering for a while, the leftovers can go:
+
+```sh
+ssh droid@174.138.35.76 'docker rm stonks-bot-1 stonks-bot-reply-1 stonks-cortexdb-1 stonks-tika-1'
+```
+
+and the `bot` profile should be deleted from the stonks compose file, so a
+stonks deploy cannot bring a second agent back up on this account.
+
+## Before the next real change
 
 1. **X credentials.** `X_ACCESS_TOKEN` and `X_ACCESS_TOKEN_SECRET` come from
    `npm run auth:x`, not the developer portal, and must be authorized while
    logged in as the bot account.
-2. **Embedding dims are permanent.** `CORTEX_EMBEDDING_MODEL` and
-   `CORTEX_EMBEDDING_DIMS` are pinned on CortexDB's first ingest. Changing
-   either afterwards orphans everything already stored.
+2. **Embedding dims are permanent.** `CORTEX_EMBEDDING_MODEL` (`vectors`) and
+   `CORTEX_EMBEDDING_DIMS` (3072) were pinned on CortexDB's first ingest.
+   Changing either now orphans everything already stored.
 3. **The mention queue is not derived data.** Unlike the stonks database, it
    cannot be rebuilt: X's search only reaches back 7 days. Migrate the
-   `mongo-data` volume, never recreate it.
-
-## The webhook (optional)
-
-The cron poll finds mentions on its own, so the stack is useful with no public
-address at all. The webhook is the fast path — a mention arrives in seconds and
-costs nothing against the post-read cap — and it needs public HTTPS:
-
-```text
-GET/POST https://<host>/webhooks/x
-```
-
-`deploy/nginx/teeny.conf` is the vhost for it. Install it, put a real hostname
-in it, issue a certificate, then subscribe the account to the webhook in the X
-developer console. `/health` and `/queue` are deliberately not published; read
-them over SSH on `127.0.0.1:3110`.
-
-## The box
-
-Kernel 7.0.0, 7.9GB RAM, 4GB swap. Mongo is pinned to `7.0` because 8.2
-segfaults in a loop on this kernel (`die 139`, reproducible with an empty
-volume and no client) and 8.0 refuses to start at all (SERVER-121912).
-
-```sh
-ssh -i key.pem root@168.100.10.208
-docker compose --project-directory /root/teeny/deploy \
-  -f /root/teeny/deploy/compose.prod.yaml --env-file /root/teeny/deploy/.env ps
-curl -sS http://127.0.0.1:3110/queue   # the backlog, by status
-```
+   `teeny_mongo-data` volume, never recreate it.
+4. **Mongo is pinned to 8.0**, which is what this box (kernel 6.8) has always
+   run. Do not copy the newer droplet's pin of 7.0 across: that pin exists
+   because 8.x either refuses to start or segfaults in a loop on kernel 7.0.0.
