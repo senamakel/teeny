@@ -85,17 +85,40 @@ published one. The deploy prints which of the two it is shipping.
 
 ## The webhook
 
-X delivers to `https://stonks.rocks/webhooks/x`, which is registered in the X
-developer console and stays that way — the vhost on the box proxies that one
-location to `127.0.0.1:3110`. The cron poll is the safety net underneath it:
-a webhook delivery that fails is retried for a while and then dropped, and an
-account that misses a mention entirely has no way to notice.
+teeny has its own name: **`teeny.tinyhumans.ai`**, proxied by Cloudflare to
+this box, with a Let's Encrypt certificate on the origin and
+`deploy/nginx/teeny.conf` installed as its vhost.
 
-`deploy/nginx/teeny.conf` is a standalone vhost for the day teeny gets its own
-hostname. It is not installed; the stonks.rocks vhost carries the webhook
-today.
+```text
+https://teeny.tinyhumans.ai/webhooks/x    X Account Activity
+https://teeny.tinyhumans.ai/agent/run     ad-hoc tasks, bearer AGENT_API_TOKEN
+```
 
-`/health` and `/queue` are deliberately not published. Read them over SSH:
+Everything else on that name answers 404. `/health` and `/queue` are
+operational, not public — read them over SSH.
+
+Two things about the vhost, both of which have bitten this box before:
+
+- The 443 block is not optional. Cloudflare connects to the origin over
+  HTTPS, and a name with no TLS server of its own falls through to the first
+  one nginx has — another project's — which then gets served under this
+  domain.
+- Test it with SNI. `curl -H 'Host: ...' https://127.0.0.1/` sends no SNI, so
+  nginx answers from the default server and the result tells you nothing
+  about this vhost. Use `--resolve teeny.tinyhumans.ai:443:127.0.0.1`.
+
+**X still delivers to `https://stonks.rocks/webhooks/x`**, which is what is
+registered in its developer console; that vhost's webhook location was
+repointed at teeny during the cutover, so both names work. Moving the
+registration to `teeny.tinyhumans.ai` is an Account Activity API call
+(deregister, register, re-subscribe) and has not been done — until it is,
+stonks.rocks has to keep resolving here.
+
+The cron poll is the safety net under all of it: a webhook delivery that fails
+is retried for a while and then dropped, and an account that misses a mention
+entirely has no way to notice.
+
+Read the operational endpoints over SSH:
 
 ```sh
 ssh droid@174.138.35.76 'curl -sS http://127.0.0.1:3110/queue'
