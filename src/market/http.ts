@@ -29,7 +29,11 @@ export async function fetchJson<T>(
       // neither is a malformed request. Retrying those just spends the budget
       // the retryable ones need.
       if (!isWorthRetrying(last) || attempt === retries) throw last
-      await sleep(500 * 2 ** attempt)
+      // When the server said how long to wait, wait that long. Backing off on
+      // our own schedule against an explicit Retry-After just burns another
+      // attempt on a request it has already told us it will refuse.
+      const asked = retryAfterMs(last)
+      await sleep(asked ?? 500 * 2 ** attempt)
     }
   }
   throw last ?? new Error(`${url} failed`)
@@ -41,6 +45,15 @@ export async function fetchJson<T>(
  * post silently lost its holder data because a rate limit looked exactly like a
  * missing feature.
  */
+/** `Retry-After` in seconds, when the response carried one. */
+function retryAfterMs(error: Error): number | undefined {
+  const match = /retry-after:\s*(\d+)/i.exec(error.message)
+  const seconds = match?.[1] === undefined ? undefined : Number(match[1])
+  return seconds === undefined || !Number.isFinite(seconds)
+    ? undefined
+    : Math.min(seconds, 30) * 1_000
+}
+
 function isWorthRetrying(error: Error): boolean {
   return /\b(429|500|502|503|504)\b/.test(error.message) || error.name === 'AbortError'
 }
@@ -64,7 +77,11 @@ async function once<T>(
     })
     if (!response.ok) {
       const body = (await response.text().catch(() => '')).slice(0, 300)
-      throw new Error(`${url} answered ${response.status}: ${body}`)
+      const after = response.headers.get('retry-after')
+      throw new Error(
+        `${url} answered ${response.status}: ${body}` +
+          (after ? ` (retry-after: ${after})` : ''),
+      )
     }
     return (await response.json()) as T
   } finally {

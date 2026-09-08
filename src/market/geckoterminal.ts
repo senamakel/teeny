@@ -1,4 +1,5 @@
 import { fetchJson, num } from './http.js'
+import { createLimiter } from './limiter.js'
 import { TIMEFRAMES, type Candle, type MarketSource, type Timeframe, type TokenOverview, type Trade } from './types.js'
 
 const BASE = 'https://api.geckoterminal.com/api/v2'
@@ -35,18 +36,34 @@ function bare(id: string | undefined): string | undefined {
  * a proxy in front of it; this is what runs when there is not.
  */
 export class GeckoTerminalClient implements MarketSource {
+  /**
+   * Every call this client makes goes through one queue, so a run that reads
+   * four timeframes spends four gaps rather than arriving as a burst.
+   */
+  private readonly limit: <T>(work: () => Promise<T>) => Promise<T>
+
   constructor(
-    private readonly options: { network?: string; baseUrl?: string; timeoutMs?: number } = {},
-  ) {}
+    private readonly options: {
+      network?: string
+      baseUrl?: string
+      timeoutMs?: number
+      /** Minimum gap between calls. Their free tier is about 30 a minute. */
+      minIntervalMs?: number
+    } = {},
+  ) {
+    this.limit = createLimiter(options.minIntervalMs ?? 2_500)
+  }
 
   private get network(): string {
     return this.options.network ?? 'solana'
   }
 
   private get(path: string): Promise<unknown> {
-    return fetchJson(
-      `${this.options.baseUrl ?? BASE}${path}`,
-      this.options.timeoutMs === undefined ? {} : { timeoutMs: this.options.timeoutMs },
+    return this.limit(() =>
+      fetchJson(
+        `${this.options.baseUrl ?? BASE}${path}`,
+        this.options.timeoutMs === undefined ? {} : { timeoutMs: this.options.timeoutMs },
+      ),
     )
   }
 

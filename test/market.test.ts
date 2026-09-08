@@ -217,3 +217,53 @@ describe('the market layer', () => {
     expect(fetched).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('rate limits', () => {
+  it('waits as long as the server asked rather than on its own schedule', async () => {
+    const { fetchJson } = await import('../src/market/http.js')
+    const slept: number[] = []
+    let calls = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        calls += 1
+        if (calls === 1) {
+          return {
+            ok: false,
+            status: 429,
+            headers: { get: (name: string) => (name === 'retry-after' ? '7' : null) },
+            text: async () => 'slow down',
+            json: async () => ({}),
+          }
+        }
+        return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ fine: true }) }
+      }),
+    )
+
+    const result = await fetchJson<{ fine: boolean }>('https://example.com/x', {
+      sleep: async (ms) => {
+        slept.push(ms)
+      },
+    })
+
+    expect(result).toEqual({ fine: true })
+    expect(slept).toEqual([7_000])
+  })
+
+  it('does not retry a 404, which would only spend the budget a 429 needs', async () => {
+    const { fetchJson } = await import('../src/market/http.js')
+    const fetcher = vi.fn(async () => ({
+      ok: false,
+      status: 404,
+      headers: { get: () => null },
+      text: async () => 'nope',
+      json: async () => ({}),
+    }))
+    vi.stubGlobal('fetch', fetcher)
+
+    await expect(fetchJson('https://example.com/x', { sleep: async () => undefined })).rejects.toThrow(
+      /404/,
+    )
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
+})
