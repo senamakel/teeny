@@ -5,6 +5,18 @@ const booleanFromString = z
   .default('true')
   .transform((value) => value === 'true')
 
+/**
+ * A value that may be left blank.
+ *
+ * `.optional()` alone is not enough: it permits the key to be absent, but a
+ * filled-in .env spells "absent" as `KEY=`, and an empty string is a string,
+ * which then fails the format check and takes the process down at boot. Every
+ * optional value with a format has to accept the empty spelling too.
+ */
+function blankable<T extends z.ZodType>(schema: T) {
+  return z.preprocess((value) => (value === '' ? undefined : value), schema.optional())
+}
+
 /** For switches whose safe position is off rather than on. */
 const offByDefault = z
   .enum(['true', 'false'])
@@ -59,16 +71,14 @@ const schema = z.object({
   // second one defaults to off even once the first is on.
   AIRDROP_ENABLED: offByDefault,
   AIRDROP_DRY_RUN: booleanFromString,
-  AIRDROP_PRIVATE_KEY: z
-    .string()
-    .regex(/^(0x)?[0-9a-fA-F]{64}$/, 'must be a 32-byte hex private key')
-    .optional(),
-  AIRDROP_TOKEN_ADDRESS: z
-    .string()
-    .regex(/^0x[0-9a-fA-F]{40}$/, 'must be a contract address')
-    .optional(),
+  AIRDROP_PRIVATE_KEY: blankable(
+    z.string().regex(/^(0x)?[0-9a-fA-F]{64}$/, 'must be a 32-byte hex private key'),
+  ),
+  AIRDROP_TOKEN_ADDRESS: blankable(
+    z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'must be a contract address'),
+  ),
   AIRDROP_TOKEN_SYMBOL: z.string().min(1).default('TINY'),
-  AIRDROP_RPC_URL: z.string().optional(),
+  AIRDROP_RPC_URL: blankable(z.string()),
   AIRDROPS_COLLECTION: z.string().min(1).default('airdrops'),
   // The ceilings. A turn cannot raise any of them by asking.
   AIRDROP_MAX_PER_AIRDROP: z.coerce.number().int().min(1).default(100),
