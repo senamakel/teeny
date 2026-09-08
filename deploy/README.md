@@ -107,12 +107,21 @@ Two things about the vhost, both of which have bitten this box before:
   nginx answers from the default server and the result tells you nothing
   about this vhost. Use `--resolve teeny.tinyhumans.ai:443:127.0.0.1`.
 
-**X still delivers to `https://stonks.rocks/webhooks/x`**, which is what is
-registered in its developer console; that vhost's webhook location was
-repointed at teeny during the cutover, so both names work. Moving the
-registration to `teeny.tinyhumans.ai` is an Account Activity API call
-(deregister, register, re-subscribe) and has not been done — until it is,
-stonks.rocks has to keep resolving here.
+X delivers here — the registration was moved off `stonks.rocks` on
+2026-09-08 with `npm run webhook`, and X's CRC challenge against the new URL
+passed. Nothing depends on stonks.rocks resolving to this box any more; the
+webhook location left in that vhost is now dead weight and can go whenever
+that file is next touched.
+
+```sh
+npm run webhook                                            # where X delivers, and who is subscribed
+npm run webhook -- --set https://teeny.tinyhumans.ai/webhooks/x --confirm
+```
+
+The app holds exactly one webhook, so a move is a delete followed by a create
+and there is no moment where both are registered — the cron poll covers the
+seconds in between. See the header of `src/scripts/webhook.ts` for the rest,
+including why a wrong credential shows up as a `503` rather than a 401.
 
 The cron poll is the safety net under all of it: a webhook delivery that fails
 is retried for a while and then dropped, and an account that misses a mention

@@ -263,15 +263,20 @@ number to paste into the terminal and no callback URL has to be registered.
 
 ## X webhook
 
-Deploy the service behind public HTTPS and register:
+The service must be behind public HTTPS, and X has to be told where. In
+production that is `https://teeny.tinyhumans.ai/webhooks/x`.
 
-```text
-GET/POST https://your-host.example/webhooks/x
+```sh
+npm run webhook                                   # where X delivers today
+npm run webhook -- --set <url>                    # preview a move
+npm run webhook -- --set <url> --confirm          # do it
 ```
 
-The endpoint implements X challenge-response checks and validates the
-`x-twitter-webhooks-signature` header before accepting activity. The account
-must then be subscribed to the webhook in the X developer console/API.
+The endpoint implements X's challenge-response check and validates the
+`x-twitter-webhooks-signature` header before accepting activity. `--set`
+registers the URL, which is when X sends the CRC challenge, and subscribes the
+account; the app is allowed one webhook, so an existing one is retired first
+and put back if the new registration is refused.
 
 ## Commands
 
@@ -281,6 +286,7 @@ npm run typecheck
 npm test
 npm run lint
 npm run build
+npm run webhook     # read or move the X Account Activity registration
 ```
 
 Runtime cursor data is stored at `data/state.json` and is ignored by
