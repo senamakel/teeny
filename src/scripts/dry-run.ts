@@ -7,6 +7,9 @@ import { applyHouseStyle } from '../agent/house-style.js'
 import { loadPersona } from '../agent/soul.js'
 import { ReplyHarness } from '../harness/reply-harness.js'
 import { CortexMemory } from '../memory/cortex.js'
+import { MongoAirdropLedger } from '../airdrop/ledger.js'
+import { MongoRecipientRegistry } from '../airdrop/registry.js'
+import { Erc20Wallet } from '../clients/wallet.js'
 import type { XPost } from '../types.js'
 
 /**
@@ -32,6 +35,10 @@ function flag(name: string): string | undefined {
 }
 
 const hypothetical = flag('--text')
+// Who the hypothetical post is from. The numeric id matters: the follow check
+// and every per-person rule key on it, so a made-up id makes the rehearsal
+// answer a different question from the real one.
+const asUserId = flag('--as-id')
 const target = argv[0]?.startsWith('--') ? undefined : argv[0]
 
 const memory = new CortexMemory(
@@ -52,6 +59,44 @@ const gifs = config.GIPHY_API_KEY
       channel: config.GIPHY_CHANNEL,
     }
   : undefined
+
+/**
+ * The wallet, and it is forced into dry run here whatever the environment says.
+ *
+ * This script exists to see what the account WOULD say. If it could also spend,
+ * then rehearsing a reply and paying somebody would be the same command, and
+ * the difference would be a variable in a file somebody forgot to check.
+ */
+const airdrop =
+  config.AIRDROP_ENABLED && config.AIRDROP_PRIVATE_KEY && config.AIRDROP_TOKEN_ADDRESS
+    ? {
+        wallet: new Erc20Wallet({
+          privateKey: config.AIRDROP_PRIVATE_KEY,
+          token: config.AIRDROP_TOKEN_ADDRESS,
+          ...(config.AIRDROP_RPC_URL ? { rpcUrl: config.AIRDROP_RPC_URL } : {}),
+        }),
+        ledger: new MongoAirdropLedger({
+          uri: config.MONGO_URI,
+          database: config.MONGO_DATABASE,
+          collection: config.AIRDROPS_COLLECTION,
+        }),
+        registry: new MongoRecipientRegistry({
+          uri: config.MONGO_URI,
+          database: config.MONGO_DATABASE,
+          collection: config.RECIPIENTS_COLLECTION,
+        }),
+        followsAccount: (userId: string) => x.followsAccount(userId),
+        limits: {
+          maxPerAirdrop: config.AIRDROP_MAX_PER_AIRDROP,
+          maxPerDay: config.AIRDROP_MAX_PER_DAY,
+          maxPerRecipient: config.AIRDROP_MAX_PER_RECIPIENT,
+          requireAddressInPost: config.AIRDROP_REQUIRE_ADDRESS_IN_POST,
+          requireFollow: config.AIRDROP_REQUIRE_FOLLOW,
+        },
+        symbol: config.AIRDROP_TOKEN_SYMBOL,
+        dryRun: true,
+      }
+    : undefined
 
 const harness = new ReplyHarness(
   memory,
@@ -74,6 +119,8 @@ const harness = new ReplyHarness(
     searchLimit: config.X_SEARCH_MAX_RESULTS,
     ...(config.EXA_API_KEY ? { exaApiKey: config.EXA_API_KEY } : {}),
     ...(gifs ? { gifs } : {}),
+    ...(airdrop ? { airdrop } : {}),
+    ownTokenAddresses: config.OWN_TOKEN_ADDRESSES,
   }),
   // The dry run has to see the same thread the cron would, or it is testing a
   // different reply from the one that would go out.
@@ -86,9 +133,9 @@ const botUsername = config.X_BOT_USERNAME.toLowerCase()
 const posts: XPost[] = hypothetical
   ? [
       {
-        id: '0',
+        id: flag('--post-id') ?? '0',
         text: hypothetical,
-        authorId: '0',
+        authorId: asUserId ?? '0',
         authorUsername: flag('--from') ?? 'hypothetical_user',
       },
     ]
