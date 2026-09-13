@@ -169,8 +169,8 @@ export function summariseRecall(block: string, maxLines = 4): string[] {
         line.length > 0 &&
         // Section headers like "ABOUT @fren:" or "GENERAL CONTEXT:" are structure, not memory.
         !/^[A-Z][A-Z\s]*(?:@\S+)?:$/.test(line) &&
-        // Raw records, not prose.
-        !/^[{[]/.test(line),
+        // Raw records, not prose. A leading "[assistant]" is a role tag and stays.
+        !line.startsWith('{'),
     )
     .slice(0, maxLines)
     .map((line) => (line.length > MAX_LINE ? `${line.slice(0, MAX_LINE - 1)}…` : line))
@@ -190,6 +190,10 @@ export function summariseResult(output: unknown, max = 160): string {
               return String(output)
             }
           })()
-  const flat = text.replace(/\s+/g, ' ').trim()
+  // Multi-line output is a context block or a listing, and gets the same
+  // treatment as recall: the prose lines, joined, with the raw records left
+  // out. Only when that leaves nothing does the flattened original stand in.
+  const prose = text.includes('\n') ? summariseRecall(text, 3).join(' · ') : ''
+  const flat = (prose || text).replace(/\s+/g, ' ').trim()
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat
 }

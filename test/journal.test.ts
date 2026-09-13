@@ -84,6 +84,10 @@ describe('the journal', () => {
     expect(summariseResult({ price: 1, note: 'a\n  b' })).toBe('{"price":1,"note":"a\\n b"}')
     expect(summariseResult('a'.repeat(200)).length).toBe(160)
     expect(summariseResult(undefined)).toBe('')
+    expect(
+      summariseResult('GENERAL CONTEXT:\n[2026-09-02 07:47 UTC] {"redacted":true}\n[2026-09-13 18:23 UTC] [assistant] glad it landed'),
+    ).toBe('[assistant] glad it landed')
+    expect(summariseResult('id: 1\nauthor: @x\ntext: hi')).toBe('id: 1 · author: @x · text: hi')
   })
 })
 
