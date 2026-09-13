@@ -164,6 +164,11 @@ const schema = z.object({
   // conversation rather than beside it, cheap next to the persona documents.
   TELEGRAM_HISTORY_TOKENS: z.coerce.number().int().min(0).max(50_000).default(5_000),
   TRANSCRIPT_COLLECTION: z.string().min(1).default('telegram_transcript'),
+  // How long to wait for the same person to finish typing before answering.
+  // "hey" / "quick q" / the question, sent as three messages, is one thought.
+  TELEGRAM_DEBOUNCE_MS: z.coerce.number().int().min(0).max(30_000).default(2_500),
+  // The least time between two GIFs in one chat, whatever the drafter wants.
+  TELEGRAM_GIF_COOLDOWN_S: z.coerce.number().int().min(0).max(86_400).default(600),
 
   // --- the wallet ----------------------------------------------------------
   // Nothing reads these today. The agent has no airdrop tool: it was added and

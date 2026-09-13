@@ -97,6 +97,9 @@ const recording: TelegramApi = {
     return { id: 2 }
   },
   sendChatAction: async () => undefined,
+  setMessageReaction: async (_chatId, messageId, emoji) => {
+    console.log(`--- would react ${emoji} on message ${messageId}`)
+  },
 }
 
 const logger = {

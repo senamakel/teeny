@@ -4,6 +4,7 @@ import {
   commandOf,
   isAddressedToBot,
   isFromBot,
+  isServiceMessage,
   stripBotMention,
   toChatMessage,
 } from '../src/telegram/inbox.js'
@@ -141,6 +142,16 @@ describe('toChatMessage', () => {
     expect(toChatMessage(message({ from: buyBot, text: '@teenythebot 🟢 BUY 12 SOL' }), bot)).toBeUndefined()
     expect(toChatMessage(message({ from: placeholder, sender_chat: channel }), bot)).toBeUndefined()
     expect(toChatMessage(message({ is_automatic_forward: true }), bot)).toBeUndefined()
+  })
+
+  it('drops service messages: joins, leaves, pins, title changes', () => {
+    const join = message({ text: undefined as unknown as string, new_chat_members: [alice] })
+    expect(isServiceMessage(join)).toBe(true)
+    expect(toChatMessage(join, bot)).toBeUndefined()
+    expect(toChatMessage(message({ pinned_message: {}, text: 'pinned' }), bot)).toBeUndefined()
+    expect(toChatMessage(message({ new_chat_title: 'TINY fam' }), bot)).toBeUndefined()
+    expect(toChatMessage(message({ left_chat_member: alice }), bot)).toBeUndefined()
+    expect(isServiceMessage(message())).toBe(false)
   })
 
   it('reads a caption when a photo carries the question', () => {

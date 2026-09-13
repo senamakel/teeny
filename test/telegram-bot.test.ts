@@ -28,6 +28,7 @@ function api(): TelegramApi {
     sendMessage: vi.fn().mockImplementation(async () => ({ id: (sent += 1) })),
     sendAnimation: vi.fn().mockResolvedValue({ id: 100 }),
     sendChatAction: vi.fn().mockResolvedValue(undefined),
+    setMessageReaction: vi.fn().mockResolvedValue(undefined),
   }
 }
 
@@ -155,7 +156,7 @@ describe('TelegramBot', () => {
     }
     const { bot: subject, deps } = build({ transcript: broken })
 
-    await expect(subject.handle(dm('hello'))).rejects.toThrow('mongo down')
+    await expect(subject.receive(dm('hello'))).rejects.toThrow('mongo down')
     expect(deps.api.sendMessage).not.toHaveBeenCalled()
 
     const readOnlyBroken = { ...broken, append: vi.fn().mockResolvedValue(undefined) }
@@ -219,6 +220,110 @@ describe('TelegramBot', () => {
     await second.bot.handle(dm('hi'))
     expect(second.deps.api.sendMessage).toHaveBeenCalled()
     expect(second.deps.harness.remember).toHaveBeenCalled()
+  })
+
+  it('reacts when the drafter asks, before the text goes out', async () => {
+    const { bot: subject, deps } = build({ harness: harness({ text: 'ty fren', reaction: '❤' }) })
+
+    await subject.handle(dm('love what you are building'))
+
+    expect(deps.api.setMessageReaction).toHaveBeenCalledWith(1, 10, '❤')
+    expect(deps.api.sendMessage).toHaveBeenCalledWith(1, 'ty fren', {})
+    const reactOrder = (deps.api.setMessageReaction as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0] ?? 0
+    const sendOrder = (deps.api.sendMessage as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0] ?? 0
+    expect(reactOrder).toBeLessThan(sendOrder)
+  })
+
+  it('can answer with a reaction alone, and remembers that it did', async () => {
+    const { bot: subject, deps } = build({ harness: harness({ reaction: '🔥', incomingTone: 'friendly' }) })
+
+    await subject.handle(dm('gm'))
+    await subject.handle(dm('and what do you do?', { message_id: 11 }))
+
+    expect(deps.api.setMessageReaction).toHaveBeenCalledWith(1, 10, '🔥')
+    expect(deps.api.sendMessage).not.toHaveBeenCalled()
+    expect(deps.harness.remember).toHaveBeenCalledWith(expect.anything(), '(reacted 🔥)', 'reaction:10', 'friendly')
+    // The next turn can see that it reacted rather than ignored.
+    const calls = (deps.harness.generate as ReturnType<typeof vi.fn>).mock.calls
+    expect(calls[1]?.[1]).toEqual([
+      { from: 'person', authorName: 'Alice', text: 'gm' },
+      { from: 'bot', text: '(reacted 🔥)' },
+    ])
+  })
+
+  it('keeps going when the reaction is refused', async () => {
+    const { bot: subject, deps } = build({ harness: harness({ text: 'hi', reaction: '👍' }) })
+    ;(deps.api.setMessageReaction as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('REACTION_INVALID'))
+
+    await subject.handle(dm('hey'))
+
+    expect(deps.api.sendMessage).toHaveBeenCalledWith(1, 'hi', {})
+  })
+
+  it('rations GIFs to one per chat per cooldown', async () => {
+    const gifs: GifSource = {
+      search: vi.fn().mockResolvedValue([{ id: 'g', title: 'wave', pageUrl: 'p', mediaUrl: 'https://g/wave.gif', mimeType: 'image/gif' }]),
+      get: vi.fn(),
+      download: vi.fn(),
+    }
+    let clock = NOW
+    const { bot: subject, deps } = build({
+      gifs,
+      gifCooldownMs: 60_000,
+      now: () => clock,
+      harness: harness({ text: 'hi', gifQuery: 'wave' }),
+    })
+
+    await subject.handle(dm('hi'))
+    await subject.handle(dm('hi again', { message_id: 11 }))
+    expect(deps.api.sendAnimation).toHaveBeenCalledTimes(1)
+
+    clock += 61_000
+    await subject.handle(dm('hi once more', { message_id: 12 }))
+    expect(deps.api.sendAnimation).toHaveBeenCalledTimes(2)
+  })
+
+  it('answers a thought typed in pieces as one turn', async () => {
+    vi.useFakeTimers({ now: NOW })
+    try {
+      const { bot: subject, deps } = build({ debounceMs: 2_000 })
+
+      await subject.receive(dm('hey'))
+      await subject.receive(dm('quick q', { message_id: 11 }))
+      await subject.receive(dm('what does $TINY actually do', { message_id: 12 }))
+      expect(deps.harness.generate).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(2_100)
+      await subject.drain()
+
+      expect(deps.harness.generate).toHaveBeenCalledTimes(1)
+      expect(deps.harness.generate).toHaveBeenCalledWith(
+        expect.objectContaining({ id: '12', text: 'hey\nquick q\nwhat does $TINY actually do' }),
+        [],
+      )
+      expect(deps.api.sendMessage).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not batch two different people together', async () => {
+    vi.useFakeTimers({ now: NOW })
+    try {
+      const { bot: subject, deps } = build({ debounceMs: 2_000 })
+      const bob = { id: 2, is_bot: false, first_name: 'Bob' }
+
+      await subject.receive(group('@teenythebot gm', { message_id: 21, entities: [{ type: 'mention', offset: 0, length: 12 }] }))
+      await subject.receive(group('@teenythebot hello', { message_id: 22, from: bob, entities: [{ type: 'mention', offset: 0, length: 12 }] }))
+      await vi.advanceTimersByTimeAsync(2_100)
+      await subject.drain()
+
+      expect(deps.harness.generate).toHaveBeenCalledTimes(2)
+      expect(deps.api.sendMessage).toHaveBeenCalledWith(-100, 'gm fren', { replyToMessageId: 21 })
+      expect(deps.api.sendMessage).toHaveBeenCalledWith(-100, 'gm fren', { replyToMessageId: 22 })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('logs instead of sending in dry run, and still remembers what it would have said', async () => {

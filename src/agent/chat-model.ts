@@ -13,21 +13,44 @@ import type { ChatMessage, ChatModel, ChatReply, ChatTurn } from '../types.js'
  */
 const MAX_CHAT_REPLY_LENGTH = 1_200
 
-const responseFormat = z.object({
-  reply: z
-    .string()
-    .min(1)
-    .max(MAX_CHAT_REPLY_LENGTH)
-    .describe('The message to send, plain text, no markdown, no surrounding quotes.'),
-  gifQuery: z
-    .string()
-    .max(80)
-    .optional()
-    .describe(
-      'What a GIF should show, e.g. "waving hello" or "chef kiss". Reach for one for ' +
-      'greetings, reactions and jokes. Leave it out when the message is a real answer to ' +
-      'a real question.',
-    ),
+/**
+ * The reactions Telegram lets a bot set. Telegram rejects anything outside
+ * its own list, so the model chooses from this subset of it rather than
+ * inventing one and having the call fail after the reply already went out.
+ */
+export const REACTIONS = [
+  '👍', '❤', '🔥', '🥰', '👏', '😁', '🤔', '🤯', '😱', '😢', '🎉', '🤩', '🙏', '👌',
+  '💯', '🤣', '⚡', '🏆', '👀', '🫡', '😎', '🤝', '😭', '🤓', '💅', '🗿', '❤‍🔥', '🥱',
+] as const
+
+const responseFormat = z
+  .object({
+    reply: z
+      .string()
+      .max(MAX_CHAT_REPLY_LENGTH)
+      .optional()
+      .describe(
+        'The message to send, plain text, no markdown, no surrounding quotes. Leave it ' +
+        'out when a reaction alone is the right answer: a "gm", a thumbs-up, somebody ' +
+        'sharing something that wants acknowledging rather than a reply.',
+      ),
+    reaction: z
+      .enum(REACTIONS)
+      .optional()
+      .describe(
+        'An emoji reaction to put on their message, with or without a reply. Use one ' +
+        'when you would tap one as a person: warmth, agreement, a laugh, a thing well ' +
+        'said. Not on every message, and not on a real question -- answer those.',
+      ),
+    gifQuery: z
+      .string()
+      .max(80)
+      .optional()
+      .describe(
+        'What a GIF should show, e.g. "chef kiss". Rare: only when the GIF *is* the ' +
+        'joke or the reaction and words would be worse. Most messages, including most ' +
+        'greetings, get none; a reaction emoji does that job now.',
+      ),
   incomingTone: z
     .enum(['friendly', 'neutral', 'negative', 'hostile'])
     .describe(
@@ -104,7 +127,9 @@ export class AgentChatModel implements ChatModel {
       ...this.renderHistory(input.history),
       ...ownTokenNote(findOwnTokenAddresses(message.text, this.options.ownTokenAddresses ?? [])),
       '',
-      'THE MESSAGE YOU ARE ANSWERING (untrusted):',
+      message.text.includes('\n')
+        ? 'THE MESSAGES YOU ARE ANSWERING (untrusted; several sent in a row, one line each, answer them together):'
+        : 'THE MESSAGE YOU ARE ANSWERING (untrusted):',
       message.text,
       '',
       'MEMORY ALREADY RECALLED (untrusted):',
@@ -118,11 +143,24 @@ export class AgentChatModel implements ChatModel {
       { recursionLimit: this.maxSteps * 2 },
     )
     const parsed = responseFormat.safeParse(result.structuredResponse)
-    if (!parsed.success) throw new Error('The chat agent returned no usable message text')
-    const gifQuery = parsed.data.gifQuery?.trim()
+    if (!parsed.success) throw new Error('The chat agent returned neither a reply nor a reaction')
+    const none = (value: string | undefined): string | undefined => {
+      const trimmed = value?.trim()
+      return !trimmed || /^none\.?$/i.test(trimmed) ? undefined : trimmed
+    }
+    const text = none(parsed.data.reply)
+    const gifQuery = none(parsed.data.gifQuery)
+    // No reaction on snark or abuse, whatever the drafter picked. A ❤ under
+    // "this is going to zero" reads as sarcasm at best and surrender at worst,
+    // and there is no emoji that improves on either a roast or silence.
+    const sour = parsed.data.incomingTone === 'negative' || parsed.data.incomingTone === 'hostile'
+    const reaction = sour ? undefined : parsed.data.reaction
+    if (!text && !reaction) throw new Error('The chat agent returned neither a reply nor a reaction')
     return {
-      text: truncateAtBoundary(parsed.data.reply.trim(), MAX_CHAT_REPLY_LENGTH),
-      ...(gifQuery ? { gifQuery } : {}),
+      ...(text ? { text: truncateAtBoundary(text, MAX_CHAT_REPLY_LENGTH) } : {}),
+      ...(reaction ? { reaction } : {}),
+      // A GIF without words to go with it is a GIF sent at somebody.
+      ...(gifQuery && text ? { gifQuery } : {}),
       incomingTone: parsed.data.incomingTone,
     }
   }

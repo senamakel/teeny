@@ -46,6 +46,39 @@ export interface TelegramMessage {
   reply_to_message?: TelegramMessage
   /** Present in forum supergroups; replies must carry it back or land in General. */
   message_thread_id?: number
+  // Service messages. Telegram reports a join, a pin, a title change and the
+  // like as a message with one of these set and no text; none of them is a
+  // person saying something.
+  new_chat_members?: TelegramUser[]
+  left_chat_member?: TelegramUser
+  new_chat_title?: string
+  new_chat_photo?: unknown
+  delete_chat_photo?: boolean
+  group_chat_created?: boolean
+  supergroup_chat_created?: boolean
+  channel_chat_created?: boolean
+  pinned_message?: unknown
+  migrate_to_chat_id?: number
+  migrate_from_chat_id?: number
+  message_auto_delete_timer_changed?: unknown
+  video_chat_started?: unknown
+  video_chat_ended?: unknown
+  video_chat_scheduled?: unknown
+  video_chat_participants_invited?: unknown
+  forum_topic_created?: unknown
+  forum_topic_edited?: unknown
+  forum_topic_closed?: unknown
+  forum_topic_reopened?: unknown
+  general_forum_topic_hidden?: unknown
+  general_forum_topic_unhidden?: unknown
+  boost_added?: unknown
+  giveaway_created?: unknown
+  successful_payment?: unknown
+  users_shared?: unknown
+  chat_shared?: unknown
+  write_access_allowed?: unknown
+  proximity_alert_triggered?: unknown
+  web_app_data?: unknown
 }
 
 export interface TelegramUpdate {
@@ -66,6 +99,8 @@ export interface TelegramApi {
   /** A GIF by URL. Telegram fetches it; nothing is uploaded from here. */
   sendAnimation(chatId: number, url: string, options?: SendMessageOptions): Promise<{ id: number }>
   sendChatAction(chatId: number, action: 'typing', messageThreadId?: number): Promise<void>
+  /** An emoji reaction on a message; one of Telegram's fixed reaction set. */
+  setMessageReaction(chatId: number, messageId: number, emoji: string): Promise<void>
 }
 
 interface TelegramResponse<T> {
@@ -179,6 +214,14 @@ export class TelegramApiClient implements TelegramApi {
       ...(options.messageThreadId ? { message_thread_id: options.messageThreadId } : {}),
     })
     return { id: sent.message_id }
+  }
+
+  async setMessageReaction(chatId: number, messageId: number, emoji: string): Promise<void> {
+    await this.call<boolean>('setMessageReaction', {
+      chat_id: chatId,
+      message_id: messageId,
+      reaction: [{ type: 'emoji', emoji }],
+    })
   }
 
   async sendChatAction(chatId: number, action: 'typing', messageThreadId?: number): Promise<void> {
