@@ -1,5 +1,6 @@
 import { Hero } from "@/components/sections/hero"
 import { Overview } from "@/components/sections/overview"
+import { PresenceSection } from "@/components/sections/presence"
 import { loadMind } from "@/lib/mind"
 
 // The feed is read at render time and the page is rebuilt at most once a minute.
@@ -10,6 +11,7 @@ export default async function Home() {
   return (
     <>
       <Hero feed={feed} />
+      <PresenceSection />
       <Overview />
     </>
   )

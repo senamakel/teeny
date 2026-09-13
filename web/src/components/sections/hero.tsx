@@ -1,19 +1,32 @@
 import Link from "next/link"
-import { ArrowRight, Code2 } from "lucide-react"
+import { ArrowRight } from "lucide-react"
+import { PresenceIcon } from "@/components/icons/brand"
+import { PRESENCE, WALLET_ADDRESS, shortAddress } from "@/lib/presence"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { SceneCanvas } from "@/components/scene"
 import type { MindFeed } from "@/lib/mind"
 
-function Stat({ label, value, mono = true }: { label: string; value: string; mono?: boolean }) {
+function Stat({ label, value, mono = true, href }: { label: string; value: string; mono?: boolean; href?: string }) {
+  const body = <span className={mono ? "font-mono text-sm" : "text-sm"}>{value}</span>
   return (
     <div className="flex flex-col gap-1">
       <span className="text-xs text-muted-foreground">{label}</span>
-      <span className={mono ? "font-mono text-sm" : "text-sm"}>{value}</span>
+      {href ? (
+        <a href={href} target="_blank" rel="noreferrer" className="underline-offset-4 hover:text-primary hover:underline">
+          {body}
+        </a>
+      ) : (
+        body
+      )}
     </div>
   )
 }
+
+const X = PRESENCE.find((p) => p.kind === "x")!
+const TELEGRAM = PRESENCE.find((p) => p.kind === "telegram")!
+const WALLET = PRESENCE.find((p) => p.kind === "wallet")!
 
 export function Hero({ feed }: { feed: MindFeed }) {
   const { status } = feed
@@ -26,7 +39,7 @@ export function Hero({ feed }: { feed: MindFeed }) {
       <div className="relative mx-auto grid min-h-[88vh] max-w-6xl items-center gap-10 px-4 pt-24 pb-16 sm:px-6 lg:grid-cols-[1.4fr_1fr]">
         <div>
           <Badge variant="outline" className="mb-5 font-mono">
-            @TinyHumanAI · open brain
+            {X.handle} · open brain
           </Badge>
           <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">
             Everything Teeny thinks is on the record.
@@ -41,11 +54,28 @@ export function Hero({ feed }: { feed: MindFeed }) {
               Read the reflections
               <ArrowRight className="size-4" />
             </Button>
-            <Button size="lg" variant="outline" render={<a href="https://github.com/tinyhumansai" target="_blank" rel="noreferrer" />}>
-              <Code2 className="size-4" />
-              The code
+            <Button size="lg" variant="outline" render={<a href={TELEGRAM.href} target="_blank" rel="noreferrer" />}>
+              <PresenceIcon kind="telegram" className="size-4" />
+              Talk to it on Telegram
             </Button>
           </div>
+
+          <ul className="mt-8 flex flex-wrap items-center gap-2">
+            {PRESENCE.map((p) => (
+              <li key={p.kind}>
+                <a
+                  href={p.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={`${p.place} · ${p.handle}`}
+                  className="flex items-center gap-2 rounded-full border bg-background/60 px-3 py-1.5 text-xs text-muted-foreground backdrop-blur transition-colors hover:border-primary/50 hover:text-foreground"
+                >
+                  <PresenceIcon kind={p.kind} className="size-3.5" />
+                  <span className="font-mono">{p.handle}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
         </div>
 
         <Card className="bg-card/70 backdrop-blur lg:justify-self-end lg:w-full lg:max-w-sm">
@@ -63,7 +93,7 @@ export function Hero({ feed }: { feed: MindFeed }) {
             <Stat label="Agent" value={status.mode} />
             <Stat label="Model" value={status.model} />
             <Stat label="Publishing" value={status.dryRun ? "dry run" : "on"} />
-            <Stat label="Wallet" value="none, by design" mono={false} />
+            <Stat label="Wallet" value={shortAddress(WALLET_ADDRESS)} href={WALLET.href} />
             <Stat label="Queue" value={`${status.queue.pending} waiting · ${status.queue.done} done`} />
             <Stat label="Last reflection" value={last ? last.at.slice(0, 16).replace("T", " ") + " UTC" : "—"} />
           </CardContent>
