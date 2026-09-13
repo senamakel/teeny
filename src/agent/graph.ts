@@ -6,6 +6,7 @@ import { createReactAgent } from '@langchain/langgraph/prebuilt'
 import { createExaClient, createExaTools } from './tools/exa.js'
 import { createGiphyTools } from './tools/giphy.js'
 import { createMarketTools } from './tools/market.js'
+import { createMediaTools } from './tools/media.js'
 import { createMemoryTools } from './tools/memory.js'
 import { createXTools } from './tools/x.js'
 import { systemPrompt } from './prompt.js'
@@ -13,6 +14,7 @@ import { summariseResult } from '../journal/journal.js'
 import type { Persona } from './soul.js'
 import type { GlobalMarketClient } from '../market/global.js'
 import type { TokenMarket } from '../market/market.js'
+import type { MediaAccess } from '../media/wiring.js'
 import type { Agent, AgentRunResult, GifSource, Memory, XTools } from '../types.js'
 
 export interface LlmOptions {
@@ -42,6 +44,12 @@ export interface AgentOptions {
   searchLimit?: number
   /** The account's own token contracts, recognised before drafting. */
   ownTokenAddresses?: string[]
+  /**
+   * Seeing, drawing and filming. Each part is optional and the tools follow:
+   * no reader, no look_at_image; no generator, nothing to attach. Absent
+   * entirely, the tool list is exactly what it was before media existed.
+   */
+  media?: MediaAccess
   /**
    * Read-only market data for the account's own token.
    *
@@ -77,9 +85,11 @@ export function buildTools(options: AgentOptions): StructuredToolInterface[] {
       ...(options.maxEmoji === undefined ? {} : { maxEmoji: options.maxEmoji }),
       ...(options.gifs ? { gifs: options.gifs } : {}),
       ...(options.searchLimit === undefined ? {} : { searchLimit: options.searchLimit }),
+      ...(options.media ? { media: options.media.store } : {}),
     }),
     ...(options.exaApiKey ? createExaTools(createExaClient(options.exaApiKey)) : []),
     ...(options.gifs ? createGiphyTools(options.gifs.source, options.gifs.channel) : []),
+    ...(options.media ? createMediaTools(options.media) : []),
     ...(options.market
       ? createMarketTools({
           market: options.market.market,
@@ -130,6 +140,24 @@ export function toolSteps(messages: BaseMessage[]): AgentRunResult['steps'] {
           return { tool: call.name, input: call.args, ...(result !== undefined ? { result } : {}) }
         })
       : [],
+  )
+}
+
+/**
+ * Whether a tool in this run actually returned this media id.
+ *
+ * A model that has seen the id format can produce one that fits it, and the
+ * store is shared across every turn in the process, so "it exists" is not
+ * "it is yours". The tool messages of the run are the record of what was
+ * made here, and the id is quoted in them exactly.
+ */
+export function producedMediaId(messages: BaseMessage[], mediaId: string): boolean {
+  const quoted = `"${mediaId}"`
+  return messages.some(
+    (message) =>
+      isToolMessage(message) &&
+      typeof message.content === 'string' &&
+      message.content.includes(quoted),
   )
 }
 

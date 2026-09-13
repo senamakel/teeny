@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createExaTools, type ExaSearch } from '../src/agent/tools/exa.js'
 import { createMemoryTools } from '../src/agent/tools/memory.js'
 import { createXTools } from '../src/agent/tools/x.js'
+import { MediaStore } from '../src/media/store.js'
 import type { Memory, XPost, XTools } from '../src/types.js'
 
 function toolsByName(tools: Array<{ name: string; invoke: (input: never) => Promise<unknown> }>) {
@@ -53,6 +54,39 @@ describe('X tools', () => {
 
     expect(x.createPost).toHaveBeenCalledWith('gm', { replyToPostId: '10' })
     expect(output).toBe('Published post 77.')
+  })
+
+  it('lists a post\'s pictures so the agent can look at them', async () => {
+    const x = xTools()
+    ;(x.getPost as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: '10',
+      text: 'look',
+      media: [
+        { type: 'photo', url: 'https://pbs.twimg.com/media/a.jpg', altText: 'a chart' },
+        { type: 'video', previewUrl: 'https://pbs.twimg.com/media/b.jpg' },
+      ],
+    })
+    const tools = toolsByName(createXTools(x, { dryRun: true }))
+    const output = await tools.get('x_get_post')!.invoke({ id: '10' } as never)
+
+    expect(output).toContain('media: photo https://pbs.twimg.com/media/a.jpg (alt: a chart)')
+    expect(output).toContain('media: video https://pbs.twimg.com/media/b.jpg')
+  })
+
+  it('attaches a generated file by its id, and refuses an id it does not hold', async () => {
+    const x = xTools()
+    const media = new MediaStore()
+    const stored = media.put({ kind: 'image', prompt: 'p', data: new Uint8Array([1]), mimeType: 'image/png' })
+    const tools = toolsByName(createXTools(x, { dryRun: false, media }))
+
+    const output = await tools.get('x_post')!.invoke({ text: 'gm', mediaId: stored.id } as never)
+    expect(x.uploadMedia).toHaveBeenCalledWith({ data: new Uint8Array([1]), mimeType: 'image/png' })
+    expect(x.createPost).toHaveBeenCalledWith('gm', { mediaIds: ['media-1'] })
+    expect(output).toBe('Published post 77 with a generated image.')
+
+    const refused = await tools.get('x_post')!.invoke({ text: 'gm', mediaId: 'img_madeup_1' } as never)
+    expect(refused).toContain('Refused')
+    expect(x.createPost).toHaveBeenCalledTimes(1)
   })
 
   it('omits the posting tool from a research-only tool set', () => {
