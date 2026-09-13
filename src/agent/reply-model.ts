@@ -47,9 +47,10 @@ const responseFormat = z.object({
     .max(4)
     .default([])
     .describe(
-      'Things you considered and decided against, one short line each, e.g. ' +
-      '"a price target, even hedged" or "a GIF, because this is a real question". ' +
-      'Empty when nothing was on the table.',
+      'Things you could have SAID or DONE in this reply and chose not to, one short ' +
+      'line each, with the reason: "a price target, even hedged", "a GIF, because this ' +
+      'is a real question", "quoting the address they pasted". Never tool names. Empty ' +
+      'when nothing was on the table.',
     ),
 })
 

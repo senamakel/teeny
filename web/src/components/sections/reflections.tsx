@@ -88,7 +88,7 @@ function ReflectionCard({ entry }: { entry: Reflection }) {
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-muted-foreground">nothing, on purpose</p>
+              <p className="text-sm text-muted-foreground">nothing</p>
             )}
           </div>
 

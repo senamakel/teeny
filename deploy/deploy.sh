@@ -7,6 +7,13 @@
 #   ./deploy/deploy.sh --logs         # tail the running stack and exit
 #   ./deploy/deploy.sh --down         # stop the stack (volumes are kept)
 #   ./deploy/deploy.sh --rollback     # put the previous image back
+#   ./deploy/deploy.sh --keep-env     # leave the box's .env files as they are
+#
+# --keep-env is what CI uses. The two .env files are secrets and live on the
+# box already; a deploy from GitHub Actions has neither and must not need
+# them, so in this mode the preflight reads them from the box over SSH, the
+# copy step is skipped, and nothing about the running configuration changes
+# except the code.
 #
 # The image is tagged with the current commit and aliased to :current, and the
 # outgoing alias is kept as :previous, so a failed health check can put the old
@@ -40,14 +47,16 @@ ROLLBACK=0
 LOGS=0
 DOWN=0
 BUILD_ONLY=0
+KEEP_ENV=0
 for arg in "$@"; do
   case "$arg" in
     --skip-checks) SKIP_CHECKS=1 ;;
+    --keep-env) KEEP_ENV=1 ;;
     --build-only) BUILD_ONLY=1 ;;
     --rollback) ROLLBACK=1 ;;
     --logs) LOGS=1 ;;
     --down) DOWN=1 ;;
-    -h|--help) sed -n '2,11p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help) sed -n '2,12p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -60,11 +69,16 @@ remote() { ssh -o BatchMode=yes -i "$DEPLOY_KEY" "$DEPLOY_HOST" "$@"; }
 # with a space or a `<` in it makes `set -a; . ./.env` die -- so never source
 # them.
 envval() { sed -n "s/^$1=//p" "$2" 2>/dev/null | tail -1; }
+# The same, from the copy on the box. Used for every read under --keep-env,
+# where the local files may not exist at all.
+remoteval() { remote "sed -n 's/^$1=//p' $REMOTE_DIR/$2 2>/dev/null | tail -1"; }
+# One value, from wherever this deploy's configuration lives.
+cfg() { if [ "$KEEP_ENV" -eq 1 ]; then remoteval "$@"; else envval "$@"; fi; }
 
 COMPOSE="docker compose --project-directory $REMOTE_DIR/deploy -f $REMOTE_DIR/deploy/compose.prod.yaml --env-file $REMOTE_DIR/deploy/.env"
-BOT_PORT="${BOT_PORT:-$(envval BOT_PORT deploy/.env)}"
+BOT_PORT="${BOT_PORT:-$(cfg BOT_PORT deploy/.env)}"
 BOT_PORT="${BOT_PORT:-3110}"
-WEB_PORT="${WEB_PORT:-$(envval WEB_PORT deploy/.env)}"
+WEB_PORT="${WEB_PORT:-$(cfg WEB_PORT deploy/.env)}"
 WEB_PORT="${WEB_PORT:-3120}"
 
 [ -f "$DEPLOY_KEY" ] || die "no SSH key at $DEPLOY_KEY (override with DEPLOY_KEY=...)"
@@ -90,28 +104,34 @@ if [ "$ROLLBACK" -eq 1 ]; then
 fi
 
 # --- preflight -------------------------------------------------------------
-[ -f deploy/.env ] || die "deploy/.env is missing. Copy deploy/.env.example and fill it in."
-[ -f .env ] || die ".env is missing. Copy .env.example and fill it in (the X and agent credentials)."
+if [ "$KEEP_ENV" -eq 1 ]; then
+  say "Keeping the box's .env files (--keep-env)"
+  remote "test -f $REMOTE_DIR/deploy/.env && test -f $REMOTE_DIR/.env" \
+    || die "the box has no $REMOTE_DIR/.env or $REMOTE_DIR/deploy/.env; do one deploy from a machine that has them first"
+else
+  [ -f deploy/.env ] || die "deploy/.env is missing. Copy deploy/.env.example and fill it in."
+  [ -f .env ] || die ".env is missing. Copy .env.example and fill it in (the X and agent credentials)."
+fi
 
 for required in MONGO_ROOT_PASSWORD CORTEX_API_KEY LADDER_API_KEY; do
-  [ -n "$(envval "$required" deploy/.env)" ] || die "$required is empty in deploy/.env"
+  [ -n "$(cfg "$required" deploy/.env)" ] || die "$required is empty in deploy/.env"
 done
 for required in X_API_KEY X_API_SECRET X_ACCESS_TOKEN X_ACCESS_TOKEN_SECRET X_BOT_USERNAME; do
-  [ -n "$(envval "$required" .env)" ] || die "$required is empty in .env; the agent cannot post without it"
+  [ -n "$(cfg "$required" .env)" ] || die "$required is empty in .env; the agent cannot post without it"
 done
 
 # CortexDB authenticates the agent with the key it was started with, so the two
 # files have to agree. They live apart because one is the service's own key and
 # the other is the client's copy of it, and a mismatch fails at the first
 # recall rather than at boot.
-if [ "$(envval CORTEX_API_KEY deploy/.env)" != "$(envval CORTEX_TOKEN .env)" ]; then
+if [ "$(cfg CORTEX_API_KEY deploy/.env)" != "$(cfg CORTEX_TOKEN .env)" ]; then
   die "CORTEX_API_KEY in deploy/.env and CORTEX_TOKEN in .env differ; CortexDB would refuse every call"
 fi
 
 # DRY_RUN is the only thing standing between a draft and a published post, so
 # say out loud which one is being deployed.
-if [ "$(envval DRY_RUN .env)" = "false" ]; then
-  say "DRY_RUN=false — this deploy PUBLISHES replies as @$(envval X_BOT_USERNAME .env)"
+if [ "$(cfg DRY_RUN .env)" = "false" ]; then
+  say "DRY_RUN=false — this deploy PUBLISHES replies as @$(cfg X_BOT_USERNAME .env)"
 else
   warn "DRY_RUN is not false: replies will be drafted and logged, never posted."
 fi
@@ -152,13 +172,15 @@ rsync -az --delete \
   --exclude '.env.local' \
   ./ "$DEPLOY_HOST:$REMOTE_DIR/"
 
-scp -q -i "$DEPLOY_KEY" .env "$DEPLOY_HOST:$REMOTE_DIR/.env"
-scp -q -i "$DEPLOY_KEY" deploy/.env "$DEPLOY_HOST:$REMOTE_DIR/deploy/.env"
+if [ "$KEEP_ENV" -eq 0 ]; then
+  scp -q -i "$DEPLOY_KEY" .env "$DEPLOY_HOST:$REMOTE_DIR/.env"
+  scp -q -i "$DEPLOY_KEY" deploy/.env "$DEPLOY_HOST:$REMOTE_DIR/deploy/.env"
+fi
 
 # --- the model endpoint ----------------------------------------------------
 # Without one, the agent boots and then fails every turn, which looks like a
 # healthy deploy from the outside. Prove it is reachable before releasing.
-LADDER_URL="$(envval LADDER_URL deploy/.env)"
+LADDER_URL="$(cfg LADDER_URL deploy/.env)"
 say "Checking the model endpoint"
 # Created here rather than by compose because the ladder has to be attached
 # before anything starts. Compose refuses to adopt a network it cannot
@@ -178,7 +200,7 @@ if [ -z "$LADDER_URL" ] || [ "$LADDER_URL" = "http://$LADDER:6969/v1" ]; then
        the box that runs it (it must be reachable from a container here)."
   fi
 else
-  remote "curl -fsS --max-time 5 -o /dev/null -H 'authorization: Bearer $(envval LADDER_API_KEY deploy/.env)' ${LADDER_URL%/}/models" \
+  remote "curl -fsS --max-time 5 -o /dev/null -H 'authorization: Bearer $(cfg LADDER_API_KEY deploy/.env)' ${LADDER_URL%/}/models" \
     || die "the box cannot reach LADDER_URL ($LADDER_URL); fix that before deploying"
   say "Reached the ladder at $LADDER_URL"
 fi

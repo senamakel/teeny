@@ -145,13 +145,33 @@ export function redactReflection(reflection: Reflection): Reflection {
 
 const MAX_LINE = 180
 
-/** A memory context block, cut down to the few lines a reader can take in. */
+/**
+ * A memory context block, cut down to the few lines a reader can take in.
+ *
+ * CortexDB's block mixes prose with raw event records -- `{"redacted":true}`,
+ * `{"RecordAsserted":{...}}` -- and the records are memory's plumbing, not
+ * what it remembers. Only lines that read as sentences are kept; a block
+ * that is all plumbing summarises to nothing, which the page shows as such.
+ */
 export function summariseRecall(block: string, maxLines = 4): string[] {
   return block
     .split('\n')
-    .map((line) => line.replace(/^[\s\-*•>#]+/, '').replace(/\s+/g, ' ').trim())
-    // Section headers like "ABOUT @fren:" or "GENERAL CONTEXT:" are structure, not memory.
-    .filter((line) => line.length > 0 && !/^[A-Z][A-Z\s]*(?:@\S+)?:$/.test(line))
+    .map((line) =>
+      line
+        .replace(/^[\s\-*•>#]+/, '')
+        // A leading "[2026-09-02 07:47 UTC]" stamp is noise on a page that has its own.
+        .replace(/^\[[^\]]{0,40}\]\s*/, '')
+        .replace(/\s+/g, ' ')
+        .trim(),
+    )
+    .filter(
+      (line) =>
+        line.length > 0 &&
+        // Section headers like "ABOUT @fren:" or "GENERAL CONTEXT:" are structure, not memory.
+        !/^[A-Z][A-Z\s]*(?:@\S+)?:$/.test(line) &&
+        // Raw records, not prose.
+        !/^[{[]/.test(line),
+    )
     .slice(0, maxLines)
     .map((line) => (line.length > MAX_LINE ? `${line.slice(0, MAX_LINE - 1)}…` : line))
 }

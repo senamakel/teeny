@@ -65,6 +65,21 @@ describe('the journal', () => {
     expect(lines[2]?.endsWith('…')).toBe(true)
   })
 
+  it('keeps the prose from a CortexDB block and drops the records', () => {
+    const block = [
+      'GENERAL CONTEXT:',
+      '[2026-09-02 07:47 UTC] {"redacted":true}',
+      '[2026-09-02 07:48 UTC] {"RecordAsserted":{"record":{"id":"01a0"}}}',
+      '[2026-09-02 07:49 UTC] they asked about the chart and got a real answer',
+      '- likes rust',
+    ].join('\n')
+    expect(summariseRecall(block)).toEqual([
+      'they asked about the chart and got a real answer',
+      'likes rust',
+    ])
+    expect(summariseRecall('[x] {"redacted":true}')).toEqual([])
+  })
+
   it('flattens a tool result to one line', () => {
     expect(summariseResult({ price: 1, note: 'a\n  b' })).toBe('{"price":1,"note":"a\\n b"}')
     expect(summariseResult('a'.repeat(200)).length).toBe(160)

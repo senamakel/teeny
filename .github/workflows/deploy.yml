@@ -1,0 +1,65 @@
+# Ship main to the box on every push.
+#
+# The same ./deploy/deploy.sh a person runs, in --keep-env mode: the two .env
+# files are secrets that already live on the box, and a deploy from here
+# changes the code and nothing else. The only secret this workflow holds is
+# a dedicated SSH key (DEPLOY_SSH_KEY) authorised for droid@robot1; the host
+# key is pinned in deploy/known_hosts so a changed fingerprint fails the run
+# instead of prompting.
+#
+# Deploys queue rather than overlap: two pushes a minute apart produce two
+# deploys in order, never one racing the other for the containers.
+
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm ci
+        working-directory: web
+      - run: npm run lint
+        working-directory: web
+      - run: npm run build
+        working-directory: web
+
+  deploy:
+    needs: check
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the deploy key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          cp deploy/known_hosts ~/.ssh/known_hosts
+      - name: Deploy
+        run: DEPLOY_KEY="$HOME/.ssh/deploy_key" ./deploy/deploy.sh --skip-checks --keep-env
+      - name: Recent logs on failure
+        if: failure()
+        run: |
+          ssh -o BatchMode=yes -i "$HOME/.ssh/deploy_key" droid@174.138.35.76 \
+            'docker compose --project-directory /home/droid/teeny/deploy -f /home/droid/teeny/deploy/compose.prod.yaml --env-file /home/droid/teeny/deploy/.env logs --tail 80 bot web' || true

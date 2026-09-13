@@ -11,8 +11,17 @@ cp deploy/.env.example deploy/.env   # the infrastructure around it
 ./deploy/deploy.sh                   # check, sync, build, release, health check
 ```
 
+Every push to `main` also deploys, through `.github/workflows/deploy.yml`:
+the checks run on the runner, then the same script runs with `--keep-env`,
+which leaves the box's two `.env` files untouched and reads what it needs to
+verify from them over SSH. The workflow holds one secret, `DEPLOY_SSH_KEY`, a
+dedicated key authorised for `droid@robot1`; the host key is pinned in
+`deploy/known_hosts`. Changing configuration is still a deploy from a machine
+that has the `.env` files.
+
 ```sh
 ./deploy/deploy.sh --skip-checks   # skip the local lint/typecheck/test pass
+./deploy/deploy.sh --keep-env      # do not ship .env files; what CI runs
 ./deploy/deploy.sh --build-only    # sync and build, start nothing
 ./deploy/deploy.sh --logs          # tail the running stack
 ./deploy/deploy.sh --down          # stop it (volumes are kept)
