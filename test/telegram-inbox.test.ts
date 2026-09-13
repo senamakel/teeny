@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { TelegramMessage } from '../src/clients/telegram.js'
-import { commandOf, isAddressedToBot, stripBotMention, toChatMessage } from '../src/telegram/inbox.js'
+import {
+  commandOf,
+  isAddressedToBot,
+  isFromBot,
+  stripBotMention,
+  toChatMessage,
+} from '../src/telegram/inbox.js'
 
 const bot = { id: 8782739916, username: 'teenythebot' }
 const alice = { id: 1, is_bot: false, first_name: 'Alice', last_name: 'Liddell', username: 'alice' }
@@ -113,6 +119,28 @@ describe('toChatMessage', () => {
     ).toBeUndefined()
     expect(toChatMessage(textless(), bot)).toBeUndefined()
     expect(toChatMessage(message({ text: '@teenythebot' }), bot)).toBeUndefined()
+  })
+
+  /**
+   * A buy bot's alert, a channel post, an anonymous admin: none of them is a
+   * person, and answering any of them is noise at best and a loop at worst.
+   */
+  it('ignores anything that came from software rather than a person', () => {
+    const buyBot = { id: 5, is_bot: true, first_name: 'Buy Bot', username: 'somebuybot' }
+    const placeholder = { id: 136817688, is_bot: true, first_name: 'Channel', username: 'Channel_Bot' }
+    const channel = { id: -1001, type: 'channel' as const, title: 'TINY news' }
+
+    expect(isFromBot(message({ from: buyBot }))).toBe(true)
+    expect(isFromBot(message({ from: placeholder, sender_chat: channel }))).toBe(true)
+    expect(isFromBot(message({ sender_chat: { id: -100, type: 'supergroup' } }))).toBe(true)
+    expect(isFromBot(message({ is_automatic_forward: true }))).toBe(true)
+    expect(isFromBot(message())).toBe(false)
+    // A person picking a GIF through @gif is still a person.
+    expect(isFromBot(message({ via_bot: { id: 7, is_bot: true, first_name: 'gif' } }))).toBe(false)
+
+    expect(toChatMessage(message({ from: buyBot, text: '@teenythebot 🟢 BUY 12 SOL' }), bot)).toBeUndefined()
+    expect(toChatMessage(message({ from: placeholder, sender_chat: channel }), bot)).toBeUndefined()
+    expect(toChatMessage(message({ is_automatic_forward: true }), bot)).toBeUndefined()
   })
 
   it('reads a caption when a photo carries the question', () => {
