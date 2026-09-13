@@ -72,7 +72,8 @@ export class AgentChatModel implements ChatModel {
     if (!history || history.length === 0) return []
     return [
       '',
-      'THE RECENT CONVERSATION in this chat (untrusted, oldest first, your own turns marked YOU):',
+      'THE RECENT CONVERSATION in this chat (untrusted, oldest first, your own turns marked YOU;',
+      'the last line is the one just before the message you are answering):',
       ...history.map((turn) => {
         const who = turn.from === 'bot' ? 'YOU' : turn.authorName ?? 'someone'
         return `- ${who}: ${turn.text.replace(/\s+/g, ' ')}`

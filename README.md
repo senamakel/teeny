@@ -486,9 +486,23 @@ Each turn runs the same LangGraph drafter the X replies use, with the same
 memory, research, X-reading and market tools, and no publish tool: `x_post` is
 absent and the reply is sent by the loop, not by the model. It differs from the
 X drafter in what it is told about the room: a chat message may run to a few
-short paragraphs rather than 260 characters, it sees the last
-`TELEGRAM_HISTORY_LENGTH` turns of the chat (held in process, the account's own
-turns marked), and in a group it is asked to be one voice among several. House
+short paragraphs rather than 260 characters, it reads the chat's history
+before answering, and in a group it is asked to be one voice among several.
+
+The history is the account's own transcript. Telegram's Bot API has no way to
+read a chat back, so every line the bot sees -- answered or not, its own
+replies included -- is kept in Mongo (`TRANSCRIPT_COLLECTION`), and before
+each draft the most recent lines that fit `TELEGRAM_HISTORY_TOKENS` (5,000 by
+default, roughly forty to eighty chat lines) are put in front of the drafter,
+oldest first, the account's own turns marked. It survives restarts and starts
+from the moment the bot first listened in a chat; nothing before that exists.
+
+In a group that only works if Telegram delivers the lines. With privacy mode
+on, the default for a bot, a group's messages reach it only when they name it
+or reply to it, and the transcript is a list of questions with the
+conversation between them missing. Turn privacy mode off in @BotFather
+(`/setprivacy`, then Disable) and remove and re-add the bot to each group;
+from then on it sees the room and answers the same subset of it. House
 style is still applied on the way out: one emoji, no em dashes, plain text
 only, because Telegram's Markdown mode rejects the whole message over one
 stray underscore and a reply that fails to send over formatting helps nobody.
