@@ -26,8 +26,7 @@ cp deploy/.env.example deploy/.env   # the infrastructure around it
 | `teeny-bot-1`      | X ingest, the webhook, `/agent/run`       | `127.0.0.1:3110`  |
 | `teeny-web-1`      | the landing page, teeny.enamakel.com       | `127.0.0.1:3120`  |
 | `teeny-bot-reply-1`| drains the queue and posts the replies     | none              |
-| `teeny-cortexdb-1` | long-term memory                           | `127.0.0.1:3142`  |
-| `teeny-tika-1`     | text extraction for CortexDB               | none              |
+| `cortexdb-cortexdb-1` | long-term memory, **not this stack's**: `/opt/cortexdb`, joined to `teeny_default` as `cortexdb` | `127.0.0.1:3142` |
 | `teeny-mongo-1`    | the mention queue                          | `127.0.0.1:27020` |
 | `ladder`           | the model endpoint, owned by no project    | `127.0.0.1:6969`  |
 
@@ -50,6 +49,20 @@ name and reaches this origin over HTTPS.
 The page reads its live reflection feed from `MIND_FEED_URL` (deploy/.env)
 and shows labelled samples while that is unset. A bad site build never fails
 the agent's deploy: the health step reports the page rather than gating on it.
+
+## The memory tier is external
+
+CortexDB moved out of this stack into `/opt/cortexdb`, its own compose
+project shared with tinysweeper, and it is attached to `teeny_default` with
+the alias `cortexdb`, which is how `http://cortexdb:3141` resolves from the
+agent. The `cortexdb` and `tika` services in `compose.prod.yaml` are behind
+the `memory` profile so a plain `up` leaves them alone; `--profile memory`
+starts them on a box that has no CortexDB of its own. If the shared container
+is ever recreated it has to be re-joined:
+
+```sh
+docker network connect --alias cortexdb teeny_default cortexdb-cortexdb-1
+```
 
 ## The ladder
 

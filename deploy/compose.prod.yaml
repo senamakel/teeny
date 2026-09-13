@@ -20,7 +20,10 @@ services:
       context: ..
     restart: unless-stopped
     env_file:
-      - ../.env
+      # raw: compose would otherwise interpolate the values, and
+      # CHART_COMMUNITY_QUERY="$TINY -is:retweet" loses its ticker.
+      - path: ../.env
+        format: raw
     # These win over ../.env, which carries the same keys pointed at whatever
     # the developer runs locally. On the droplet everything is on this network,
     # so services are reached by name and none is published where a browser
@@ -37,8 +40,6 @@ services:
     volumes:
       - bot-data:/app/data
     depends_on:
-      cortexdb:
-        condition: service_healthy
       mongo:
         condition: service_healthy
     healthcheck:
@@ -57,7 +58,10 @@ services:
       context: ..
     restart: unless-stopped
     env_file:
-      - ../.env
+      # raw: compose would otherwise interpolate the values, and
+      # CHART_COMMUNITY_QUERY="$TINY -is:retweet" loses its ticker.
+      - path: ../.env
+        format: raw
     environment:
       CORTEX_API_URL: http://cortexdb:3141
       LLM_BASE_URL: ${LADDER_URL:-http://ladder:6969/v1}
@@ -71,8 +75,6 @@ services:
     volumes:
       - reply-data:/app/data
     depends_on:
-      cortexdb:
-        condition: service_healthy
       mongo:
         condition: service_healthy
 
@@ -86,7 +88,10 @@ services:
       context: ..
     restart: unless-stopped
     env_file:
-      - ../.env
+      # raw: compose would otherwise interpolate the values, and
+      # CHART_COMMUNITY_QUERY="$TINY -is:retweet" loses its ticker.
+      - path: ../.env
+        format: raw
     environment:
       CORTEX_API_URL: http://cortexdb:3141
       LLM_BASE_URL: ${LADDER_URL:-http://ladder:6969/v1}
@@ -98,8 +103,6 @@ services:
     volumes:
       - chart-data:/app/data
     depends_on:
-      cortexdb:
-        condition: service_healthy
       mongo:
         condition: service_healthy
 
@@ -127,7 +130,15 @@ services:
   # Long-term memory. Every model call it makes goes to the same ladder the
   # agent uses, so there is one egress path and one set of provider keys on the
   # box rather than a second copy living inside a database.
+  #
+  # Behind a profile because on the box today CortexDB is NOT this stack's: it
+  # runs from /opt/cortexdb as its own project, shared with tinysweeper, and is
+  # joined to teeny_default under the alias `cortexdb`. A plain `up` must not
+  # try to create a second one -- it did once, the port was taken, and the
+  # agent sat in Created until somebody noticed. `--profile memory` brings
+  # these up on a box that has no CortexDB of its own.
   cortexdb:
+    profiles: [memory]
     image: cortexdb/cortexdb:latest
     restart: unless-stopped
     environment:
@@ -191,6 +202,7 @@ services:
 
   # Text extraction for anything CortexDB ingests that is not already text.
   tika:
+    profiles: [memory]
     image: apache/tika:latest-full
     restart: unless-stopped
     healthcheck:
