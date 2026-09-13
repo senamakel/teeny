@@ -136,11 +136,11 @@ services:
   # box rather than a second copy living inside a database.
   #
   # Behind a profile because on the box today CortexDB is NOT this stack's: it
-  # runs from /opt/cortexdb as its own project, shared with tinysweeper, and is
-  # joined to teeny_default under the alias `cortexdb`. A plain `up` must not
-  # try to create a second one -- it did once, the port was taken, and the
-  # agent sat in Created until somebody noticed. `--profile memory` brings
-  # these up on a box that has no CortexDB of its own.
+  # is the shared `cortex` container, joined to teeny_default under the alias
+  # `cortexdb` (deploy/README.md, "The memory tier is external"). A plain `up`
+  # must not try to create a second one -- it did once, the port was taken,
+  # and the agent sat in Created until somebody noticed. `--profile memory`
+  # brings these up on a box that has no CortexDB of its own.
   cortexdb:
     profiles: [memory]
     image: cortexdb/cortexdb:latest

@@ -35,7 +35,7 @@ that has the `.env` files.
 | `teeny-bot-1`      | X ingest, the webhook, `/agent/run`, Telegram | `127.0.0.1:3110`  |
 | `teeny-web-1`      | the landing page, teeny.enamakel.com       | `127.0.0.1:3120`  |
 | `teeny-bot-reply-1`| drains the queue and posts the replies     | none              |
-| `cortexdb-cortexdb-1` | long-term memory, **not this stack's**: `/opt/cortexdb`, joined to `teeny_default` as `cortexdb` | `127.0.0.1:3142` |
+| `cortex`           | long-term memory, **not this stack's**: the shared CortexDB, joined to `teeny_default` as `cortexdb` | `127.0.0.1:3141` |
 | `teeny-mongo-1`    | the mention queue                          | `127.0.0.1:27020` |
 | `ladder`           | the model endpoint, owned by no project    | `127.0.0.1:6969`  |
 
@@ -61,17 +61,32 @@ the agent's deploy: the health step reports the page rather than gating on it.
 
 ## The memory tier is external
 
-CortexDB moved out of this stack into `/opt/cortexdb`, its own compose
-project shared with tinysweeper, and it is attached to `teeny_default` with
-the alias `cortexdb`, which is how `http://cortexdb:3141` resolves from the
-agent. The `cortexdb` and `tika` services in `compose.prod.yaml` are behind
-the `memory` profile so a plain `up` leaves them alone; `--profile memory`
-starts them on a box that has no CortexDB of its own. If the shared container
-is ever recreated it has to be re-joined:
+Teeny's memory lives in the shared CortexDB on the box: the container named
+`cortex`, published on `127.0.0.1:3141` and `172.17.0.1:3141`, with its data
+in the `cortex-data` volume. It is nobody's compose project here and it is
+not this stack's to start or stop. It is attached to `teeny_default` with the
+alias `cortexdb`, which is how `http://cortexdb:3141` resolves from the agent.
+If it is ever recreated it has to be re-joined:
 
 ```sh
-docker network connect --alias cortexdb teeny_default cortexdb-cortexdb-1
+docker network connect --alias cortexdb teeny_default cortex
 ```
+
+`CORTEX_TOKEN` in `.env` and `CORTEX_API_KEY` in `deploy/.env` are the key
+that container was started with; `deploy.sh` refuses to deploy while the two
+differ.
+
+The scope `agent:tiny-x-bot` was moved there on 2026-09-14 from the older
+instance in `/opt/cortexdb` (`cortexdb-cortexdb-1`, port 3142, volume
+`teeny_cortexdb-data`) with `POST /v1/export` on the old side and
+`POST /v1/import` on the new: 903 events, all accepted, re-embedded on import
+because the two instances use different embedding sizes (3072 and 1024). The
+export is kept in `~/cortex-migration/` on the box. The old instance stays up
+for as long as tinysweeper still points at it; teeny is no longer attached.
+
+The `cortexdb` and `tika` services in `compose.prod.yaml` are behind the
+`memory` profile so a plain `up` leaves them alone; `--profile memory` starts
+a private CortexDB on a box that has no shared one.
 
 ## The ladder
 
