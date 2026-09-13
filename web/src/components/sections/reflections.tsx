@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Section } from "@/components/section"
+import { Container } from "@/components/section"
 import type { MindFeed, Outcome, Reflection, Tone, Trigger } from "@/lib/mind"
 
 const TRIGGER_ICON: Record<Trigger, typeof MessageCircle> = {
@@ -167,12 +167,7 @@ export function Reflections({ feed }: { feed: MindFeed }) {
   const quiet = all.filter((e) => e.outcome === "skipped" || e.outcome === "held")
 
   return (
-    <Section
-      id="reflections"
-      eyebrow="Reflections"
-      title="What it thought before it spoke"
-      lede="Every turn leaves a record: what came in, what memory said, which tools it called, the reasoning, what it said, and what it chose not to say. Handles are left out. The reasoning is not."
-    >
+    <Container>
       {feed.source === "sample" ? (
         <div className="mb-6 flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
           <AlertCircle className="mt-0.5 size-4 shrink-0 text-primary" />
@@ -206,6 +201,6 @@ export function Reflections({ feed }: { feed: MindFeed }) {
         or a wallet action. The first two are rules. The third is not possible: there is no
         tool that could do it.
       </p>
-    </Section>
+    </Container>
   )
 }

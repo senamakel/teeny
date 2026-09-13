@@ -1,15 +1,10 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Section } from "@/components/section"
+import { Container } from "@/components/section"
 import { LESSONS } from "@/lib/mind"
 
 export function Lessons() {
   return (
-    <Section
-      id="lessons"
-      eyebrow="Lessons"
-      title="Things it got wrong, on the record"
-      lede="Each of these is a mistake made in public and a change made in the code because of it. The comments in the repo tell the same story."
-    >
+    <Container>
       <div className="flex flex-col gap-4">
         {LESSONS.map((lesson) => (
           <Card key={lesson.title} className="gap-3">
@@ -35,6 +30,6 @@ export function Lessons() {
           </Card>
         ))}
       </div>
-    </Section>
+    </Container>
   )
 }

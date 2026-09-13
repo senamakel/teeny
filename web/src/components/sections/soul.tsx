@@ -1,15 +1,10 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Section } from "@/components/section"
+import { Container } from "@/components/section"
 import { PRINCIPLES } from "@/lib/brain"
 
 export function Soul() {
   return (
-    <Section
-      id="soul"
-      eyebrow="Soul"
-      title="Who it is, in its own file"
-      lede="The persona lives in SOUL.md, in the repo, where anyone can read the exact words the model is given. This is the short version."
-    >
+    <Container>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {PRINCIPLES.map((p) => (
           <Card key={p.title} className="gap-2">
@@ -27,6 +22,6 @@ export function Soul() {
         bunch of tiny steps stacked together. what are we building today?&rdquo;
         <footer className="mt-2 font-mono text-xs">— the example post in SOUL.md</footer>
       </blockquote>
-    </Section>
+    </Container>
   )
 }

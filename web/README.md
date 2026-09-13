@@ -4,7 +4,26 @@ The landing page for Teeny's mind: its soul, the rules it runs under, the tools
 it can reach, how its memory works, a log of reflections behind each reply, and
 the mistakes it made in public.
 
-Next.js 16, Tailwind v4, shadcn/ui (Base UI primitives).
+Next.js 16, Tailwind v4, shadcn/ui (Base UI primitives), three.js via
+react-three-fiber.
+
+## Pages
+
+One route per part of the mind, each with its own scene behind the hero:
+
+| Route | Scene |
+| --- | --- |
+| `/` | a brain: points on a sphere, linked to their neighbours, neurons firing |
+| `/reflections` | a stream of thoughts flowing past a few that settled |
+| `/soul` | one warm, soft, restless blob |
+| `/rules` | a core held inside a cage of turning rings |
+| `/tools` | five rings of tools orbiting a core, one ring per group |
+| `/memory` | a lattice of points; a recall lights a cluster and fades |
+| `/lessons` | a sphere that keeps coming apart and mending |
+
+`src/lib/pages.ts` is the registry: nav, home cards, heroes and prev/next all
+read from it. Scenes live in `src/components/scene/scenes/` and honour
+`prefers-reduced-motion` by standing still.
 
 ```sh
 npm install

@@ -1,17 +1,13 @@
 import { Ban } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Section } from "@/components/section"
+import { Container } from "@/components/section"
 import { FORBIDDEN_TOOLS, TOOLS } from "@/lib/brain"
 
 export function Tools() {
   const count = TOOLS.reduce((n, g) => n + g.tools.length, 0)
   return (
-    <Section
-      id="tools"
-      eyebrow="Tools"
-      title={`${count} things it can do. And the ones it cannot.`}
-      lede="This is the whole list. A test asserts it exactly, so adding a capability is a deliberate act that fails the suite until someone decides."
-    >
+    <Container>
+      <p className="mb-6 font-mono text-sm text-muted-foreground">{count} tools, {FORBIDDEN_TOOLS.length} refused names</p>
       <div className="grid gap-4 md:grid-cols-2">
         {TOOLS.map((group) => (
           <Card key={group.group} className="gap-3">
@@ -55,6 +51,6 @@ export function Tools() {
           </CardContent>
         </Card>
       </div>
-    </Section>
+    </Container>
   )
 }

@@ -1,25 +1,19 @@
+'use client'
+
 import Link from "next/link"
+import { usePathname } from "next/navigation"
 import { Brain, Code2, Menu } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import {
-  Sheet,
-  SheetContent,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
+import { PAGES } from "@/lib/pages"
+import { cn } from "@/lib/utils"
 
-const LINKS = [
-  { href: "#reflections", label: "Reflections" },
-  { href: "#soul", label: "Soul" },
-  { href: "#rules", label: "Rules" },
-  { href: "#tools", label: "Tools" },
-  { href: "#memory", label: "Memory" },
-  { href: "#lessons", label: "Lessons" },
-]
+const SOURCE = "https://github.com/tinyhumansai"
 
 export function SiteNav() {
+  const pathname = usePathname()
   return (
-    <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
+    <header className="fixed inset-x-0 top-0 z-40 border-b border-border/60 bg-background/70 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
         <Link href="/" className="flex items-center gap-2 font-medium">
           <Brain className="size-5 text-primary" />
@@ -28,17 +22,18 @@ export function SiteNav() {
         </Link>
 
         <nav className="hidden items-center gap-1 md:flex">
-          {LINKS.map((link) => (
-            <Button key={link.href} variant="ghost" size="sm" render={<a href={link.href} />}>
-              {link.label}
+          {PAGES.map((page) => (
+            <Button
+              key={page.slug}
+              variant="ghost"
+              size="sm"
+              className={cn(pathname === page.slug && "bg-muted text-foreground")}
+              render={<Link href={page.slug} />}
+            >
+              {page.label}
             </Button>
           ))}
-          <Button
-            variant="outline"
-            size="sm"
-            className="ml-2"
-            render={<a href="https://github.com/tinyhumansai" target="_blank" rel="noreferrer" />}
-          >
+          <Button variant="outline" size="sm" className="ml-2" render={<a href={SOURCE} target="_blank" rel="noreferrer" />}>
             <Code2 className="size-4" />
             Source
           </Button>
@@ -52,21 +47,17 @@ export function SiteNav() {
           <SheetContent side="right" className="w-64">
             <SheetTitle className="sr-only">Navigation</SheetTitle>
             <nav className="mt-8 flex flex-col gap-1 px-4">
-              {LINKS.map((link) => (
+              {PAGES.map((page) => (
                 <Button
-                  key={link.href}
+                  key={page.slug}
                   variant="ghost"
-                  className="justify-start"
-                  render={<a href={link.href} />}
+                  className={cn("justify-start", pathname === page.slug && "bg-muted")}
+                  render={<Link href={page.slug} />}
                 >
-                  {link.label}
+                  {page.label}
                 </Button>
               ))}
-              <Button
-                variant="outline"
-                className="mt-4 justify-start"
-                render={<a href="https://github.com/tinyhumansai" target="_blank" rel="noreferrer" />}
-              >
+              <Button variant="outline" className="mt-4 justify-start" render={<a href={SOURCE} target="_blank" rel="noreferrer" />}>
                 <Code2 className="size-4" />
                 Source
               </Button>

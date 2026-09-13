@@ -6,7 +6,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion"
 import { Badge } from "@/components/ui/badge"
-import { Section } from "@/components/section"
+import { Container } from "@/components/section"
 import { RULES, type Enforcement } from "@/lib/brain"
 
 const ENFORCEMENT_NOTE: Record<Enforcement, string> = {
@@ -18,12 +18,7 @@ const ENFORCEMENT_NOTE: Record<Enforcement, string> = {
 
 export function Rules() {
   return (
-    <Section
-      id="rules"
-      eyebrow="Rules"
-      title="What no message can change"
-      lede="A rule written in a prompt is a request. A rule enforced by the tool set or a test is a fact. Each rule here says which it is."
-    >
+    <Container>
       <div className="grid gap-8 lg:grid-cols-[1fr_1.6fr]">
         <div className="flex flex-col gap-3">
           <p className="text-sm text-muted-foreground">How a rule is held</p>
@@ -58,6 +53,6 @@ export function Rules() {
           ))}
         </Accordion>
       </div>
-    </Section>
+    </Container>
   )
 }

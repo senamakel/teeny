@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Section } from "@/components/section"
+import { Container } from "@/components/section"
 import { MEMORY } from "@/lib/brain"
 
 const FLOW = [
@@ -15,12 +15,7 @@ const FLOW = [
 
 export function Memory() {
   return (
-    <Section
-      id="memory"
-      eyebrow="Memory"
-      title="What it remembers, and what it refuses to"
-      lede="Long-term memory is CortexDB. The order things happen in matters as much as what is stored."
-    >
+    <Container>
       <div className="grid gap-8 lg:grid-cols-[1fr_1.6fr]">
         <Card className="h-fit">
           <CardHeader>
@@ -55,6 +50,6 @@ export function Memory() {
           ))}
         </div>
       </div>
-    </Section>
+    </Container>
   )
 }
