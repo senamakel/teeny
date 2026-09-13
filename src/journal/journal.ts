@@ -1,6 +1,6 @@
 import { MongoClient, type Collection } from 'mongodb'
 
-export type Trigger = 'mention' | 'chart' | 'task'
+export type Trigger = 'mention' | 'chart' | 'task' | 'calendar'
 export type Tone = 'friendly' | 'neutral' | 'negative' | 'hostile'
 export type Outcome = 'posted' | 'dry-run' | 'skipped' | 'held' | 'failed'
 
