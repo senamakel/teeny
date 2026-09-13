@@ -482,6 +482,61 @@ The reasoning comes from the drafter itself. Its structured output carries
 `thinking` and `declined` alongside the reply, and neither changes what gets
 posted; they are the record of how it got there.
 
+## The content filter
+
+The account does not talk about sex, violence, weapons, drugs, hate,
+self-harm or extremism, and it does not swear. That is stated in every
+prompt, and it is enforced in code on both sides of every turn, because a
+prompt rule is an argument and an argument can be lost.
+
+**Inbound.** Every mention on X, every Telegram message the account is
+addressed in, and every ad-hoc task on `/agent/run` passes the gate before the
+drafter sees it. A message the gate holds is not processed: no reply, no
+reaction, nothing remembered, and the drafter is never shown it. The mention
+queue marks it `held: <category>`, the journal records that something was held
+and the category, never the text, and the endpoint answers 422.
+
+**Outbound.** Every draft passes the gate again, after house style and
+immediately before it is published: the reply job's text, the Telegram bot's,
+the `x_post` and `post_chart` tools', and the prompt handed to `generate_image`
+and `generate_video` before any budget is spent. A held draft is withheld and
+the mention is marked `withheld: <category>`; a tool refuses with the reason so
+the agent can say something else. Outbound is stricter than inbound in one
+way: ordinary swearing from a stranger is answered, but the account never says
+it back.
+
+The gate is three checks, cheapest first, each sufficient on its own:
+
+1. **Links.** Every URL in a draft, including `tinyhumans[.]ai`, `(dot)`,
+   `hxxp://` and bare `name.tld` spellings, is parsed and checked against an
+   allowlist. A link that is not on it is cut from the text before publishing
+   (the tools refuse instead, so the model rewrites the sentence). The check
+   is on the shape first — `tinyhumans.ai@evil.example`,
+   `tinyhumans.ai.evil.example`, a Cyrillic look-alike, punycode, a raw IP, an
+   explicit port — and then on the host. The built-in list is the project's
+   own sites, its GitHub org, its Telegram, X itself, and the token's launchpad
+   as a bare host only. `LINK_ALLOWLIST` adds to it, comma separated, as
+   `host` (with subdomains), `host/path-prefix`, or `host/` for the bare host.
+   `src/safety/links.ts`.
+2. **The lexicon.** `src/safety/lexicon.ts` is a plain list of terms by
+   category, matched on their own letters with repeats and simple leetspeak
+   folded (`k1ll`, `nuuudes`, `sh!t`, zero-width characters, full-width
+   letters), never inside another word, and with a short list of market idioms
+   removed first so "killing it" and "the chart got murdered" are not
+   violence. Synchronous and deterministic; it also scrubs the X thread and
+   the Telegram history the drafter is shown, line by line.
+3. **The judge.** A second model call with no tools and no persona reads the
+   text with one question and answers in a fixed shape. This is what catches
+   "draw Tiny with nothing on", which has no word on the list. It fails closed:
+   a judge that cannot be reached holds the turn. `SAFETY_JUDGE=false` turns
+   it off; `SAFETY_JUDGE_MODEL` points it at a different rung than the
+   drafter, which is worth doing because it runs twice per reply and costs a
+   few seconds each time. `src/safety/judge.ts`.
+
+Giphy searches are pinned to rating `g`. `test/safety-*.test.ts` hold the
+cases; `test/reply-job.test.ts`, `test/telegram-bot.test.ts` and
+`test/agent-tools.test.ts` show it wired in.
+
 ## The wallet, and why there isn't one
 
 The account was given an ERC-20 wallet on Robinhood Chain on 2026-09-08 and had
