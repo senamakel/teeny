@@ -170,6 +170,38 @@ const schema = z.object({
   // The least time between two GIFs in one chat, whatever the drafter wants.
   TELEGRAM_GIF_COOLDOWN_S: z.coerce.number().int().min(0).max(86_400).default(600),
 
+  // --- media ---------------------------------------------------------------
+  // Seeing pictures, drawing them, and filming short clips. Each is its own
+  // switch, off until its key or model is set, because each is a separate
+  // bill and a separate provider: the ladder may not see images, and a key
+  // that draws may not film.
+  //
+  // Vision: any OpenAI-compatible chat endpoint whose model accepts image
+  // parts. Blank model, no vision -- the account is told it cannot see the
+  // picture rather than being handed a 400 mid-reply. The URL and key default
+  // to the LLM's at wiring time.
+  VISION_MODEL: blankable(z.string().min(1)),
+  VISION_BASE_URL: blankable(z.url()),
+  VISION_API_KEY: blankable(z.string().min(1)),
+  // Image generation, OpenAI `/images/generations` shape: gpt-image-*, dall-e-*.
+  IMAGE_GEN_API_KEY: blankable(z.string().min(1)),
+  IMAGE_GEN_BASE_URL: z.url().default('https://api.openai.com/v1'),
+  IMAGE_GEN_MODEL: z.string().min(1).default('gpt-image-1'),
+  IMAGE_GEN_QUALITY: z.string().min(1).default('medium'),
+  // Video generation, OpenAI `/videos` shape: sora-2, sora-2-pro. A render
+  // takes minutes, so the timeout is generous and the clip is short.
+  VIDEO_GEN_API_KEY: blankable(z.string().min(1)),
+  VIDEO_GEN_BASE_URL: z.url().default('https://api.openai.com/v1'),
+  VIDEO_GEN_MODEL: z.string().min(1).default('sora-2'),
+  VIDEO_GEN_SECONDS: z.coerce.number().int().min(1).max(60).default(4),
+  VIDEO_GEN_TIMEOUT_S: z.coerce.number().int().min(30).max(3_600).default(600),
+  // Where a copy of everything generated is written, like charts.
+  MEDIA_OUTPUT_DIR: z.string().default('data/media'),
+  // Daily ceilings, per kind. The prompt asks the drafter to be sparing; this
+  // is what makes "make me a video" from a hundred strangers survivable.
+  MEDIA_IMAGES_PER_DAY: z.coerce.number().int().min(0).max(1_000).default(20),
+  MEDIA_VIDEOS_PER_DAY: z.coerce.number().int().min(0).max(100).default(3),
+
   // --- the wallet ----------------------------------------------------------
   // Nothing reads these today. The agent has no airdrop tool: it was added and
   // removed on 2026-09-08, and `test/capabilities.test.ts` explains why. The
