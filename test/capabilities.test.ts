@@ -3,6 +3,7 @@ import { buildTools } from '../src/agent/graph.js'
 import { createMarketTools } from '../src/agent/tools/market.js'
 import type { ChartRenderer } from '../src/chart/renderer.js'
 import type { TokenMarket } from '../src/market/market.js'
+import { MediaBudget, MediaStore } from '../src/media/store.js'
 import type { GifSource, Memory, XTools } from '../src/types.js'
 
 /**
@@ -113,6 +114,40 @@ describe('agent capabilities', () => {
       'web_answer',
       'find_gif',
     ])
+  })
+
+  /**
+   * Seeing, drawing and filming were added on 2026-09-14. Each tool appears
+   * only with its provider, so a box with none of the keys still publishes
+   * the list above. None of them spends anything but the provider's bill,
+   * and that bill has its own daily cap in `MediaBudget`.
+   */
+  it('adds exactly the media tools that are configured, and nothing else', () => {
+    const base = options()
+    const store = new MediaStore()
+    const budget = new MediaBudget({ imagesPerDay: 1, videosPerDay: 1 })
+    const reader = { describe: vi.fn() }
+    const images = { generate: vi.fn() }
+    const videos = { generate: vi.fn() }
+
+    const names = (media: Parameters<typeof buildTools>[0]['media']) =>
+      buildTools({ ...base, ...(media ? { media } : {}) })
+        .map((tool) => tool.name)
+        .filter((name) => !['recall_memory', 'remember', 'x_search_posts', 'x_get_post', 'x_get_comments', 'x_post', 'web_search', 'read_web_pages', 'find_similar_pages', 'web_answer', 'find_gif'].includes(name))
+
+    expect(names({ store, budget })).toEqual([])
+    expect(names({ store, budget, reader })).toEqual(['look_at_image'])
+    expect(names({ store, budget, images })).toEqual(['generate_image'])
+    expect(names({ store, budget, reader, images, videos })).toEqual([
+      'look_at_image',
+      'generate_image',
+      'generate_video',
+    ])
+    for (const tool of buildTools({ ...base, media: { store, budget, reader, images, videos } })) {
+      for (const word of FORBIDDEN) {
+        expect(tool.name.toLowerCase().includes(word), `tool "${tool.name}"`).toBe(false)
+      }
+    }
   })
 
   /**

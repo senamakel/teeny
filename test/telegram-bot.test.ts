@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import type { FastifyBaseLogger } from 'fastify'
 import type { TelegramApi, TelegramMessage, TelegramUpdate } from '../src/clients/telegram.js'
 import type { ChatHarness } from '../src/harness/chat-harness.js'
+import { MediaStore } from '../src/media/store.js'
+import type { ImageReader } from '../src/media/types.js'
 import { TelegramBot } from '../src/telegram/bot.js'
 import type { GifSource } from '../src/types.js'
 
@@ -29,6 +31,9 @@ function api(): TelegramApi {
     sendAnimation: vi.fn().mockResolvedValue({ id: 100 }),
     sendChatAction: vi.fn().mockResolvedValue(undefined),
     setMessageReaction: vi.fn().mockResolvedValue(undefined),
+    sendPhoto: vi.fn().mockResolvedValue({ id: 200 }),
+    sendVideo: vi.fn().mockResolvedValue({ id: 201 }),
+    downloadFile: vi.fn().mockResolvedValue({ data: new Uint8Array([1, 2, 3]), mimeType: 'image/jpeg' }),
   }
 }
 
@@ -51,6 +56,16 @@ function dm(text: string, overrides: Partial<TelegramMessage> = {}): TelegramUpd
       ...overrides,
     },
   }
+}
+
+/** A photo message: no `text` at all, a caption at most, as Telegram sends one. */
+function photoMessage(
+  shape: (text: string, overrides?: Partial<TelegramMessage>) => TelegramUpdate,
+  overrides: Partial<TelegramMessage>,
+): TelegramUpdate {
+  const update = shape('placeholder', overrides)
+  const { text: _text, ...message } = update.message!
+  return { ...update, message }
 }
 
 function group(text: string, overrides: Partial<TelegramMessage> = {}): TelegramUpdate {
@@ -333,6 +348,126 @@ describe('TelegramBot', () => {
 
     expect(deps.api.sendMessage).not.toHaveBeenCalled()
     expect(deps.harness.remember).toHaveBeenCalledWith(expect.anything(), 'gm fren', undefined, 'friendly')
+  })
+
+  describe('pictures', () => {
+    const photo = [
+      { file_id: 'small', file_unique_id: 's', width: 90, height: 90 },
+      { file_id: 'large', file_unique_id: 'l', width: 800, height: 800 },
+    ]
+
+    it('looks at a photo sent to it and hands the drafter what it saw', async () => {
+      const vision: ImageReader = { describe: vi.fn().mockResolvedValue('a chart of $TINY, up and to the right') }
+      const { bot: subject, deps } = build({ vision })
+
+      await subject.handle(photoMessage(dm, { caption: 'thoughts?', photo }))
+
+      // The largest rendition, not the thumbnail.
+      expect(deps.api.downloadFile).toHaveBeenCalledWith('large')
+      expect(vision.describe).toHaveBeenCalledWith({ data: new Uint8Array([1, 2, 3]), mimeType: 'image/jpeg' })
+      expect(deps.harness.generate).toHaveBeenCalledWith(
+        expect.objectContaining({ text: 'thoughts?\n[image: a chart of $TINY, up and to the right]' }),
+        [],
+      )
+    })
+
+    it('answers a photo with no caption at all', async () => {
+      const vision: ImageReader = { describe: vi.fn().mockResolvedValue('a cat') }
+      const { bot: subject, deps } = build({ vision })
+
+      await subject.handle(photoMessage(dm, { photo }))
+
+      expect(deps.harness.generate).toHaveBeenCalledWith(expect.objectContaining({ text: '[image: a cat]' }), [])
+    })
+
+    it('says a photo was sent when nothing can look at it, and keeps going when looking fails', async () => {
+      const { bot: blind, deps: blindDeps } = build()
+      await blind.handle(photoMessage(dm, { photo }))
+      expect(blindDeps.api.downloadFile).not.toHaveBeenCalled()
+      expect(blindDeps.harness.generate).toHaveBeenCalledWith(expect.objectContaining({ text: '[sent a photo]' }), [])
+
+      const vision: ImageReader = { describe: vi.fn().mockRejectedValue(new Error('400')) }
+      const { bot: subject, deps } = build({ vision })
+      await subject.handle(dm('look', { photo }))
+      expect(deps.harness.generate).toHaveBeenCalledWith(
+        expect.objectContaining({ text: 'look\n[sent a photo that could not be read]' }),
+        [],
+      )
+      expect(deps.api.sendMessage).toHaveBeenCalled()
+    })
+
+    it('does not spend a vision call on a group photo that was not for it', async () => {
+      const vision: ImageReader = { describe: vi.fn().mockResolvedValue('a cat') }
+      const { bot: subject, deps } = build({ vision })
+
+      await subject.handle(photoMessage(group, { caption: 'look at this', photo }))
+
+      expect(vision.describe).not.toHaveBeenCalled()
+      expect(deps.harness.generate).not.toHaveBeenCalled()
+      // The room still knows a photo went by.
+      await subject.handle(group('@teenythebot what was that', {
+        message_id: 21,
+        entities: [{ type: 'mention', offset: 0, length: 12 }],
+      }))
+      expect(deps.harness.generate).toHaveBeenCalledWith(expect.anything(), [
+        { from: 'person', authorName: 'Alice', text: 'look at this\n[sent a photo]' },
+      ])
+    })
+
+    it('sends a generated image with the reply as its caption, and remembers what it said', async () => {
+      const media = new MediaStore()
+      const stored = media.put({ kind: 'image', prompt: 'a tiny robot', data: new Uint8Array([9]), mimeType: 'image/png' })
+      const { bot: subject, deps } = build({
+        media,
+        harness: harness({ text: 'here you go', mediaId: stored.id, incomingTone: 'friendly' }),
+      })
+
+      await subject.handle(dm('draw me a tiny robot'))
+
+      expect(deps.api.sendPhoto).toHaveBeenCalledWith(
+        1,
+        { data: new Uint8Array([9]), mimeType: 'image/png', caption: 'here you go' },
+        {},
+      )
+      expect(deps.api.sendMessage).not.toHaveBeenCalled()
+      expect(deps.harness.remember).toHaveBeenCalledWith(expect.anything(), 'here you go', '200', 'friendly')
+    })
+
+    it('sends a generated video as a video, and a picture alone when there are no words', async () => {
+      const media = new MediaStore()
+      const stored = media.put({ kind: 'video', prompt: 'a tiny robot dancing', data: new Uint8Array([9]), mimeType: 'video/mp4' })
+      const { bot: subject, deps } = build({
+        media,
+        harness: harness({ mediaId: stored.id, incomingTone: 'friendly' }),
+      })
+
+      await subject.handle(dm('make it dance'))
+
+      expect(deps.api.sendVideo).toHaveBeenCalledWith(1, { data: new Uint8Array([9]), mimeType: 'video/mp4' }, {})
+      expect(deps.harness.remember).toHaveBeenCalledWith(expect.anything(), '(sent a generated video)', '201', 'friendly')
+    })
+
+    it('falls back to the words when the picture will not send, and when the id is unknown', async () => {
+      const media = new MediaStore()
+      const stored = media.put({ kind: 'image', prompt: 'x', data: new Uint8Array([9]), mimeType: 'image/png' })
+      const failing = api()
+      failing.sendPhoto = vi.fn().mockRejectedValue(new Error('413'))
+      const { bot: subject, deps } = build({
+        media,
+        api: failing,
+        harness: harness({ text: 'here', mediaId: stored.id, incomingTone: 'friendly' }),
+      })
+      await subject.handle(dm('draw'))
+      expect(deps.api.sendMessage).toHaveBeenCalledWith(1, 'here', {})
+
+      const { bot: other, deps: otherDeps } = build({
+        media,
+        harness: harness({ text: 'here', mediaId: 'img_notreal_9', incomingTone: 'friendly' }),
+      })
+      await other.handle(dm('draw'))
+      expect(otherDeps.api.sendPhoto).not.toHaveBeenCalled()
+      expect(otherDeps.api.sendMessage).toHaveBeenCalledWith(1, 'here', {})
+    })
   })
 
   it('ignores other bots so two bots in a room cannot loop', async () => {

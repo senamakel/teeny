@@ -78,6 +78,9 @@ more than the voice.
 | `find_similar_pages` | Exa similarity search around one good source. |
 | `web_answer` | Exa's cited answer endpoint for a single fact. |
 | `find_gif` | Searches the account's own Giphy channel, or all of Giphy on request. |
+| `look_at_image` | Describes an image by URL through the vision ladder. Off when `VISION_MODEL` is blank. |
+| `generate_image` | Draws a picture, with Tiny's look from the reference sheet, and returns a `mediaId`. `IMAGE_GEN_ENABLED`. |
+| `generate_video` | Films a few seconds, same sheet, and returns a `mediaId`. `VIDEO_GEN_ENABLED`. |
 
 `x_post` takes a `gifId` from `find_gif` and attaches it: the id is resolved
 against Giphy server-side and the bytes are uploaded to X through the chunked
@@ -86,7 +89,7 @@ never an arbitrary URL. An animated GIF is transcoded by X after upload, so the
 client waits for processing to report `succeeded` before attaching the id.
 
 The cron reply job uses a research-only variant of the agent: it has every tool
-except `x_post`, and returns a structured `{ reply, gifQuery?, incomingTone }` so the job stays in charge of
+except `x_post`, and returns a structured `{ reply, gifQuery?, mediaId?, incomingTone }` so the job stays in charge of
 publishing and of the duplicate-reply cursor. When the drafter sets `gifQuery`,
 the job searches the channel and attaches the first match; a GIF is a nice
 touch rather than the point, so any failure there is logged and the reply still
@@ -121,6 +124,79 @@ it made. `threadId` resumes an earlier conversation from the in-memory
 checkpointer; that state is lost on restart. The endpoint returns 503 while
 `AGENT_MODE=simple` or `AGENT_API_TOKEN` is unset, and the agent still honours
 `DRY_RUN`, so nothing is published until you turn it off.
+
+## Pictures
+
+The account can look at images, draw them, and film short clips, on X and on
+Telegram alike. All three default to the LLM ladder, which serves them on the
+same URL and key as chat (`llm-ladder-router` PR #18): a `vision` chat ladder
+whose rungs read image input, an `image` ladder in the OpenAI Images shape,
+and a `video` ladder that answers with a job to poll. Seeing is on by default;
+drawing and filming are opt-in because each is a bill. Any part can be pointed
+at another OpenAI-compatible endpoint with its own URL, key and model.
+
+| Capability | Switch | Default | Shape |
+| --- | --- | --- | --- |
+| Seeing | `VISION_MODEL` (blank = off) | `vision` on the ladder | chat completions with `image_url` parts |
+| Drawing | `IMAGE_GEN_ENABLED` | `image` on the ladder | `POST /images/generations`; also `gpt-image-*` / `dall-e-*` directly |
+| Filming | `VIDEO_GEN_ENABLED` | `video` on the ladder | `POST /video/generations` + polled `media.job`; `VIDEO_GEN_API=openai` for Sora's `/videos` |
+
+With nothing enabled beyond the default vision, the tool list gains only
+`look_at_image`; `test/capabilities.test.ts` asserts exactly which tools appear
+with which provider.
+
+**Seeing** happens before drafting rather than on request. A photo sent to the
+bot on Telegram is downloaded and described, and the description lands in the
+message text as `[image: …]`, so the transcript, the drafter and memory all
+see the same thing. A picture attached to an X mention is fetched by the media
+URL X returns (a video contributes its preview frame) and passed to the drafter
+as a labelled, untrusted block. Without a vision model the message reads
+`[sent a photo]` and the prompt tells the account to say it cannot see it
+rather than guess. In a group, only photos addressed to the bot are described:
+a vision call per picture in a busy room is a bill for pictures nobody asked
+about. `look_at_image` covers everything else -- the media URLs listed by
+`x_get_post` and `x_search_posts`, or a link somebody shared -- and fetches
+only public https hostnames, never an address or anything that names the box.
+
+**Drawing and filming** are tools the drafters and the task agent all have.
+They return a `mediaId`; the bytes stay in an in-process `MediaStore` and are
+attached by whichever job asked: the reply job uploads it to X in place of a
+GIF, the Telegram bot sends it as a photo or video with the reply as its
+caption, and `x_post` takes it directly. A drafter's `mediaId` only counts when
+a tool in that same run actually returned it, so a model that has learned the
+id format cannot attach something another turn made. A copy of everything
+generated is written to `MEDIA_OUTPUT_DIR` (`data/media` by default) so a
+person can see what went out. A square request carries no `size` at all and
+takes the ladder's default; the image can come back as PNG, JPEG or WebP
+depending on which rung served, and the type is read from the bytes.
+
+### What Tiny looks like
+
+The image ladder is text-to-image only; reference-image input is a stated
+non-goal there. So the account's artwork is turned into words instead. The ten
+pictures from the marquee on tinyhumansworld.com are vendored under
+`assets/tiny/` (see the README there). At startup the vision ladder describes
+each one for an illustrator -- body, face, colours by name, materials, style --
+and the chat model distils the descriptions into a single character sheet of
+what is constant across them. The sheet is cached at `REFERENCE_SHEET_PATH`
+(`data/media/reference-sheet.json`), keyed by the list of pictures, so it costs
+a dozen model calls once rather than on every boot.
+
+`generate_image` and `generate_video` prepend the sheet to the prompt whenever
+the picture features Tiny, which is the default; the prompt then describes the
+scene and what Tiny is doing rather than what Tiny looks like. `featuresTiny:
+false` skips it for a picture with no Tiny in it. `TINY_REFERENCE_IMAGES`
+overrides the list (paths or URLs), and `none` turns the sheet off. If the
+sheet cannot be built the tool says so and draws from the prompt alone.
+
+Both generators are rationed by `MediaBudget`: `MEDIA_IMAGES_PER_DAY` and
+`MEDIA_VIDEOS_PER_DAY`, counted separately because a clip costs a hundred
+times what a picture does, shared by every drafter in the process, reset at
+UTC midnight. The prompt asks for restraint -- only when somebody asks, or when
+a picture is plainly the best answer, never as decoration -- and the budget is
+what holds when a hundred strangers ask at once. When it is spent the tool
+refuses and the drafter is told to answer in words and not to promise one
+later.
 
 ## The chart agent
 

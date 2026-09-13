@@ -119,3 +119,42 @@ describe('telegram config', () => {
     ).toThrow()
   })
 })
+
+describe('media config', () => {
+  it('sees by default, draws and films only when switched on, and points everything at the ladder', () => {
+    const config = loadConfig({ ...REQUIRED } as unknown as NodeJS.ProcessEnv)
+    expect(config.VISION_MODEL).toBe('vision')
+    expect(config.IMAGE_GEN_ENABLED).toBe(false)
+    expect(config.VIDEO_GEN_ENABLED).toBe(false)
+    expect(config.IMAGE_GEN_MODEL).toBe('image')
+    expect(config.VIDEO_GEN_MODEL).toBe('video')
+    expect(config.VIDEO_GEN_API).toBe('ladder')
+    expect(config.IMAGE_GEN_BASE_URL).toBeUndefined()
+    expect(config.TINY_REFERENCE_IMAGES).toHaveLength(10)
+    expect(config.TINY_REFERENCE_IMAGES[0]).toMatch(/^assets\/tiny\/.*\.jpg$/)
+  })
+
+  it('accepts the blanks a half-filled .env contains, and reads the reference list', () => {
+    const config = loadConfig({
+      ...REQUIRED,
+      VISION_MODEL: '',
+      VISION_BASE_URL: '',
+      IMAGE_GEN_API_KEY: '',
+      IMAGE_GEN_QUALITY: '',
+      VIDEO_GEN_BASE_URL: '',
+      TINY_REFERENCE_IMAGES: ' https://example.com/a.jpg, assets/tiny/b.jpg ,',
+    } as unknown as NodeJS.ProcessEnv)
+    expect(config.VISION_MODEL).toBe('')
+    expect(config.IMAGE_GEN_QUALITY).toBeUndefined()
+    expect(config.TINY_REFERENCE_IMAGES).toEqual(['https://example.com/a.jpg', 'assets/tiny/b.jpg'])
+
+    expect(
+      loadConfig({ ...REQUIRED, TINY_REFERENCE_IMAGES: 'none' } as unknown as NodeJS.ProcessEnv)
+        .TINY_REFERENCE_IMAGES,
+    ).toEqual([])
+    expect(
+      loadConfig({ ...REQUIRED, TINY_REFERENCE_IMAGES: '' } as unknown as NodeJS.ProcessEnv)
+        .TINY_REFERENCE_IMAGES,
+    ).toHaveLength(10)
+  })
+})

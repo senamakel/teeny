@@ -2,6 +2,8 @@ import { tool } from '@langchain/core/tools'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import { z } from 'zod'
 import { applyHouseStyle, countEmoji } from '../house-style.js'
+import type { MediaStore } from '../../media/store.js'
+import { MEDIA_ID_PATTERN } from './media.js'
 import type { GifSource, XPost, XTools } from '../../types.js'
 
 export const MAX_POST_LENGTH = 280
@@ -16,6 +18,10 @@ function renderPosts(posts: XPost[]): string {
         post.conversationId ? `conversation_id: ${post.conversationId}` : undefined,
         post.createdAt ? `created_at: ${post.createdAt}` : undefined,
         `text: ${post.text}`,
+        ...(post.media ?? []).map((item) => {
+          const url = item.url ?? item.previewUrl
+          return `media: ${item.type}${url ? ` ${url}` : ''}${item.altText ? ` (alt: ${item.altText})` : ''}`
+        }),
       ]
         .filter(Boolean)
         .join('\n'),
@@ -32,6 +38,8 @@ export function createXTools(
     gifs?: { source: GifSource; channel: string }
     /** Cap on posts pulled per search. X bills per post retrieved, floor of 10. */
     searchLimit?: number
+    /** Where generate_image / generate_video leave their files, for mediaId. */
+    media?: MediaStore
   },
 ): StructuredToolInterface[] {
   const maxEmoji = options.maxEmoji ?? 1
@@ -90,7 +98,7 @@ export function createXTools(
   )
 
   const postTweet = tool(
-    async ({ text: drafted, replyToPostId, quotePostId, gifId }) => {
+    async ({ text: drafted, replyToPostId, quotePostId, gifId, mediaId }) => {
       if (drafted.length > MAX_POST_LENGTH) {
         return `Refused: the text is ${drafted.length} characters, over the ${MAX_POST_LENGTH} limit.`
       }
@@ -107,19 +115,34 @@ export function createXTools(
       if (gifId && !options.gifs) {
         return 'Refused: no GIF source is configured, so gifId cannot be attached.'
       }
+      if (gifId && mediaId) {
+        return 'Refused: a post carries either a GIF or a generated file, not both. Drop one.'
+      }
+      const generated = mediaId ? options.media?.get(mediaId) : undefined
+      if (mediaId && !generated) {
+        return (
+          `Refused: no generated media with id ${mediaId}. Use an id that generate_image or ` +
+          'generate_video returned in this conversation.'
+        )
+      }
       if (options.dryRun) {
         return `DRY RUN, nothing was published. Would have posted: ${JSON.stringify({
           text,
           replyToPostId,
           quotePostId,
           gifId,
+          mediaId,
         })}`
       }
 
-      // Only a Giphy id can be attached, never an arbitrary URL, so the media
-      // this account posts always comes from Giphy and is resolved server-side.
+      // Only a Giphy id or a file this process generated can be attached,
+      // never an arbitrary URL, so the media this account posts is always
+      // something it can account for.
       let mediaIds: string[] | undefined
-      if (gifId && options.gifs) {
+      if (generated) {
+        const uploaded = await x.uploadMedia({ data: generated.data, mimeType: generated.mimeType })
+        mediaIds = [uploaded.mediaId]
+      } else if (gifId && options.gifs) {
         const match = await options.gifs.source.get(gifId)
         if (!match) {
           return `Refused: no GIF found for id ${gifId}. Call find_gif again and use an id it returned.`
@@ -133,7 +156,8 @@ export function createXTools(
         ...(quotePostId ? { quotePostId } : {}),
         ...(mediaIds ? { mediaIds } : {}),
       })
-      return `Published post ${posted.id}${mediaIds ? ' with a GIF' : ''}.`
+      const attached = generated ? ` with a generated ${generated.kind}` : mediaIds ? ' with a GIF' : ''
+      return `Published post ${posted.id}${attached}.`
     },
     {
       name: 'x_post',
@@ -151,6 +175,11 @@ export function createXTools(
           .regex(/^[A-Za-z0-9]+$/)
           .optional()
           .describe('A GIF id returned by find_gif, attached as media.'),
+        mediaId: z
+          .string()
+          .regex(MEDIA_ID_PATTERN)
+          .optional()
+          .describe('A mediaId returned by generate_image or generate_video, attached as media.'),
       }),
     },
   )

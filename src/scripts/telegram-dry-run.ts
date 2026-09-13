@@ -10,6 +10,7 @@ import { GlobalMarketClient } from '../market/global.js'
 import { TokenMarket } from '../market/market.js'
 import { CortexMemory } from '../memory/cortex.js'
 import { TelegramBot } from '../telegram/bot.js'
+import { buildMedia } from '../media/wiring.js'
 
 /**
  * Rehearses a Telegram turn without a Telegram user: the message comes from
@@ -63,9 +64,11 @@ const market = config.CHART_TOKEN_ADDRESS
     }
   : undefined
 
+const media = buildMedia(config)
 const model = new AgentChatModel({
   memory,
   x,
+  ...(media ? { media } : {}),
   persona: loadPersona({
     soulPath: config.SOUL_PATH,
     contextPath: config.CONTEXT_PATH,
@@ -100,6 +103,15 @@ const recording: TelegramApi = {
   setMessageReaction: async (_chatId, messageId, emoji) => {
     console.log(`--- would react ${emoji} on message ${messageId}`)
   },
+  sendPhoto: async (_chatId, upload) => {
+    console.log(`--- would send a photo (${upload.data.byteLength} bytes) captioned: ${upload.caption ?? '(none)'}`)
+    return { id: 3 }
+  },
+  sendVideo: async (_chatId, upload) => {
+    console.log(`--- would send a video (${upload.data.byteLength} bytes) captioned: ${upload.caption ?? '(none)'}`)
+    return { id: 4 }
+  },
+  downloadFile: (fileId) => telegram.downloadFile(fileId),
 }
 
 const logger = {
@@ -117,6 +129,8 @@ const bot = new TelegramBot({
   // Not the bot's own dry run: that would skip the send path this rehearses.
   dryRun: false,
   ...(gifs ? { gifs: gifs.source } : {}),
+  ...(media?.reader ? { vision: media.reader } : {}),
+  ...(media ? { media: media.store } : {}),
   maxEmoji: config.MAX_EMOJI_PER_POST,
 })
 

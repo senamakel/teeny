@@ -25,6 +25,7 @@ import { TelegramApiClient } from './clients/telegram.js'
 import { ChatHarness } from './harness/chat-harness.js'
 import { TelegramBot } from './telegram/bot.js'
 import { MongoChatTranscript } from './telegram/transcript.js'
+import { buildMedia } from './media/wiring.js'
 
 const config = loadConfig()
 const memory = new CortexMemory(
@@ -91,11 +92,20 @@ const marketAccess = config.CHART_TOKEN_ADDRESS
     }
   : undefined
 
+/**
+ * One media access for the whole process: the reply drafter, the chat
+ * drafter and the task agent draw on the same daily budget and leave their
+ * files in the same store, which is what lets a job attach what a turn made.
+ */
+// The logger does not exist yet; the closure runs only after `app` does.
+const media = buildMedia(config, { log: (event, detail) => app.log.info(detail ?? {}, event) })
+
 const agentOptions: AgentOptions = {
   memory,
   x,
   persona,
   ...(marketAccess ? { market: marketAccess } : {}),
+  ...(media ? { media } : {}),
   maxEmoji: config.MAX_EMOJI_PER_POST,
   botUsername,
   dryRun: config.DRY_RUN,
@@ -142,6 +152,10 @@ const app = buildServer({
     status: { mode: config.AGENT_MODE, model: config.LLM_MODEL, dryRun: config.DRY_RUN },
   },
 })
+// The character sheet takes a dozen model calls to build the first time.
+// Started now so the first "draw me a Tiny" of the day does not pay for it.
+media?.reference?.warm()
+
 const role = config.SERVICE_ROLE
 const runsIngest = role === 'all' || role === 'ingest'
 const runsReplies = role === 'all' || role === 'reply'
@@ -178,6 +192,7 @@ if (runsReplies) {
       config.THREAD_CONTEXT_MAX_POSTS > 0
         ? { x, maxPosts: config.THREAD_CONTEXT_MAX_POSTS }
         : undefined,
+      media?.reader,
     ),
     queue,
     logger: app.log,
@@ -188,6 +203,7 @@ if (runsReplies) {
     maxReplyIntervalMs: config.REPLY_MAX_INTERVAL_MS,
     botUserId: () => x.userId(),
     ...(gifs ? { gifs: gifs.source } : {}),
+    ...(media ? { media: media.store } : {}),
     journal,
   })
   if (config.REPLY_MODE === 'worker') {
@@ -244,6 +260,8 @@ if (runsTelegram && config.TELEGRAM_BOT_TOKEN) {
     bot: { id: me.id, username: me.username },
     dryRun: config.TELEGRAM_DRY_RUN,
     ...(gifs ? { gifs: gifs.source } : {}),
+    ...(media?.reader ? { vision: media.reader } : {}),
+    ...(media ? { media: media.store } : {}),
     maxEmoji: config.MAX_EMOJI_PER_POST,
     maxMessageAgeMs: config.TELEGRAM_MAX_MESSAGE_AGE_S * 1_000,
     pollTimeoutSeconds: config.TELEGRAM_POLL_TIMEOUT_S,
@@ -282,6 +300,10 @@ app.log.info(
     skills: persona.skills.map((skill) => skill.name),
     exa: Boolean(config.EXA_API_KEY),
     giphy: gifs ? config.GIPHY_CHANNEL : false,
+    vision: media?.reader ? config.VISION_MODEL : false,
+    referenceSheet: media?.reference ? config.TINY_REFERENCE_IMAGES.length : false,
+    imageGen: media?.images ? `${config.IMAGE_GEN_MODEL}, ${config.MEDIA_IMAGES_PER_DAY}/day` : false,
+    videoGen: media?.videos ? `${config.VIDEO_GEN_MODEL}, ${config.MEDIA_VIDEOS_PER_DAY}/day` : false,
     role,
     ingestCron: runsIngest ? config.INGEST_CRON : false,
     replyGapMs: runsReplies

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { ReplyHarness } from '../src/harness/reply-harness.js'
+import type { ImageReader } from '../src/media/types.js'
 import type { LanguageModel, Memory, XPost } from '../src/types.js'
 
 describe('ReplyHarness', () => {
@@ -29,6 +30,52 @@ describe('ReplyHarness', () => {
     expect(model.reply).toHaveBeenCalledWith({
       post,
       memory: expect.stringContaining('stonks.rocks is an open-source dapp') as unknown as string,
+    })
+  })
+
+  describe('pictures on the post', () => {
+    function memory(): Memory {
+      return {
+        captureActivity: vi.fn().mockResolvedValue(undefined),
+        captureMention: vi.fn().mockResolvedValue(undefined),
+        recall: vi.fn().mockResolvedValue(''),
+        captureReply: vi.fn().mockResolvedValue(undefined),
+      }
+    }
+    const post: XPost = {
+      id: '42',
+      text: '@bot thoughts?',
+      media: [
+        { type: 'photo', url: 'https://pbs.twimg.com/media/a.jpg' },
+        { type: 'video', previewUrl: 'https://pbs.twimg.com/media/b.jpg' },
+      ],
+    }
+
+    it('looks at each picture and hands the drafter what it saw, a video by its preview', async () => {
+      const vision: ImageReader = {
+        describe: vi.fn().mockResolvedValueOnce('a candlestick chart').mockResolvedValueOnce('a dancing frog'),
+      }
+      const model: LanguageModel = { reply: vi.fn().mockResolvedValue({ text: 'nice' }) }
+      await new ReplyHarness(memory(), model, undefined, vision).generate(post)
+
+      expect(vision.describe).toHaveBeenCalledWith({ url: 'https://pbs.twimg.com/media/a.jpg' })
+      expect(vision.describe).toHaveBeenCalledWith({ url: 'https://pbs.twimg.com/media/b.jpg' })
+      expect(model.reply).toHaveBeenCalledWith(
+        expect.objectContaining({
+          images: ['a candlestick chart', '(a video; this is its preview frame) a dancing frog'],
+        }),
+      )
+    })
+
+    it('drafts from the words alone when nothing can look, or looking fails', async () => {
+      const blind: LanguageModel = { reply: vi.fn().mockResolvedValue({ text: 'nice' }) }
+      await new ReplyHarness(memory(), blind).generate(post)
+      expect(blind.reply).toHaveBeenCalledWith(expect.not.objectContaining({ images: expect.anything() }))
+
+      const vision: ImageReader = { describe: vi.fn().mockRejectedValue(new Error('403')) }
+      const model: LanguageModel = { reply: vi.fn().mockResolvedValue({ text: 'nice' }) }
+      await new ReplyHarness(memory(), model, undefined, vision).generate(post)
+      expect(model.reply).toHaveBeenCalledWith(expect.not.objectContaining({ images: expect.anything() }))
     })
   })
 

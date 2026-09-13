@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { ReplyHarness } from '../src/harness/reply-harness.js'
 import { IngestJob } from '../src/jobs/ingest-job.js'
 import { ReplyJob } from '../src/jobs/reply-job.js'
+import { MediaStore } from '../src/media/store.js'
 import type { MentionQueue, QueuedMention } from '../src/queue/mentions.js'
 import type {
   BotState,
@@ -127,7 +128,7 @@ describe('IngestJob', () => {
 describe('ReplyJob', () => {
   function subject(
     dryRun: boolean,
-    options: { gifs?: GifSource; draft?: unknown; pending?: XPost[] } = {},
+    options: { gifs?: GifSource; media?: MediaStore; draft?: unknown; pending?: XPost[] } = {},
   ) {
     const x = {
       findMentions: vi.fn(),
@@ -159,6 +160,7 @@ describe('ReplyJob', () => {
         maxReplies: 5,
         botUserId: async () => BOT_ID,
         ...(options.gifs ? { gifs: options.gifs } : {}),
+        ...(options.media ? { media: options.media } : {}),
       }),
     }
   }
@@ -249,6 +251,36 @@ describe('ReplyJob', () => {
       replyToPostId: '10',
       mediaIds: ['media-1'],
     })
+  })
+
+  it('attaches a file the drafter generated, and prefers it to a GIF', async () => {
+    const media = new MediaStore()
+    const stored = media.put({ kind: 'image', prompt: 'p', data: new Uint8Array([7, 7]), mimeType: 'image/png' })
+    const gifs: GifSource = { search: vi.fn(), get: vi.fn(), download: vi.fn() }
+    const it_ = subject(false, {
+      gifs,
+      media,
+      draft: { text: 'reply', gifQuery: 'waving', mediaId: stored.id },
+    })
+    await it_.job.run()
+
+    expect(it_.x.uploadMedia).toHaveBeenCalledWith({ data: new Uint8Array([7, 7]), mimeType: 'image/png' })
+    expect(gifs.search).not.toHaveBeenCalled()
+    expect(it_.x.createPost).toHaveBeenCalledWith('reply', { replyToPostId: '10', mediaIds: ['media-1'] })
+  })
+
+  it('replies with text alone when the mediaId is not in the store or will not upload', async () => {
+    const media = new MediaStore()
+    const missing = subject(false, { media, draft: { text: 'reply', mediaId: 'img_nope_1' } })
+    await missing.job.run()
+    expect(missing.x.uploadMedia).not.toHaveBeenCalled()
+    expect(missing.x.createPost).toHaveBeenCalledWith('reply', { replyToPostId: '10' })
+
+    const stored = media.put({ kind: 'video', prompt: 'p', data: new Uint8Array([1]), mimeType: 'video/mp4' })
+    const failing = subject(false, { media, draft: { text: 'reply', mediaId: stored.id } })
+    ;(failing.x.uploadMedia as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('too big'))
+    await failing.job.run()
+    expect(failing.x.createPost).toHaveBeenCalledWith('reply', { replyToPostId: '10' })
   })
 
   it('still replies with text when the GIF cannot be fetched', async () => {

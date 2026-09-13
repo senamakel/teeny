@@ -1,5 +1,5 @@
 import type { TelegramMessage, TelegramUser } from '../clients/telegram.js'
-import type { ChatMessage } from '../types.js'
+import type { ChatAttachment, ChatMessage } from '../types.js'
 
 export interface BotIdentity {
   id: number
@@ -93,11 +93,29 @@ export function isServiceMessage(message: TelegramMessage): boolean {
   return SERVICE_FIELDS.some((field) => message[field] !== undefined)
 }
 
+const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
+
+/**
+ * The pictures on a message: a photo at its largest size, or a document
+ * that is an image sent uncompressed. Stickers, videos and voice notes are
+ * left out; there is nothing here that can look at them.
+ */
+export function attachmentsOf(message: TelegramMessage): ChatAttachment[] {
+  const attachments: ChatAttachment[] = []
+  const largest = message.photo?.[message.photo.length - 1]
+  if (largest) attachments.push({ kind: 'image', ref: largest.file_id, mimeType: 'image/jpeg' })
+  const document = message.document
+  if (document?.mime_type && IMAGE_TYPES.has(document.mime_type)) {
+    attachments.push({ kind: 'image', ref: document.file_id, mimeType: document.mime_type })
+  }
+  return attachments
+}
+
 /**
  * A Telegram message as the rest of the service sees it, or nothing when the
- * message is not a person saying something: no text, a service message, from
- * a bot or a channel, or from the account itself. Only human lines reach the
- * transcript, the drafter, or memory.
+ * message is not a person saying something: no text and no picture, a service
+ * message, from a bot or a channel, or from the account itself. Only human
+ * lines reach the transcript, the drafter, or memory.
  */
 export function toChatMessage(
   message: TelegramMessage,
@@ -106,10 +124,11 @@ export function toChatMessage(
   const author = message.from
   if (!author || isFromBot(message) || isServiceMessage(message)) return undefined
   if (author.id === bot.id) return undefined
-  const raw = message.text ?? message.caption
-  if (!raw) return undefined
+  const attachments = attachmentsOf(message)
+  const raw = message.text ?? message.caption ?? ''
   const text = stripBotMention(raw, bot)
-  if (!text) return undefined
+  // A photo with no caption is still somebody saying something.
+  if (!text && attachments.length === 0) return undefined
 
   return {
     id: String(message.message_id),
@@ -123,5 +142,6 @@ export function toChatMessage(
     authorName: displayName(author),
     createdAt: new Date(message.date * 1_000).toISOString(),
     ...(message.reply_to_message?.from?.id === bot.id ? { repliesToBot: true } : {}),
+    ...(attachments.length > 0 ? { attachments } : {}),
   }
 }

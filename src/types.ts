@@ -7,6 +7,19 @@ export interface XPost {
   createdAt?: string
   /** Absent when the post is not a reply. Present, it names the post's parent author. */
   inReplyToUserId?: string
+  /** Pictures and clips attached to the post, when the fetch asked for them. */
+  media?: XPostMedia[]
+}
+
+/**
+ * One attachment on a post. `url` is set for a photo; a video or an animated
+ * GIF only exposes a preview frame, which is still enough to look at.
+ */
+export interface XPostMedia {
+  type: 'photo' | 'video' | 'animated_gif' | string
+  url?: string
+  previewUrl?: string
+  altText?: string
 }
 
 /**
@@ -131,6 +144,8 @@ export type IncomingTone = 'friendly' | 'neutral' | 'negative' | 'hostile'
 export interface ReplyDraft {
   text: string
   gifQuery?: string
+  /** A file the drafter generated this turn, by the id generate_image / generate_video returned. */
+  mediaId?: string
   /** Absent means unjudged, which is treated as safe to remember. */
   incomingTone?: IncomingTone
   /**
@@ -145,7 +160,13 @@ export interface ReplyDraft {
 }
 
 export interface LanguageModel {
-  reply(input: { post: XPost; memory: string; thread?: XPost[] }): Promise<ReplyDraft>
+  reply(input: {
+    post: XPost
+    memory: string
+    thread?: XPost[]
+    /** What is in the post's pictures, one description each, when something could look. */
+    images?: string[]
+  }): Promise<ReplyDraft>
 }
 
 export interface Gif {
@@ -190,7 +211,7 @@ export interface XMedia {
    * so widening this without widening the category mapping in `XApiClient`
    * uploads a PNG as a GIF and X rejects the post, not the upload.
    */
-  mimeType: 'image/gif' | 'video/mp4' | 'image/png'
+  mimeType: 'image/gif' | 'video/mp4' | 'image/png' | 'image/jpeg' | 'image/webp'
 }
 
 /**
@@ -237,6 +258,15 @@ export interface ChatMessage {
   createdAt?: string
   /** Set when the message is a reply to something the account itself sent. */
   repliesToBot?: boolean
+  /** Pictures sent with the message, by the channel's own file reference. */
+  attachments?: ChatAttachment[]
+}
+
+export interface ChatAttachment {
+  kind: 'image'
+  /** The channel's handle for the file: a Telegram file_id. */
+  ref: string
+  mimeType?: string
 }
 
 /**
@@ -260,6 +290,8 @@ export interface ChatReply {
   /** An emoji from Telegram's reaction set, put on the message being answered. */
   reaction?: string
   gifQuery?: string
+  /** A file the drafter generated this turn, by the id generate_image / generate_video returned. */
+  mediaId?: string
   incomingTone?: IncomingTone
 }
 
