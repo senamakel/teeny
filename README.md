@@ -462,9 +462,10 @@ The same account, on Telegram, as `@teenythebot`. Set `TELEGRAM_BOT_TOKEN` from
 
 It long-polls `getUpdates` rather than taking a webhook, so it needs no public
 URL and no route through the host nginx. The cost is that Telegram allows one
-poller per token -- a second gets `409 Conflict`, not a second bot -- so the
-role is single-homed: `SERVICE_ROLE=telegram` in its own container in
-production, or `all` for a local run that does everything in one process.
+poller per token -- a second gets `409 Conflict`, not a second bot -- so it
+runs inside the ingest process (`SERVICE_ROLE=all` or `ingest`), the half of
+the account that already runs in exactly one place, next to the X webhook.
+One process, one codebase: the same `teeny-bot-1` container answers on both.
 
 What it answers:
 
@@ -660,8 +661,8 @@ Git. Long-term activity and conversation memory lives in CortexDB.
 ## Deployment
 
 The service runs on a DigitalOcean box as a Compose stack — the agent split
-into an ingest half, a reply half, the chart poster and the Telegram poller,
-CortexDB, Tika, and Mongo — behind the box's host nginx, talking to the ladder
+into an ingest half (which is also the Telegram side), a reply half and the
+chart poster, CortexDB, Tika, and Mongo — behind the box's host nginx, talking to the ladder
 for every model call.
 
 ```sh

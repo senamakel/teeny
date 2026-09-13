@@ -147,9 +147,10 @@ const runsReplies = role === 'all' || role === 'reply'
 // The chart agent publishes on its own timer. It is opt-in and single-homed:
 // two containers on the same schedule would post the same chart twice.
 const runsChart = config.CHART_ENABLED && (role === 'all' || role === 'chart')
-// Telegram long-polls, and Telegram allows one poller per token, so this is
-// single-homed for the same reason the chart job is.
-const runsTelegram = Boolean(config.TELEGRAM_BOT_TOKEN) && (role === 'all' || role === 'telegram')
+// Telegram lives in the ingest process. It long-polls, and Telegram allows one
+// poller per token, so it rides with the role that already runs in exactly one
+// place rather than getting a container of its own.
+const runsTelegram = Boolean(config.TELEGRAM_BOT_TOKEN) && runsIngest
 
 if (runsIngest) {
   const ingestJob = new IngestJob({

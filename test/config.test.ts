@@ -108,10 +108,8 @@ describe('telegram config', () => {
     const config = loadConfig({
       ...REQUIRED,
       TELEGRAM_BOT_TOKEN: '8782739916:AAGsGFV_6Rxbng3KmKWp8FgPe0gbiDTis-o',
-      SERVICE_ROLE: 'telegram',
     } as unknown as NodeJS.ProcessEnv)
     expect(config.TELEGRAM_BOT_TOKEN).toBe('8782739916:AAGsGFV_6Rxbng3KmKWp8FgPe0gbiDTis-o')
-    expect(config.SERVICE_ROLE).toBe('telegram')
   })
 
   it('rejects something that is not a bot token rather than polling with it', () => {
