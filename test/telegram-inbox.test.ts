@@ -122,6 +122,31 @@ describe('toChatMessage', () => {
     expect(toChatMessage(message({ text: '@teenythebot' }), bot)).toBeUndefined()
   })
 
+  it('keeps a photo with no caption, at its largest size, and an image sent as a file', () => {
+    const photo = [
+      { file_id: 'thumb', file_unique_id: 't', width: 90, height: 90 },
+      { file_id: 'full', file_unique_id: 'f', width: 1280, height: 960 },
+    ]
+    expect(toChatMessage(textless({ photo }), bot)).toMatchObject({
+      text: '',
+      attachments: [{ kind: 'image', ref: 'full', mimeType: 'image/jpeg' }],
+    })
+    expect(toChatMessage(textless({ caption: 'look', photo }), bot)?.text).toBe('look')
+    expect(
+      toChatMessage(
+        textless({ document: { file_id: 'doc', file_unique_id: 'd', mime_type: 'image/png', file_name: 'a.png' } }),
+        bot,
+      )?.attachments,
+    ).toEqual([{ kind: 'image', ref: 'doc', mimeType: 'image/png' }])
+    // A PDF is not a picture, and a message that is only a PDF is not a line.
+    expect(
+      toChatMessage(
+        textless({ document: { file_id: 'doc', file_unique_id: 'd', mime_type: 'application/pdf' } }),
+        bot,
+      ),
+    ).toBeUndefined()
+  })
+
   /**
    * A buy bot's alert, a channel post, an anonymous admin: none of them is a
    * person, and answering any of them is noise at best and a loop at worst.

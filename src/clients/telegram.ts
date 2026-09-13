@@ -29,6 +29,23 @@ export interface TelegramMessageEntity {
   length: number
 }
 
+/** One rendition of a photo. Telegram sends several sizes; the last is the largest. */
+export interface TelegramPhotoSize {
+  file_id: string
+  file_unique_id: string
+  width: number
+  height: number
+  file_size?: number
+}
+
+export interface TelegramDocument {
+  file_id: string
+  file_unique_id: string
+  file_name?: string
+  mime_type?: string
+  file_size?: number
+}
+
 export interface TelegramMessage {
   message_id: number
   date: number
@@ -43,6 +60,10 @@ export interface TelegramMessage {
   text?: string
   caption?: string
   entities?: TelegramMessageEntity[]
+  /** A photo, as Telegram compressed it, in several sizes. */
+  photo?: TelegramPhotoSize[]
+  /** A file sent uncompressed; an image when `mime_type` says so. */
+  document?: TelegramDocument
   reply_to_message?: TelegramMessage
   /** Present in forum supergroups; replies must carry it back or land in General. */
   message_thread_id?: number
@@ -91,6 +112,17 @@ export interface SendMessageOptions {
   messageThreadId?: number
 }
 
+/** Bytes to send as a photo or a video, with an optional caption under them. */
+export interface TelegramUpload {
+  data: Uint8Array
+  mimeType: string
+  filename?: string
+  caption?: string
+}
+
+/** Telegram cuts a caption at 1024 characters; a longer reply goes as its own message. */
+export const TELEGRAM_MAX_CAPTION_LENGTH = 1024
+
 /** The narrow surface the bot loop and the tests depend on. */
 export interface TelegramApi {
   getMe(): Promise<TelegramUser>
@@ -101,6 +133,12 @@ export interface TelegramApi {
   sendChatAction(chatId: number, action: 'typing', messageThreadId?: number): Promise<void>
   /** An emoji reaction on a message; one of Telegram's fixed reaction set. */
   setMessageReaction(chatId: number, messageId: number, emoji: string): Promise<void>
+  /** A picture uploaded from here, shown inline. */
+  sendPhoto(chatId: number, upload: TelegramUpload, options?: SendMessageOptions): Promise<{ id: number }>
+  /** A clip uploaded from here, shown inline with a player. */
+  sendVideo(chatId: number, upload: TelegramUpload, options?: SendMessageOptions): Promise<{ id: number }>
+  /** The bytes of a file a person sent, by its file_id. */
+  downloadFile(fileId: string): Promise<{ data: Uint8Array; mimeType?: string }>
 }
 
 interface TelegramResponse<T> {
@@ -126,13 +164,61 @@ export class TelegramApiError extends Error {
 /** Telegram refuses anything over 4096 characters; the reply is split before it gets there. */
 export const TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 
+/** Telegram refuses to hand a bot a file over 20 MB, so nothing bigger is asked for. */
+const MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024
+
 export class TelegramApiClient implements TelegramApi {
   private readonly base: string
+  private readonly files: string
 
   constructor(
     private readonly options: { token: string; fetch?: typeof fetch; apiUrl?: string },
   ) {
-    this.base = `${options.apiUrl ?? 'https://api.telegram.org'}/bot${options.token}`
+    const apiUrl = options.apiUrl ?? 'https://api.telegram.org'
+    this.base = `${apiUrl}/bot${options.token}`
+    this.files = `${apiUrl}/file/bot${options.token}`
+  }
+
+  /**
+   * The multipart twin of `call`, for methods that carry bytes. Telegram
+   * accepts a URL for media too, but a file this process generated has no
+   * URL, and giving it one would mean serving it from somewhere.
+   */
+  private async upload<T>(method: string, fields: Record<string, unknown>, file: {
+    field: string
+    upload: TelegramUpload
+  }): Promise<T> {
+    const doFetch = this.options.fetch ?? fetch
+    const form = new FormData()
+    for (const [key, value] of Object.entries(fields)) {
+      if (value === undefined) continue
+      form.set(key, typeof value === 'string' ? value : JSON.stringify(value))
+    }
+    form.set(
+      file.field,
+      new Blob([Buffer.from(file.upload.data)], { type: file.upload.mimeType }),
+      file.upload.filename ?? `${file.field}.${file.upload.mimeType.split('/')[1] ?? 'bin'}`,
+    )
+    const response = await doFetch(`${this.base}/${method}`, {
+      method: 'POST',
+      body: form,
+      signal: AbortSignal.timeout(120_000),
+    })
+    let payload: TelegramResponse<T>
+    try {
+      payload = (await response.json()) as TelegramResponse<T>
+    } catch {
+      throw new TelegramApiError(method, response.status, `non-JSON response (${response.status})`)
+    }
+    if (!payload.ok || payload.result === undefined) {
+      throw new TelegramApiError(
+        method,
+        payload.error_code ?? response.status,
+        payload.description ?? 'unknown error',
+        payload.parameters?.retry_after,
+      )
+    }
+    return payload.result
   }
 
   private async call<T>(
@@ -214,6 +300,70 @@ export class TelegramApiClient implements TelegramApi {
       ...(options.messageThreadId ? { message_thread_id: options.messageThreadId } : {}),
     })
     return { id: sent.message_id }
+  }
+
+  async sendPhoto(
+    chatId: number,
+    upload: TelegramUpload,
+    options: SendMessageOptions = {},
+  ): Promise<{ id: number }> {
+    const sent = await this.upload<TelegramMessage>(
+      'sendPhoto',
+      {
+        chat_id: String(chatId),
+        ...(upload.caption ? { caption: upload.caption } : {}),
+        ...(options.replyToMessageId ? { reply_to_message_id: String(options.replyToMessageId) } : {}),
+        ...(options.messageThreadId ? { message_thread_id: String(options.messageThreadId) } : {}),
+      },
+      { field: 'photo', upload },
+    )
+    return { id: sent.message_id }
+  }
+
+  async sendVideo(
+    chatId: number,
+    upload: TelegramUpload,
+    options: SendMessageOptions = {},
+  ): Promise<{ id: number }> {
+    const sent = await this.upload<TelegramMessage>(
+      'sendVideo',
+      {
+        chat_id: String(chatId),
+        supports_streaming: 'true',
+        ...(upload.caption ? { caption: upload.caption } : {}),
+        ...(options.replyToMessageId ? { reply_to_message_id: String(options.replyToMessageId) } : {}),
+        ...(options.messageThreadId ? { message_thread_id: String(options.messageThreadId) } : {}),
+      },
+      { field: 'video', upload },
+    )
+    return { id: sent.message_id }
+  }
+
+  /**
+   * getFile, then the file itself. The path Telegram returns is good for an
+   * hour, which is longer than anything here holds it.
+   */
+  async downloadFile(fileId: string): Promise<{ data: Uint8Array; mimeType?: string }> {
+    const file = await this.call<{ file_id: string; file_path?: string; file_size?: number }>(
+      'getFile',
+      { file_id: fileId },
+    )
+    if (!file.file_path) throw new TelegramApiError('getFile', undefined, 'no file_path returned')
+    if (file.file_size && file.file_size > MAX_DOWNLOAD_BYTES) {
+      throw new TelegramApiError('getFile', undefined, `file is ${file.file_size} bytes, too big`)
+    }
+    const doFetch = this.options.fetch ?? fetch
+    const response = await doFetch(`${this.files}/${file.file_path}`, {
+      signal: AbortSignal.timeout(60_000),
+    })
+    if (!response.ok) {
+      throw new TelegramApiError('downloadFile', response.status, `download failed (${response.status})`)
+    }
+    const declared = response.headers.get('content-type')?.split(';')[0]?.trim()
+    return {
+      data: new Uint8Array(await response.arrayBuffer()),
+      ...(declared ? { mimeType: declared } : {}),
+    }
   }
 
   async setMessageReaction(chatId: number, messageId: number, emoji: string): Promise<void> {

@@ -1,13 +1,17 @@
 import type { FastifyBaseLogger } from 'fastify'
 import { applyHouseStyle } from '../agent/house-style.js'
 import {
+  TELEGRAM_MAX_CAPTION_LENGTH,
   TelegramApiError,
   splitForTelegram,
+  type SendMessageOptions,
   type TelegramApi,
   type TelegramMessage,
   type TelegramUpdate,
 } from '../clients/telegram.js'
 import type { ChatHarness } from '../harness/chat-harness.js'
+import type { MediaStore } from '../media/store.js'
+import type { ImageMimeType, ImageReader } from '../media/types.js'
 import type { ChatMessage, GifSource } from '../types.js'
 import { commandOf, isAddressedToBot, toChatMessage, type BotIdentity } from './inbox.js'
 import { MemoryChatTranscript, type ChatTranscript } from './transcript.js'
@@ -20,6 +24,14 @@ export interface TelegramBotOptions {
   /** Log the draft instead of sending it. */
   dryRun?: boolean
   gifs?: GifSource
+  /**
+   * Something that can look at the pictures people send. Without it a photo
+   * reaches the drafter as "[sent a photo]" and the account says it cannot
+   * see it, which is true and better than guessing.
+   */
+  vision?: ImageReader
+  /** Where the drafter's generate_image / generate_video calls leave their files. */
+  media?: MediaStore
   maxEmoji?: number
   /**
    * Messages older than this on arrival are acknowledged but not answered. A
@@ -134,8 +146,15 @@ export class TelegramBot {
     const raw = update.message
     if (!raw) return
     const { logger, bot } = this.options
-    const message = toChatMessage(raw, bot)
-    if (!message) return
+    const parsed = toChatMessage(raw, bot)
+    if (!parsed) return
+    const addressed = isAddressedToBot(raw, bot)
+
+    // Pictures become words here, once, before the line is kept: the
+    // transcript and the drafter then both see what was in them. Only when
+    // the message is for the account, because a vision call per photo in a
+    // busy group is a bill for pictures nobody asked it about.
+    const message = await this.describeAttachments(parsed, addressed)
 
     // Seen is not the same as answered: a line in a group that was not for the
     // account still tells the next reply what the room was talking about, so
@@ -150,7 +169,7 @@ export class TelegramBot {
       text: message.text,
     })
 
-    if (!isAddressedToBot(raw, bot)) return
+    if (!addressed) return
 
     const maxAge = this.options.maxMessageAgeMs ?? 5 * 60_000
     const age = this.now() - raw.date * 1_000
@@ -174,6 +193,32 @@ export class TelegramBot {
     } else {
       batch.timer = setTimeout(() => this.flush(batch), debounce)
     }
+  }
+
+  /**
+   * The message with its pictures written into the text as `[image: …]`, or
+   * marked `[sent a photo]` when nothing here can look. Every failure is one
+   * picture described as unseen rather than a message dropped.
+   */
+  private async describeAttachments(message: ChatMessage, addressed: boolean): Promise<ChatMessage> {
+    const images = (message.attachments ?? []).filter((item) => item.kind === 'image')
+    if (images.length === 0) return message
+    const { vision, api, logger } = this.options
+    const notes = await Promise.all(
+      images.slice(0, 4).map(async (image) => {
+        if (!vision || !addressed) return '[sent a photo]'
+        try {
+          const file = await api.downloadFile(image.ref)
+          const mimeType = (file.mimeType ?? image.mimeType ?? 'image/jpeg') as ImageMimeType
+          const description = await vision.describe({ data: file.data, mimeType })
+          return `[image: ${description.replace(/\s+/g, ' ')}]`
+        } catch (error) {
+          logger.warn({ err: error, chatId: message.chatId }, 'could not look at a telegram photo')
+          return '[sent a photo that could not be read]'
+        }
+      }),
+    )
+    return { ...message, text: [message.text, ...notes].filter(Boolean).join('\n') }
   }
 
   /** One update, received and answered, with no debounce. For the tests. */
@@ -211,6 +256,22 @@ export class TelegramBot {
       .catch((error: unknown) =>
         this.options.logger.warn({ err: error, chatId }, 'could not keep own turn in the transcript'),
       )
+  }
+
+  private sendGenerated(
+    chatId: number,
+    generated: NonNullable<ReturnType<MediaStore['get']>>,
+    caption: string | undefined,
+    options: SendMessageOptions,
+  ): Promise<{ id: number }> {
+    const upload = {
+      data: generated.data,
+      mimeType: generated.mimeType,
+      ...(caption ? { caption } : {}),
+    }
+    return generated.kind === 'video'
+      ? this.options.api.sendVideo(chatId, upload, options)
+      : this.options.api.sendPhoto(chatId, upload, options)
   }
 
   private gifAllowed(chatId: string): boolean {
@@ -266,7 +327,7 @@ export class TelegramBot {
       logger.info({ fixes: styled.fixes }, 'house style applied to a telegram draft')
     }
     const pieces = styled ? splitForTelegram(styled.text) : []
-    if (pieces.length === 0 && !draft.reaction) {
+    if (pieces.length === 0 && !draft.reaction && !draft.mediaId) {
       logger.warn({ chatId: message.chatId }, 'telegram draft had neither text nor a reaction')
       return
     }
@@ -277,7 +338,12 @@ export class TelegramBot {
       ...(message.chatKind === 'group' ? { replyToMessageId: last.message_id } : {}),
       ...(thread ? { messageThreadId: thread } : {}),
     }
-    const said = pieces.length > 0 ? pieces.join('\n') : `(reacted ${draft.reaction ?? ''})`
+    const said =
+      pieces.length > 0
+        ? pieces.join('\n')
+        : draft.mediaId
+          ? `(sent a generated ${this.options.media?.get(draft.mediaId)?.kind ?? 'file'})`
+          : `(reacted ${draft.reaction ?? ''})`
 
     if (this.options.dryRun) {
       logger.info(
@@ -286,6 +352,7 @@ export class TelegramBot {
           text: pieces.join('\n') || undefined,
           reaction: draft.reaction,
           gifQuery: draft.gifQuery,
+          mediaId: draft.mediaId,
         },
         'DRY RUN: would have answered on telegram',
       )
@@ -304,11 +371,37 @@ export class TelegramBot {
         )
     }
 
+    // A generated picture goes out with the words as its caption when they
+    // fit, the way a person sends one; otherwise the words first and the
+    // picture after. Failing to send it falls back to the words alone.
+    const generated = draft.mediaId ? this.options.media?.get(draft.mediaId) : undefined
+    if (draft.mediaId && !generated) {
+      logger.warn({ mediaId: draft.mediaId }, 'the drafted mediaId is not in the store')
+    }
     let sentId: number | undefined
-    for (const piece of pieces) {
+    let remaining = pieces
+    if (generated) {
+      const caption =
+        pieces.length === 1 && pieces[0] && pieces[0].length <= TELEGRAM_MAX_CAPTION_LENGTH
+          ? pieces[0]
+          : undefined
+      try {
+        const sent = await this.sendGenerated(last.chat.id, generated, caption, sendOptions)
+        sentId = sent.id
+        if (caption) remaining = []
+        logger.info(
+          { chatId: message.chatId, mediaId: generated.id, kind: generated.kind, captioned: Boolean(caption) },
+          'sent generated media on telegram',
+        )
+      } catch (error) {
+        logger.warn({ err: error, mediaId: generated.id }, 'could not send generated media; text only')
+      }
+    }
+    for (const piece of remaining) {
       const sent = await api.sendMessage(last.chat.id, piece, sendOptions)
       sentId ??= sent.id
     }
+    if (sentId === undefined && pieces.length === 0 && !draft.reaction) return
     await this.keepOwnTurn(
       message.chatId,
       sentId === undefined ? `reaction:${lastMessage.id}` : String(sentId),

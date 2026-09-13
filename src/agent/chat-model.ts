@@ -1,10 +1,11 @@
-import { HumanMessage } from '@langchain/core/messages'
+import { HumanMessage, type BaseMessage } from '@langchain/core/messages'
 import { createReactAgent } from '@langchain/langgraph/prebuilt'
 import { z } from 'zod'
-import { buildTools, createChatModel, type AgentOptions } from './graph.js'
+import { buildTools, createChatModel, producedMediaId, type AgentOptions } from './graph.js'
 import { truncateAtBoundary } from './house-style.js'
 import { findOwnTokenAddresses, ownTokenNote } from './own-token.js'
 import { chatPrompt } from './prompt.js'
+import { MEDIA_ID_PATTERN } from './tools/media.js'
 import type { ChatMessage, ChatModel, ChatReply, ChatTurn } from '../types.js'
 
 /**
@@ -50,6 +51,15 @@ const responseFormat = z
         'What a GIF should show, e.g. "chef kiss". Rare: only when the GIF *is* the ' +
         'joke or the reaction and words would be worse. Most messages, including most ' +
         'greetings, get none; a reaction emoji does that job now.',
+      ),
+    // Lenient here, checked in code: a model that writes "none" or "" for an
+    // empty slot must not fail the whole structured answer over it.
+    mediaId: z
+      .string()
+      .optional()
+      .describe(
+        'The mediaId returned by generate_image or generate_video THIS turn, to send it ' +
+        'with the reply. Only an id a tool actually returned; leave it out otherwise.',
       ),
   incomingTone: z
     .enum(['friendly', 'neutral', 'negative', 'hostile'])
@@ -149,18 +159,28 @@ export class AgentChatModel implements ChatModel {
       return !trimmed || /^none\.?$/i.test(trimmed) ? undefined : trimmed
     }
     const text = none(parsed.data.reply)
-    const gifQuery = none(parsed.data.gifQuery)
+    const mediaId = none(parsed.data.mediaId)
+    const generated =
+      mediaId !== undefined &&
+      MEDIA_ID_PATTERN.test(mediaId) &&
+      producedMediaId(result.messages as BaseMessage[], mediaId)
+    // A GIF next to a picture it just drew is two attachments for one line.
+    const gifQuery = generated ? undefined : none(parsed.data.gifQuery)
     // No reaction on snark or abuse, whatever the drafter picked. A ❤ under
     // "this is going to zero" reads as sarcasm at best and surrender at worst,
     // and there is no emoji that improves on either a roast or silence.
     const sour = parsed.data.incomingTone === 'negative' || parsed.data.incomingTone === 'hostile'
     const reaction = sour ? undefined : parsed.data.reaction
-    if (!text && !reaction) throw new Error('The chat agent returned neither a reply nor a reaction')
+    if (!text && !reaction && !generated) {
+      throw new Error('The chat agent returned neither a reply nor a reaction')
+    }
     return {
       ...(text ? { text: truncateAtBoundary(text, MAX_CHAT_REPLY_LENGTH) } : {}),
       ...(reaction ? { reaction } : {}),
       // A GIF without words to go with it is a GIF sent at somebody.
       ...(gifQuery && text ? { gifQuery } : {}),
+      // A picture somebody asked for can stand alone; it is the answer.
+      ...(generated && mediaId ? { mediaId } : {}),
       incomingTone: parsed.data.incomingTone,
     }
   }
