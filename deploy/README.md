@@ -32,19 +32,21 @@ that has the `.env` files.
 
 | Container          | What it does                              | Host port         |
 | ------------------ | ----------------------------------------- | ----------------- |
-| `teeny-bot-1`      | X ingest, the webhook, `/agent/run`, Telegram | `127.0.0.1:3110`  |
+| `teeny-bot-1`      | the agent: X ingest, the webhook, `/agent/run`, replies, the daily chart, Telegram | `127.0.0.1:3110`  |
 | `teeny-web-1`      | the landing page, teeny.enamakel.com       | `127.0.0.1:3120`  |
-| `teeny-bot-reply-1`| drains the queue and posts the replies     | none              |
 | `cortex`           | long-term memory, **not this stack's**: the shared CortexDB, joined to `teeny_default` as `cortexdb` | `127.0.0.1:3141` |
 | `teeny-mongo-1`    | the mention queue                          | `127.0.0.1:27020` |
 | `ladder`           | the model endpoint, owned by no project    | `127.0.0.1:6969`  |
 
-Ingest and reply are two containers over one queue because they fail
-differently. Retrieval has a deadline and a meter on it — X's search reaches
-back only 7 days and every post retrieved is billed — so a mention missed while
-the model was down is gone for good. Replying has neither, which is why the
-reply half can be restarted or paused without touching the half that cannot
-afford to stop.
+The agent is one container. It used to be three -- ingest, reply and chart
+over the same image -- on the argument that retrieval has a deadline (X's
+search reaches back only 7 days, and every post retrieved is billed) and
+replying does not, so the halves should restart independently. In practice
+they were always deployed together, and three logs to read was the cost paid
+daily for a flexibility used never. `SERVICE_ROLE` still exists in the code,
+so the split is a compose change if it is ever wanted again; the constraint to
+remember then is that the chart cron and the Telegram poller must each run in
+exactly one place.
 
 ## The landing page
 

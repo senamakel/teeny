@@ -97,7 +97,7 @@ if [ "$ROLLBACK" -eq 1 ]; then
   say "Rolling back to the previous image"
   remote "docker image inspect $PROJECT:previous >/dev/null 2>&1" \
     || die "no $PROJECT:previous on the box, nothing to roll back to"
-  remote "docker tag $PROJECT:previous $PROJECT:current && $COMPOSE up -d --no-build bot bot-reply bot-chart"
+  remote "docker tag $PROJECT:previous $PROJECT:current && $COMPOSE up -d --no-build bot"
   remote "docker image inspect $PROJECT-web:previous >/dev/null 2>&1 && docker tag $PROJECT-web:previous $PROJECT-web:current && $COMPOSE up -d --no-build web" || true
   say "Rolled back. Check: ./deploy/deploy.sh --logs"
   exit 0
