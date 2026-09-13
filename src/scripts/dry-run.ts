@@ -10,6 +10,7 @@ import { CortexMemory } from '../memory/cortex.js'
 import { GlobalMarketClient } from '../market/global.js'
 import { TokenMarket } from '../market/market.js'
 import type { XPost } from '../types.js'
+import { buildMedia } from '../media/wiring.js'
 
 /**
  * Shows what the bot would reply, without replying.
@@ -59,11 +60,13 @@ const gifs = config.GIPHY_API_KEY
     }
   : undefined
 
+const media = buildMedia(config)
 const harness = new ReplyHarness(
   memory,
   new AgentReplyModel({
     memory,
     x,
+    ...(media ? { media } : {}),
     botUsername: config.X_BOT_USERNAME,
     dryRun: true,
     llm: {
@@ -104,6 +107,7 @@ const harness = new ReplyHarness(
   config.THREAD_CONTEXT_MAX_POSTS > 0
     ? { x, maxPosts: config.THREAD_CONTEXT_MAX_POSTS }
     : undefined,
+  media?.reader,
 )
 
 const botUsername = config.X_BOT_USERNAME.toLowerCase()

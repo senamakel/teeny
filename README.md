@@ -78,6 +78,9 @@ more than the voice.
 | `find_similar_pages` | Exa similarity search around one good source. |
 | `web_answer` | Exa's cited answer endpoint for a single fact. |
 | `find_gif` | Searches the account's own Giphy channel, or all of Giphy on request. |
+| `look_at_image` | Describes an image by URL through a vision model. Only with `VISION_MODEL`. |
+| `generate_image` | Draws a picture from a prompt and returns a `mediaId`. Only with `IMAGE_GEN_API_KEY`. |
+| `generate_video` | Films a few seconds from a prompt and returns a `mediaId`. Only with `VIDEO_GEN_API_KEY`. |
 
 `x_post` takes a `gifId` from `find_gif` and attaches it: the id is resolved
 against Giphy server-side and the bytes are uploaded to X through the chunked
@@ -86,7 +89,7 @@ never an arbitrary URL. An animated GIF is transcoded by X after upload, so the
 client waits for processing to report `succeeded` before attaching the id.
 
 The cron reply job uses a research-only variant of the agent: it has every tool
-except `x_post`, and returns a structured `{ reply, gifQuery?, incomingTone }` so the job stays in charge of
+except `x_post`, and returns a structured `{ reply, gifQuery?, mediaId?, incomingTone }` so the job stays in charge of
 publishing and of the duplicate-reply cursor. When the drafter sets `gifQuery`,
 the job searches the channel and attaches the first match; a GIF is a nice
 touch rather than the point, so any failure there is logged and the reply still
@@ -121,6 +124,51 @@ it made. `threadId` resumes an earlier conversation from the in-memory
 checkpointer; that state is lost on restart. The endpoint returns 503 while
 `AGENT_MODE=simple` or `AGENT_API_TOKEN` is unset, and the agent still honours
 `DRY_RUN`, so nothing is published until you turn it off.
+
+## Pictures
+
+The account can look at images, draw them, and film short clips, on X and on
+Telegram alike. Each is a separate switch, off until its provider is set, so a
+box with none of the keys runs exactly as before and `test/capabilities.test.ts`
+still asserts the unchanged tool list.
+
+| Capability | Switch | Provider shape |
+| --- | --- | --- |
+| Seeing | `VISION_MODEL` | any OpenAI-compatible chat endpoint whose model accepts `image_url` parts; URL and key default to the LLM's |
+| Drawing | `IMAGE_GEN_API_KEY` | OpenAI `/images/generations` (`gpt-image-*`, `dall-e-*`) |
+| Filming | `VIDEO_GEN_API_KEY` | OpenAI `/videos` (`sora-2`, `sora-2-pro`): create, poll, download |
+
+**Seeing** happens before drafting rather than on request. A photo sent to the
+bot on Telegram is downloaded and described, and the description lands in the
+message text as `[image: …]`, so the transcript, the drafter and memory all
+see the same thing. A picture attached to an X mention is fetched by the media
+URL X returns (a video contributes its preview frame) and passed to the drafter
+as a labelled, untrusted block. Without a vision model the message reads
+`[sent a photo]` and the prompt tells the account to say it cannot see it
+rather than guess. In a group, only photos addressed to the bot are described:
+a vision call per picture in a busy room is a bill for pictures nobody asked
+about. `look_at_image` covers everything else -- the media URLs listed by
+`x_get_post` and `x_search_posts`, or a link somebody shared -- and fetches
+only public https hostnames, never an address or anything that names the box.
+
+**Drawing and filming** are tools the drafters and the task agent all have.
+They return a `mediaId`; the bytes stay in an in-process `MediaStore` and are
+attached by whichever job asked: the reply job uploads it to X in place of a
+GIF, the Telegram bot sends it as a photo or video with the reply as its
+caption, and `x_post` takes it directly. A drafter's `mediaId` only counts when
+a tool in that same run actually returned it, so a model that has learned the
+id format cannot attach something another turn made. A copy of everything
+generated is written to `MEDIA_OUTPUT_DIR` (`data/media` by default) so a
+person can see what went out.
+
+Both are rationed by `MediaBudget`: `MEDIA_IMAGES_PER_DAY` and
+`MEDIA_VIDEOS_PER_DAY`, counted separately because a clip costs a hundred
+times what a picture does, shared by every drafter in the process, reset at
+UTC midnight. The prompt asks for restraint -- only when somebody asks, or when
+a picture is plainly the best answer, never as decoration -- and the budget is
+what holds when a hundred strangers ask at once. When it is spent the tool
+refuses and the drafter is told to answer in words and not to promise one
+later.
 
 ## The chart agent
 
