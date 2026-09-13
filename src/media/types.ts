@@ -35,7 +35,7 @@ export interface ImageGenerator {
   generate(input: { prompt: string; aspect?: ImageAspect }): Promise<GeneratedImage>
 }
 
-export type VideoOrientation = 'landscape' | 'portrait'
+export type VideoOrientation = 'landscape' | 'portrait' | 'square'
 
 export interface GeneratedVideo {
   data: Uint8Array
