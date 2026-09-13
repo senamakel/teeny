@@ -26,6 +26,8 @@ import { ChatHarness } from './harness/chat-harness.js'
 import { TelegramBot } from './telegram/bot.js'
 import { MongoChatTranscript } from './telegram/transcript.js'
 import { buildMedia } from './media/wiring.js'
+import { SafetyGate } from './safety/gate.js'
+import { ModelJudge } from './safety/judge.js'
 
 const config = loadConfig()
 const memory = new CortexMemory(
@@ -100,10 +102,35 @@ const marketAccess = config.CHART_TOKEN_ADDRESS
 // The logger does not exist yet; the closure runs only after `app` does.
 const media = buildMedia(config, { log: (event, detail) => app.log.info(detail ?? {}, event) })
 
+/**
+ * One content filter for the whole process. Every surface gets the same one:
+ * the reply job and the Telegram bot gate their own drafts, the task and
+ * chart agents' publish tools gate theirs, and the media tools gate their
+ * prompts. The judge rides on the chat endpoint unless pointed elsewhere.
+ */
+const safety = new SafetyGate({
+  ...(config.SAFETY_JUDGE
+    ? {
+        judge: new ModelJudge({
+          baseUrl: config.LLM_BASE_URL,
+          apiKey: config.LLM_API_KEY,
+          model: config.SAFETY_JUDGE_MODEL ?? config.LLM_MODEL,
+        }),
+      }
+    : {}),
+  extraAllowedLinks: config.LINK_ALLOWLIST,
+  // The logger does not exist yet; the closure runs only after `app` does.
+  logger: {
+    info: (detail, event) => app.log.info(detail, event),
+    warn: (detail, event) => app.log.warn(detail, event),
+  },
+})
+
 const agentOptions: AgentOptions = {
   memory,
   x,
   persona,
+  safety,
   ...(marketAccess ? { market: marketAccess } : {}),
   ...(media ? { media } : {}),
   maxEmoji: config.MAX_EMOJI_PER_POST,
@@ -151,6 +178,7 @@ const app = buildServer({
     journal,
     status: { mode: config.AGENT_MODE, model: config.LLM_MODEL, dryRun: config.DRY_RUN },
   },
+  safety,
 })
 // The character sheet takes a dozen model calls to build the first time.
 // Started now so the first "draw me a Tiny" of the day does not pay for it.
@@ -193,6 +221,7 @@ if (runsReplies) {
         ? { x, maxPosts: config.THREAD_CONTEXT_MAX_POSTS }
         : undefined,
       media?.reader,
+      safety,
     ),
     queue,
     logger: app.log,
@@ -205,6 +234,7 @@ if (runsReplies) {
     ...(gifs ? { gifs: gifs.source } : {}),
     ...(media ? { media: media.store } : {}),
     journal,
+    safety,
   })
   if (config.REPLY_MODE === 'worker') {
     new ReplyWorker({
@@ -229,6 +259,7 @@ if (runsChart) {
       botUsername,
       persona,
       dryRun: config.DRY_RUN,
+      safety,
     }),
     symbol: config.CHART_TOKEN_SYMBOL,
     timeframe: config.CHART_TIMEFRAME,
@@ -273,6 +304,7 @@ if (runsTelegram && config.TELEGRAM_BOT_TOKEN) {
     historyTokens: config.TELEGRAM_HISTORY_TOKENS,
     debounceMs: config.TELEGRAM_DEBOUNCE_MS,
     gifCooldownMs: config.TELEGRAM_GIF_COOLDOWN_S * 1_000,
+    safety,
   })
   void bot.start()
   const shutdown = (): void => {
@@ -299,6 +331,10 @@ app.log.info(
     context: Boolean(persona.context),
     skills: persona.skills.map((skill) => skill.name),
     exa: Boolean(config.EXA_API_KEY),
+    safety: config.SAFETY_JUDGE
+      ? `lexicon + links + judge on ${config.SAFETY_JUDGE_MODEL ?? config.LLM_MODEL}`
+      : 'lexicon + links (no judge)',
+    allowedLinks: config.LINK_ALLOWLIST.length,
     giphy: gifs ? config.GIPHY_CHANNEL : false,
     vision: media?.reader ? config.VISION_MODEL : false,
     referenceSheet: media?.reference ? config.TINY_REFERENCE_IMAGES.length : false,

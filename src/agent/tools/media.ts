@@ -3,6 +3,7 @@ import type { StructuredToolInterface } from '@langchain/core/tools'
 import { z } from 'zod'
 import { withReference } from '../../media/reference.js'
 import type { MediaAccess } from '../../media/wiring.js'
+import type { SafetyGate } from '../../safety/gate.js'
 
 /** Generated media ids look like `img_…` or `vid_…`; anything else was made up. */
 export const MEDIA_ID_PATTERN = /^(img|vid)_[a-z0-9]+_\d+$/
@@ -13,8 +14,28 @@ export const MEDIA_ID_PATTERN = /^(img|vid)_[a-z0-9]+_\d+$/
  * as an id, and the id is what a drafter puts in its answer or passes to
  * x_post; the bytes never go through the model.
  */
-export function createMediaTools(media: MediaAccess): StructuredToolInterface[] {
+export function createMediaTools(
+  media: MediaAccess,
+  options: {
+    /**
+     * The content filter, read on the prompt before any budget is spent. A
+     * picture is the account's words in another form, and a generator will
+     * draw what a post could never say.
+     */
+    safety?: Pick<SafetyGate, 'outbound'>
+  } = {},
+): StructuredToolInterface[] {
   const tools: StructuredToolInterface[] = []
+
+  const refuse = async (prompt: string): Promise<string | undefined> => {
+    if (!options.safety) return undefined
+    const result = await options.safety.outbound(prompt)
+    if (result.decision.ok) return undefined
+    return (
+      `Refused: this account does not make pictures of that (${result.decision.category}). ` +
+      'Answer in words instead, and do not try a different wording of the same picture.'
+    )
+  }
 
   /**
    * The prompt as the generator gets it: Tiny's character sheet in front of
@@ -77,6 +98,8 @@ export function createMediaTools(media: MediaAccess): StructuredToolInterface[] 
     tools.push(
       tool(
         async ({ prompt, aspect, featuresTiny: withTiny }) => {
+          const refused = await refuse(prompt)
+          if (refused) return refused
           if (!media.budget.take('image')) {
             return (
               'Refused: the daily image allowance is used up. Answer in words; do not ' +
@@ -122,6 +145,8 @@ export function createMediaTools(media: MediaAccess): StructuredToolInterface[] 
     tools.push(
       tool(
         async ({ prompt, orientation, featuresTiny: withTiny }) => {
+          const refused = await refuse(prompt)
+          if (refused) return refused
           if (!media.budget.take('video')) {
             return (
               'Refused: the daily video allowance is used up. Offer an image or answer in ' +

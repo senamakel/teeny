@@ -3,6 +3,7 @@ import type { StructuredToolInterface } from '@langchain/core/tools'
 import { z } from 'zod'
 import { applyHouseStyle, countEmoji } from '../house-style.js'
 import type { MediaStore } from '../../media/store.js'
+import type { SafetyGate } from '../../safety/gate.js'
 import { MEDIA_ID_PATTERN } from './media.js'
 import type { GifSource, XPost, XTools } from '../../types.js'
 
@@ -29,6 +30,33 @@ function renderPosts(posts: XPost[]): string {
     .join('\n---\n')
 }
 
+/**
+ * The content filter's answer as a tool refusal, or nothing when the text is
+ * clean. A cut link is a refusal here rather than a silent edit, unlike the
+ * reply job: the model is still in the loop and can rewrite the sentence
+ * around the missing link, where the job would have to publish the gap.
+ */
+export async function refuseUnsafe(
+  text: string,
+  safety: Pick<SafetyGate, 'outbound'> | undefined,
+): Promise<string | undefined> {
+  if (!safety) return undefined
+  const result = await safety.outbound(text)
+  if (!result.decision.ok) {
+    return (
+      `Refused: this account does not publish that (${result.decision.category}). ` +
+      'Do not rephrase it; say something else or say nothing.'
+    )
+  }
+  if (result.fixes.length > 0) {
+    return (
+      'Refused: the text links to a site that is not on the allowlist. This account only ' +
+      'links to its own sites, code and community. Drop the link and call the tool again.'
+    )
+  }
+  return undefined
+}
+
 export function createXTools(
   x: XTools,
   options: {
@@ -40,6 +68,8 @@ export function createXTools(
     searchLimit?: number
     /** Where generate_image / generate_video leave their files, for mediaId. */
     media?: MediaStore
+    /** The content filter. A post it holds is refused with the reason, so the model rewrites. */
+    safety?: Pick<SafetyGate, 'outbound'>
   },
 ): StructuredToolInterface[] {
   const maxEmoji = options.maxEmoji ?? 1
@@ -112,6 +142,8 @@ export function createXTools(
       // The emoji cap is refused above so the model learns from it; the rest is
       // corrected silently, because rejecting a draft over a dash wastes a turn.
       const { text } = applyHouseStyle(drafted, { maxEmoji, maxLength: MAX_POST_LENGTH })
+      const refused = await refuseUnsafe(text, options.safety)
+      if (refused) return refused
       if (gifId && !options.gifs) {
         return 'Refused: no GIF source is configured, so gifId cannot be attached.'
       }

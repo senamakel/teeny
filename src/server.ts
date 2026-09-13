@@ -3,6 +3,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
 import { redactReflection, type Journal } from './journal/journal.js'
 import type { MentionQueue } from './queue/mentions.js'
+import type { SafetyGate } from './safety/gate.js'
 import type { Agent, Memory } from './types.js'
 import {
   captureWebhookActivity,
@@ -48,6 +49,8 @@ export function buildServer(options: {
     journal: Journal
     status: { mode: string; model: string; dryRun: boolean }
   }
+  /** The content filter. An ad-hoc task it holds is refused before the agent sees it. */
+  safety?: Pick<SafetyGate, 'inbound'>
 }): FastifyInstance {
   const app = Fastify({ logger: options.logger ?? false })
 
@@ -165,6 +168,14 @@ export function buildServer(options: {
     const parsed = agentRequestSchema.safeParse(request.body)
     if (!parsed.success) {
       return reply.code(400).send({ error: 'task is required', details: parsed.error.issues })
+    }
+
+    // The operator is trusted with the token, not with the filter: a task is
+    // a message like any other, and the rules the account keeps for strangers
+    // are the rules it keeps for everybody.
+    const held = await options.safety?.inbound(parsed.data.task)
+    if (held && !held.ok) {
+      return reply.code(422).send({ error: 'the task was held by the content filter', category: held.category })
     }
 
     const result = await options.agent.run({

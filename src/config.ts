@@ -51,6 +51,20 @@ const schema = z.object({
   CONTEXT_PATH: z.string().default('CONTEXT.md'),
   SKILLS_DIR: z.string().default('skills'),
   MAX_EMOJI_PER_POST: z.coerce.number().int().min(0).max(10).default(1),
+  // --- the content filter ---------------------------------------------------
+  // Every message in and every draft out passes a lexicon and a link allowlist
+  // regardless; these dials control the model judge that runs after them for
+  // anything phrased around the words. On by default and on the chat model,
+  // because the filter is the one part of the account that should not have an
+  // off switch a busy operator forgets to flip back.
+  SAFETY_JUDGE: booleanFromString,
+  SAFETY_JUDGE_MODEL: blankable(z.string().min(1)),
+  // Hosts the account may link to beyond the built-in list, comma separated,
+  // as `host`, `host/path-prefix`, or `host/` for the bare host only.
+  LINK_ALLOWLIST: z
+    .string()
+    .default('')
+    .transform((value) => value.split(',').map((entry) => entry.trim()).filter(Boolean)),
   GIPHY_API_KEY: z.string().min(1).optional(),
   GIPHY_CHANNEL: z.string().min(1).default('TinyHumansAI'),
   // X bills per post retrieved, so both of these are cost dials.

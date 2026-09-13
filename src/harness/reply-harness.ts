@@ -8,6 +8,7 @@ import {
 } from '../types.js'
 import { summariseRecall } from '../journal/journal.js'
 import type { ImageReader } from '../media/types.js'
+import type { SafetyGate } from '../safety/gate.js'
 
 function isSour(tone: ReplyDraft['incomingTone']): boolean {
   return tone === 'negative' || tone === 'hostile'
@@ -39,6 +40,13 @@ export class ReplyHarness {
      * is only a screenshot then gets answered as if it were blank.
      */
     private readonly vision?: ImageReader,
+    /**
+     * Scrubs the thread. The post being answered has already passed the gate
+     * by the time this runs; the thread around it has not, and a line in it
+     * about something the account does not touch is a line the drafter does
+     * not need to see. Lexicon only, so it costs nothing per line.
+     */
+    private readonly safety?: Pick<SafetyGate, 'screen'>,
   ) {}
 
   async generate(post: XPost): Promise<ReplyDraft> {
@@ -143,7 +151,9 @@ export class ReplyHarness {
     // here too just spends budget saying the same thing twice.
     byId.delete(post.id)
 
-    const ordered = [...byId.values()].sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1))
+    const ordered = [...byId.values()]
+      .filter((entry) => !this.safety || this.safety.screen(entry.text))
+      .sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1))
     if (ordered.length <= this.thread.maxPosts) return ordered
 
     // Over budget, the root and the most recent exchanges are what matter; the

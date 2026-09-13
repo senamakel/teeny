@@ -60,7 +60,7 @@ export class GiphyClient implements GifSource {
     url.searchParams.set('api_key', this.options.apiKey)
     url.searchParams.set('q', scoped)
     url.searchParams.set('limit', String(this.options.limit ?? 10))
-    url.searchParams.set('rating', 'pg-13')
+    url.searchParams.set('rating', 'g')
     url.searchParams.set('bundle', 'messaging_non_clips')
 
     const response = await fetch(url, { signal: AbortSignal.timeout(15_000) })
