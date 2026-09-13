@@ -1,6 +1,7 @@
 import { tool } from '@langchain/core/tools'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import { z } from 'zod'
+import { withReference } from '../../media/reference.js'
 import type { MediaAccess } from '../../media/wiring.js'
 
 /** Generated media ids look like `img_…` or `vid_…`; anything else was made up. */
@@ -14,6 +15,29 @@ export const MEDIA_ID_PATTERN = /^(img|vid)_[a-z0-9]+_\d+$/
  */
 export function createMediaTools(media: MediaAccess): StructuredToolInterface[] {
   const tools: StructuredToolInterface[] = []
+
+  /**
+   * The prompt as the generator gets it: Tiny's character sheet in front of
+   * the scene when the picture features Tiny and a sheet could be built. The
+   * second return says which, for the tool's answer.
+   */
+  const compose = async (prompt: string, featuresTiny: boolean): Promise<[string, string]> => {
+    if (!featuresTiny) return [prompt, 'without Tiny']
+    const sheet = media.reference ? await media.reference.get() : undefined
+    return sheet
+      ? [withReference(sheet, prompt), "with Tiny's look from the reference sheet"]
+      : [prompt, 'featuring Tiny, but no reference sheet was available, so the look is from your prompt alone']
+  }
+
+  const featuresTiny = z
+    .boolean()
+    .default(true)
+    .describe(
+      'Whether Tiny, the account\'s own character, is in the picture. Default true: the ' +
+      'official artwork is studied and Tiny\'s look is put in front of your prompt, so ' +
+      'describe the scene and what Tiny is doing, not what Tiny looks like. Set false ' +
+      'only for a picture with no Tiny in it at all.',
+    )
 
   if (media.reader) {
     const reader = media.reader
@@ -52,7 +76,7 @@ export function createMediaTools(media: MediaAccess): StructuredToolInterface[] 
     const images = media.images
     tools.push(
       tool(
-        async ({ prompt, aspect }) => {
+        async ({ prompt, aspect, featuresTiny: withTiny }) => {
           if (!media.budget.take('image')) {
             return (
               'Refused: the daily image allowance is used up. Answer in words; do not ' +
@@ -60,10 +84,11 @@ export function createMediaTools(media: MediaAccess): StructuredToolInterface[] 
             )
           }
           try {
-            const generated = await images.generate({ prompt, aspect })
-            const stored = media.store.put({ kind: 'image', prompt, ...generated })
+            const [composed, how] = await compose(prompt, withTiny)
+            const generated = await images.generate({ prompt: composed, aspect })
+            const stored = media.store.put({ kind: 'image', prompt: composed, ...generated })
             return [
-              `Generated an image: mediaId "${stored.id}" (${aspect}, ${generated.data.byteLength} bytes).`,
+              `Generated an image ${how}: mediaId "${stored.id}" (${aspect}, ${generated.data.byteLength} bytes).`,
               'Put that id in mediaId to attach it. You cannot see the result; describe it to the ' +
                 'reader only in terms of what you asked for.',
               `${media.budget.remaining('image')} image generations left today.`,
@@ -77,13 +102,15 @@ export function createMediaTools(media: MediaAccess): StructuredToolInterface[] 
           description:
             'Draw a picture from a text prompt and get back a mediaId to attach to a post or ' +
             'a chat message. Slow and rationed, so use it when somebody asks for a picture or ' +
-            'when one is clearly the best answer, never as decoration. Write the prompt as a ' +
-            'full visual description: subject, setting, style, mood, and any text that should ' +
-            'appear, spelled out. Nothing that depicts a real person, another token, or ' +
-            'anything that reads as a price call.',
+            'when one is clearly the best answer, never as decoration. Tiny\'s own look is ' +
+            'added for you from the official artwork; write the prompt as the scene: where Tiny ' +
+            'is, what Tiny is doing, the mood, and any text that should appear, spelled out. ' +
+            'Nothing that depicts a real person, another token, or anything that reads as a ' +
+            'price call.',
           schema: z.object({
             prompt: z.string().min(10).max(2_000),
             aspect: z.enum(['square', 'landscape', 'portrait']).default('square'),
+            featuresTiny,
           }),
         },
       ),
@@ -94,7 +121,7 @@ export function createMediaTools(media: MediaAccess): StructuredToolInterface[] 
     const videos = media.videos
     tools.push(
       tool(
-        async ({ prompt, orientation }) => {
+        async ({ prompt, orientation, featuresTiny: withTiny }) => {
           if (!media.budget.take('video')) {
             return (
               'Refused: the daily video allowance is used up. Offer an image or answer in ' +
@@ -102,10 +129,11 @@ export function createMediaTools(media: MediaAccess): StructuredToolInterface[] 
             )
           }
           try {
-            const generated = await videos.generate({ prompt, orientation })
-            const stored = media.store.put({ kind: 'video', prompt, ...generated })
+            const [composed, how] = await compose(prompt, withTiny)
+            const generated = await videos.generate({ prompt: composed, orientation })
+            const stored = media.store.put({ kind: 'video', prompt: composed, ...generated })
             return [
-              `Generated a video: mediaId "${stored.id}" (${orientation}, ` +
+              `Generated a video ${how}: mediaId "${stored.id}" (${orientation}, ` +
                 `${generated.seconds ?? '?'}s, ${generated.data.byteLength} bytes).`,
               'Put that id in mediaId to attach it. You cannot watch the result; describe it ' +
                 'to the reader only in terms of what you asked for.',
@@ -120,12 +148,14 @@ export function createMediaTools(media: MediaAccess): StructuredToolInterface[] 
           description:
             'Film a short clip, a few seconds long, from a text prompt and get back a ' +
             'mediaId to attach. Takes minutes and is tightly rationed: only when somebody ' +
-            'asks for a video, or for a post where motion is the whole point. Write the prompt ' +
-            'as a shot description: subject, action, camera, setting, style. Nothing that ' +
-            'depicts a real person, another token, or anything that reads as a price call.',
+            'asks for a video, or for a post where motion is the whole point. Tiny\'s own look ' +
+            'is added for you from the official artwork; write the prompt as a shot: what Tiny ' +
+            'does, the camera, the setting, the mood. Nothing that depicts a real person, ' +
+            'another token, or anything that reads as a price call.',
           schema: z.object({
             prompt: z.string().min(10).max(2_000),
-            orientation: z.enum(['landscape', 'portrait']).default('landscape'),
+            orientation: z.enum(['square', 'landscape', 'portrait']).default('square'),
+            featuresTiny,
           }),
         },
       ),

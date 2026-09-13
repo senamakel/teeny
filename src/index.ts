@@ -97,7 +97,8 @@ const marketAccess = config.CHART_TOKEN_ADDRESS
  * drafter and the task agent draw on the same daily budget and leave their
  * files in the same store, which is what lets a job attach what a turn made.
  */
-const media = buildMedia(config)
+// The logger does not exist yet; the closure runs only after `app` does.
+const media = buildMedia(config, { log: (event, detail) => app.log.info(detail ?? {}, event) })
 
 const agentOptions: AgentOptions = {
   memory,
@@ -151,6 +152,10 @@ const app = buildServer({
     status: { mode: config.AGENT_MODE, model: config.LLM_MODEL, dryRun: config.DRY_RUN },
   },
 })
+// The character sheet takes a dozen model calls to build the first time.
+// Started now so the first "draw me a Tiny" of the day does not pay for it.
+media?.reference?.warm()
+
 const role = config.SERVICE_ROLE
 const runsIngest = role === 'all' || role === 'ingest'
 const runsReplies = role === 'all' || role === 'reply'
@@ -296,6 +301,7 @@ app.log.info(
     exa: Boolean(config.EXA_API_KEY),
     giphy: gifs ? config.GIPHY_CHANNEL : false,
     vision: media?.reader ? config.VISION_MODEL : false,
+    referenceSheet: media?.reference ? config.TINY_REFERENCE_IMAGES.length : false,
     imageGen: media?.images ? `${config.IMAGE_GEN_MODEL}, ${config.MEDIA_IMAGES_PER_DAY}/day` : false,
     videoGen: media?.videos ? `${config.VIDEO_GEN_MODEL}, ${config.MEDIA_VIDEOS_PER_DAY}/day` : false,
     role,

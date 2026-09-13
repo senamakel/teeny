@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { DEFAULT_REFERENCE_IMAGES } from './media/reference.js'
 
 const booleanFromString = z
   .enum(['true', 'false'])
@@ -171,28 +172,35 @@ const schema = z.object({
   TELEGRAM_GIF_COOLDOWN_S: z.coerce.number().int().min(0).max(86_400).default(600),
 
   // --- media ---------------------------------------------------------------
-  // Seeing pictures, drawing them, and filming short clips. Each is its own
-  // switch, off until its key or model is set, because each is a separate
-  // bill and a separate provider: the ladder may not see images, and a key
-  // that draws may not film.
+  // Seeing pictures, drawing them, and filming short clips. All three default
+  // to the LLM ladder, which serves a `vision` chat ladder, an `image` ladder
+  // (OpenAI Images shape, square by default) and a `video` ladder (a job,
+  // polled). Seeing is on by default because it is cheap and a bot that
+  // cannot see the photo it was sent is a worse bot; drawing and filming are
+  // opt-in because each one is a bill. Any part can be pointed at a different
+  // OpenAI-compatible endpoint with its own URL and key.
   //
-  // Vision: any OpenAI-compatible chat endpoint whose model accepts image
-  // parts. Blank model, no vision -- the account is told it cannot see the
-  // picture rather than being handed a 400 mid-reply. The URL and key default
-  // to the LLM's at wiring time.
-  VISION_MODEL: blankable(z.string().min(1)),
+  // Blank disables vision: the account is then told it cannot see the picture
+  // rather than being handed a 400 mid-reply.
+  VISION_MODEL: z.string().default('vision'),
   VISION_BASE_URL: blankable(z.url()),
   VISION_API_KEY: blankable(z.string().min(1)),
-  // Image generation, OpenAI `/images/generations` shape: gpt-image-*, dall-e-*.
+  IMAGE_GEN_ENABLED: offByDefault,
+  IMAGE_GEN_MODEL: z.string().min(1).default('image'),
+  IMAGE_GEN_BASE_URL: blankable(z.url()),
   IMAGE_GEN_API_KEY: blankable(z.string().min(1)),
-  IMAGE_GEN_BASE_URL: z.url().default('https://api.openai.com/v1'),
-  IMAGE_GEN_MODEL: z.string().min(1).default('gpt-image-1'),
-  IMAGE_GEN_QUALITY: z.string().min(1).default('medium'),
-  // Video generation, OpenAI `/videos` shape: sora-2, sora-2-pro. A render
-  // takes minutes, so the timeout is generous and the clip is short.
+  // Only sent to models that take it (gpt-image-*, dall-e-*); the ladder's
+  // rungs are many models and the parameter would be a 400 on some of them.
+  IMAGE_GEN_QUALITY: blankable(z.string().min(1)),
+  VIDEO_GEN_ENABLED: offByDefault,
+  // `ladder` speaks POST /video/generations and polls the media.job it gets
+  // back; `openai` speaks Sora's POST /videos. The ladder relays Surplus's
+  // job object untouched, so the finished shape is read leniently.
+  VIDEO_GEN_API: z.enum(['ladder', 'openai']).default('ladder'),
+  VIDEO_GEN_MODEL: z.string().min(1).default('video'),
+  VIDEO_GEN_BASE_URL: blankable(z.url()),
   VIDEO_GEN_API_KEY: blankable(z.string().min(1)),
-  VIDEO_GEN_BASE_URL: z.url().default('https://api.openai.com/v1'),
-  VIDEO_GEN_MODEL: z.string().min(1).default('sora-2'),
+  // Clip length, for the APIs that take one. Sora accepts 4, 8 or 12.
   VIDEO_GEN_SECONDS: z.coerce.number().int().min(1).max(60).default(4),
   VIDEO_GEN_TIMEOUT_S: z.coerce.number().int().min(30).max(3_600).default(600),
   // Where a copy of everything generated is written, like charts.
@@ -201,6 +209,21 @@ const schema = z.object({
   // is what makes "make me a video" from a hundred strangers survivable.
   MEDIA_IMAGES_PER_DAY: z.coerce.number().int().min(0).max(1_000).default(20),
   MEDIA_VIDEOS_PER_DAY: z.coerce.number().int().min(0).max(100).default(3),
+  // What Tiny looks like, as the account's published artwork shows it. The
+  // vision ladder studies these once, a text step distils them into one
+  // character sheet, and the sheet is prepended to every generation prompt
+  // that features Tiny. Comma-separated URLs; unset or blank uses the
+  // pictures from tinyhumansworld.com; `none` turns the sheet off.
+  TINY_REFERENCE_IMAGES: z
+    .string()
+    .default('')
+    .transform((value) => {
+      const trimmed = value.trim()
+      if (trimmed.toLowerCase() === 'none') return [] as string[]
+      const urls = trimmed.split(',').map((entry) => entry.trim()).filter(Boolean)
+      return urls.length > 0 ? urls : DEFAULT_REFERENCE_IMAGES
+    }),
+  REFERENCE_SHEET_PATH: z.string().default('data/media/reference-sheet.json'),
 
   // --- the wallet ----------------------------------------------------------
   // Nothing reads these today. The agent has no airdrop tool: it was added and
