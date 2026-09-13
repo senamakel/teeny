@@ -18,11 +18,14 @@ function logger(): FastifyBaseLogger {
   } as unknown as FastifyBaseLogger
 }
 
+let sent = 99
 function api(): TelegramApi {
   return {
     getMe: vi.fn(),
     getUpdates: vi.fn().mockResolvedValue([]),
-    sendMessage: vi.fn().mockResolvedValue({ id: 99 }),
+    // Each send gets its own id, as Telegram hands out, so the transcript's
+    // redelivery guard does not mistake two replies for one.
+    sendMessage: vi.fn().mockImplementation(async () => ({ id: (sent += 1) })),
     sendAnimation: vi.fn().mockResolvedValue({ id: 100 }),
     sendChatAction: vi.fn().mockResolvedValue(undefined),
   }
@@ -92,7 +95,7 @@ describe('TelegramBot', () => {
     expect(deps.harness.remember).toHaveBeenCalledWith(
       expect.objectContaining({ id: '10' }),
       'gm fren',
-      '99',
+      expect.stringMatching(/^\d+$/),
       'friendly',
     )
   })
@@ -104,17 +107,20 @@ describe('TelegramBot', () => {
     expect(deps.harness.generate).not.toHaveBeenCalled()
 
     await subject.handle(
-      group('@teenythebot gm', { entities: [{ type: 'mention', offset: 0, length: 12 }] }),
+      group('@teenythebot gm', {
+        message_id: 21,
+        entities: [{ type: 'mention', offset: 0, length: 12 }],
+      }),
     )
-    expect(deps.api.sendMessage).toHaveBeenCalledWith(-100, 'gm fren', { replyToMessageId: 20 })
+    expect(deps.api.sendMessage).toHaveBeenCalledWith(-100, 'gm fren', { replyToMessageId: 21 })
     // The line it did not answer is still context for the one it did.
     expect(deps.harness.generate).toHaveBeenCalledWith(expect.objectContaining({ text: 'gm' }), [
       { from: 'person', authorName: 'Alice', text: 'gm everyone' },
     ])
   })
 
-  it('carries its own turns forward as history, most recent last', async () => {
-    const { bot: subject, deps } = build({ historyLength: 3 })
+  it('shows the drafter the whole conversation so far, its own turns included', async () => {
+    const { bot: subject, deps } = build()
 
     await subject.handle(dm('one'))
     await subject.handle(dm('two', { message_id: 11 }))
@@ -122,10 +128,41 @@ describe('TelegramBot', () => {
 
     const calls = (deps.harness.generate as ReturnType<typeof vi.fn>).mock.calls
     expect(calls[2]?.[1]).toEqual([
+      { from: 'person', authorName: 'Alice', text: 'one' },
       { from: 'bot', text: 'gm fren' },
       { from: 'person', authorName: 'Alice', text: 'two' },
       { from: 'bot', text: 'gm fren' },
     ])
+  })
+
+  it('reads the history back within the token budget, most recent kept', async () => {
+    const { bot: subject, deps } = build({ historyTokens: 40 })
+    for (let i = 1; i <= 6; i += 1) {
+      await subject.handle(dm(`message number ${i} with some words in it`, { message_id: 10 + i }))
+    }
+    const calls = (deps.harness.generate as ReturnType<typeof vi.fn>).mock.calls
+    const shown = calls[5]?.[1] as Array<{ text: string }>
+    expect(shown.length).toBeGreaterThan(0)
+    expect(shown.length).toBeLessThan(11)
+    expect(shown[shown.length - 1]?.text).toBe('gm fren')
+  })
+
+  it('still answers when the transcript store is down', async () => {
+    const broken = {
+      append: vi.fn().mockRejectedValue(new Error('mongo down')),
+      recent: vi.fn().mockRejectedValue(new Error('mongo down')),
+      close: vi.fn(),
+    }
+    const { bot: subject, deps } = build({ transcript: broken })
+
+    await expect(subject.handle(dm('hello'))).rejects.toThrow('mongo down')
+    expect(deps.api.sendMessage).not.toHaveBeenCalled()
+
+    const readOnlyBroken = { ...broken, append: vi.fn().mockResolvedValue(undefined) }
+    const second = build({ transcript: readOnlyBroken })
+    await second.bot.handle(dm('hello'))
+    expect(second.deps.api.sendMessage).toHaveBeenCalledWith(1, 'gm fren', {})
+    expect(second.deps.harness.generate).toHaveBeenCalledWith(expect.anything(), [])
   })
 
   it('skips a message that was already old when it arrived', async () => {

@@ -102,6 +102,7 @@ describe('telegram config', () => {
     expect(config.TELEGRAM_BOT_TOKEN).toBeUndefined()
     expect(config.TELEGRAM_DRY_RUN).toBe(false)
     expect(config.TELEGRAM_MAX_MESSAGE_AGE_S).toBe(300)
+    expect(config.TELEGRAM_HISTORY_TOKENS).toBe(5_000)
   })
 
   it('accepts a token in the shape BotFather hands out', () => {

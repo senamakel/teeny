@@ -158,8 +158,12 @@ const schema = z.object({
   // does not answer an hour of backlog all at once.
   TELEGRAM_MAX_MESSAGE_AGE_S: z.coerce.number().int().min(10).max(86_400).default(300),
   TELEGRAM_POLL_TIMEOUT_S: z.coerce.number().int().min(1).max(50).default(30),
-  // How many recent turns of a chat the drafter is shown, in process only.
-  TELEGRAM_HISTORY_LENGTH: z.coerce.number().int().min(0).max(50).default(12),
+  // How much of a chat's recent history the drafter is shown before it
+  // answers, in tokens, read back from the transcript it keeps in Mongo. Five
+  // thousand is roughly forty to eighty chat lines: enough to answer inside a
+  // conversation rather than beside it, cheap next to the persona documents.
+  TELEGRAM_HISTORY_TOKENS: z.coerce.number().int().min(0).max(50_000).default(5_000),
+  TRANSCRIPT_COLLECTION: z.string().min(1).default('telegram_transcript'),
 
   // --- the wallet ----------------------------------------------------------
   // Nothing reads these today. The agent has no airdrop tool: it was added and

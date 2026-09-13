@@ -7,8 +7,9 @@ import {
   type TelegramUpdate,
 } from '../clients/telegram.js'
 import type { ChatHarness } from '../harness/chat-harness.js'
-import type { ChatTurn, GifSource } from '../types.js'
+import type { GifSource } from '../types.js'
 import { commandOf, isAddressedToBot, toChatMessage, type BotIdentity } from './inbox.js'
+import { MemoryChatTranscript, type ChatTranscript } from './transcript.js'
 
 export interface TelegramBotOptions {
   api: TelegramApi
@@ -27,8 +28,14 @@ export interface TelegramBotOptions {
   maxMessageAgeMs?: number
   /** How long one getUpdates call may wait for something to happen. */
   pollTimeoutSeconds?: number
-  /** How many turns of a chat the drafter is shown. */
-  historyLength?: number
+  /**
+   * Where every line the account sees is kept, so a reply can read the
+   * conversation it is joining. Defaults to in-process memory, which is lost
+   * on restart; production passes the Mongo-backed one.
+   */
+  transcript?: ChatTranscript
+  /** How much of the chat's history the drafter is shown, in tokens. */
+  historyTokens?: number
   /** Injectable for the tests. */
   sleep?: (ms: number) => Promise<void>
   now?: () => number
@@ -49,11 +56,12 @@ export class TelegramBot {
   private offset: number | undefined
   private stopped = false
   private readonly chains = new Map<string, Promise<void>>()
-  private readonly histories = new Map<string, ChatTurn[]>()
+  private readonly transcript: ChatTranscript
   private readonly sleep: (ms: number) => Promise<void>
   private readonly now: () => number
 
   constructor(private readonly options: TelegramBotOptions) {
+    this.transcript = options.transcript ?? new MemoryChatTranscript()
     this.sleep = options.sleep ?? defaultSleep
     this.now = options.now ?? Date.now
   }
@@ -114,14 +122,13 @@ export class TelegramBot {
     })
   }
 
-  private history(chatId: string): ChatTurn[] {
-    return this.histories.get(chatId) ?? []
-  }
-
-  private pushHistory(chatId: string, turn: ChatTurn): void {
-    const limit = this.options.historyLength ?? 12
-    const turns = [...this.history(chatId), turn].slice(-limit)
-    this.histories.set(chatId, turns)
+  /** The account's own line in the transcript, so it can see what it said. */
+  private async keepOwnTurn(chatId: string, messageId: string, text: string): Promise<void> {
+    await this.transcript
+      .append({ chatId, messageId, at: new Date(this.now()).toISOString(), from: 'bot', text })
+      .catch((error: unknown) =>
+        this.options.logger.warn({ err: error, chatId }, 'could not keep own turn in the transcript'),
+      )
   }
 
   /** One update, start to finish. Public so the tests can drive it directly. */
@@ -133,9 +140,13 @@ export class TelegramBot {
     if (!message) return
 
     // Seen is not the same as answered: a line in a group that was not for the
-    // account still tells the next reply what the room was talking about.
-    const history = this.history(message.chatId)
-    this.pushHistory(message.chatId, {
+    // account still tells the next reply what the room was talking about, so
+    // every line is kept whether or not this one gets an answer. Kept before
+    // anything else so a failure further down does not lose it.
+    await this.transcript.append({
+      chatId: message.chatId,
+      messageId: message.id,
+      at: message.createdAt ?? new Date(this.now()).toISOString(),
       from: 'person',
       ...(message.authorName ? { authorName: message.authorName } : {}),
       text: message.text,
@@ -159,6 +170,19 @@ export class TelegramBot {
 
     const thread = raw.message_thread_id
     await api.sendChatAction(raw.chat.id, 'typing', thread).catch(() => undefined)
+
+    // The conversation so far, as much of it as the budget holds. Read fails
+    // soft: a reply without the room's history is worse, a person left
+    // unanswered because Mongo hiccupped is worse still.
+    const history = await this.transcript
+      .recent(message.chatId, {
+        maxTokens: this.options.historyTokens ?? 5_000,
+        before: message.id,
+      })
+      .catch((error: unknown) => {
+        logger.warn({ err: error, chatId: message.chatId }, 'could not read the chat transcript')
+        return []
+      })
 
     const draft = await this.options.harness.generate(message, history)
     const styled = applyHouseStyle(draft.text, {
@@ -186,7 +210,7 @@ export class TelegramBot {
         { chatId: message.chatId, text: styled.text, gifQuery: draft.gifQuery },
         'DRY RUN: would have sent a telegram message',
       )
-      this.pushHistory(message.chatId, { from: 'bot', text: styled.text })
+      await this.keepOwnTurn(message.chatId, `dry-run:${message.id}`, styled.text)
       await this.options.harness.remember(message, styled.text, undefined, draft.incomingTone)
       return
     }
@@ -196,7 +220,7 @@ export class TelegramBot {
       const sent = await api.sendMessage(raw.chat.id, piece, sendOptions)
       sentId ??= sent.id
     }
-    this.pushHistory(message.chatId, { from: 'bot', text: styled.text })
+    await this.keepOwnTurn(message.chatId, String(sentId), styled.text)
     logger.info(
       { chatId: message.chatId, kind: message.chatKind, sentId, tone: draft.incomingTone },
       'sent a telegram message',

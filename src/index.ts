@@ -24,6 +24,7 @@ import { AgentChatModel } from './agent/chat-model.js'
 import { TelegramApiClient } from './clients/telegram.js'
 import { ChatHarness } from './harness/chat-harness.js'
 import { TelegramBot } from './telegram/bot.js'
+import { MongoChatTranscript } from './telegram/transcript.js'
 
 const config = loadConfig()
 const memory = new CortexMemory(
@@ -246,7 +247,12 @@ if (runsTelegram && config.TELEGRAM_BOT_TOKEN) {
     maxEmoji: config.MAX_EMOJI_PER_POST,
     maxMessageAgeMs: config.TELEGRAM_MAX_MESSAGE_AGE_S * 1_000,
     pollTimeoutSeconds: config.TELEGRAM_POLL_TIMEOUT_S,
-    historyLength: config.TELEGRAM_HISTORY_LENGTH,
+    transcript: new MongoChatTranscript({
+      uri: config.MONGO_URI,
+      database: config.MONGO_DATABASE,
+      collection: config.TRANSCRIPT_COLLECTION,
+    }),
+    historyTokens: config.TELEGRAM_HISTORY_TOKENS,
   })
   void bot.start()
   const shutdown = (): void => {
