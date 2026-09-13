@@ -22,7 +22,8 @@
     "unsay": "tsx src/scripts/unsay.ts",
     "requeue-unpaid": "tsx src/scripts/requeue-unpaid.ts",
     "chart-dry-run": "tsx src/scripts/chart-dry-run.ts",
-    "telegram-dry-run": "tsx src/scripts/telegram-dry-run.ts"
+    "telegram-dry-run": "tsx src/scripts/telegram-dry-run.ts",
+    "morning-dry-run": "tsx src/scripts/morning-dry-run.ts"
   },
   "dependencies": {
     "@langchain/core": "^1.2.9",
@@ -37,6 +38,7 @@
     "mongodb": "^6.21.0",
     "node-cron": "^4.6.0",
     "playwright-core": "^1.63.0",
+    "sharp": "^0.35.4",
     "viem": "^2.56.3",
     "zod": "^4.1.12"
   },
