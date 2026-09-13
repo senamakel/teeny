@@ -2,13 +2,15 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Brain, Code2, Menu } from "lucide-react"
+import { Brain, Menu } from "lucide-react"
+import { PresenceIcon } from "@/components/icons/brand"
+import { PRESENCE, SOCIAL } from "@/lib/presence"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { PAGES } from "@/lib/pages"
 import { cn } from "@/lib/utils"
 
-const SOURCE = "https://github.com/tinyhumansai"
+const SOURCE = PRESENCE.find((p) => p.kind === "github")!
 
 export function SiteNav() {
   const pathname = usePathname()
@@ -33,8 +35,21 @@ export function SiteNav() {
               {page.label}
             </Button>
           ))}
-          <Button variant="outline" size="sm" className="ml-2" render={<a href={SOURCE} target="_blank" rel="noreferrer" />}>
-            <Code2 className="size-4" />
+          <span className="mx-2 h-5 w-px bg-border" />
+          {SOCIAL.map((p) => (
+            <Button
+              key={p.kind}
+              variant="ghost"
+              size="icon"
+              title={`${p.place} · ${p.handle}`}
+              render={<a href={p.href} target="_blank" rel="noreferrer" />}
+            >
+              <PresenceIcon kind={p.kind} className="size-4" />
+              <span className="sr-only">{p.place}</span>
+            </Button>
+          ))}
+          <Button variant="outline" size="sm" className="ml-1" render={<a href={SOURCE.href} target="_blank" rel="noreferrer" />}>
+            <PresenceIcon kind="github" className="size-4" />
             Source
           </Button>
         </nav>
@@ -57,10 +72,19 @@ export function SiteNav() {
                   {page.label}
                 </Button>
               ))}
-              <Button variant="outline" className="mt-4 justify-start" render={<a href={SOURCE} target="_blank" rel="noreferrer" />}>
-                <Code2 className="size-4" />
-                Source
-              </Button>
+              <p className="mt-6 mb-1 px-3 font-mono text-xs uppercase tracking-widest text-muted-foreground">Find it</p>
+              {PRESENCE.map((p) => (
+                <Button
+                  key={p.kind}
+                  variant="ghost"
+                  className="justify-start"
+                  render={<a href={p.href} target="_blank" rel="noreferrer" />}
+                >
+                  <PresenceIcon kind={p.kind} className="size-4" />
+                  <span>{p.place}</span>
+                  <span className="ml-auto font-mono text-xs text-muted-foreground">{p.handle}</span>
+                </Button>
+              ))}
             </nav>
           </SheetContent>
         </Sheet>
