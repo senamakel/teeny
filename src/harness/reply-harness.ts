@@ -93,7 +93,9 @@ export class ReplyHarness {
     // recalled, not the drafter's paraphrase of it.
     const draft: ReplyDraft = {
       ...drafted,
-      recalled: [...summariseRecall(recalled, 3), ...summariseRecall(ownActivity, 2)],
+      // Deduplicated: the two recalls overlap whenever memory has little on
+      // the person and answers both with the same general context.
+      recalled: [...new Set([...summariseRecall(recalled, 3), ...summariseRecall(ownActivity, 2)])],
     }
 
     // Sour and abusive posts are answered but not kept. Memory is what the

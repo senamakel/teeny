@@ -109,7 +109,7 @@ describe('the reply job journals every mention', () => {
       recall: vi
         .fn()
         .mockResolvedValueOnce('- they asked about the chart before')
-        .mockResolvedValueOnce(''),
+        .mockResolvedValueOnce('- they asked about the chart before'),
       captureReply: vi.fn().mockResolvedValue(undefined),
     }
     const model: LanguageModel = {
