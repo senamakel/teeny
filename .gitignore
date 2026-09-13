@@ -6,3 +6,5 @@ data/
 coverage/
 key.pem
 key.pem.pub
+.DS_Store
+worktrees/
