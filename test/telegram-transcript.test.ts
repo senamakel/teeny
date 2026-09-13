@@ -41,7 +41,7 @@ describe('MemoryChatTranscript', () => {
     await store.append({ chatId: '1', messageId: 'c', at, from: 'person', authorName: 'A', text: 'how are you' })
     await store.append({ chatId: '2', messageId: 'z', at, from: 'person', authorName: 'B', text: 'other room' })
 
-    await expect(store.recent('1', { maxTokens: 5_000, before: 'c' })).resolves.toEqual([
+    await expect(store.recent('1', { maxTokens: 5_000, excluding: ['c'] })).resolves.toEqual([
       { from: 'person', authorName: 'A', text: 'hi' },
       { from: 'bot', text: 'hello' },
     ])
@@ -79,7 +79,7 @@ describe.skipIf(!reachable)('MongoChatTranscript', () => {
       }
       await store.append({ chatId: 'c', messageId: '3', at: 'later', from: 'person', text: 'dup' })
 
-      const all = await store.recent('c', { maxTokens: 5_000, before: '5' })
+      const all = await store.recent('c', { maxTokens: 5_000, excluding: ['5'] })
       expect(all.map((turn) => turn.text)).toEqual(['line 1', 'line 2', 'line 3', 'line 4'])
 
       const some = await store.recent('c', { maxTokens: 20 })

@@ -253,6 +253,8 @@ if (runsTelegram && config.TELEGRAM_BOT_TOKEN) {
       collection: config.TRANSCRIPT_COLLECTION,
     }),
     historyTokens: config.TELEGRAM_HISTORY_TOKENS,
+    debounceMs: config.TELEGRAM_DEBOUNCE_MS,
+    gifCooldownMs: config.TELEGRAM_GIF_COOLDOWN_S * 1_000,
   })
   void bot.start()
   const shutdown = (): void => {

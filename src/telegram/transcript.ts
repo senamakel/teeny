@@ -23,10 +23,10 @@ export interface ChatTranscript {
   append(entry: TranscriptEntry): Promise<void>
   /**
    * The most recent turns of a chat that fit the token budget, oldest first.
-   * `before` excludes the message being answered, which is in the prompt in
+   * `excluding` names the messages being answered, which are in the prompt in
    * full already.
    */
-  recent(chatId: string, options: { maxTokens: number; before?: string }): Promise<ChatTurn[]>
+  recent(chatId: string, options: { maxTokens: number; excluding?: string[] }): Promise<ChatTurn[]>
   close(): Promise<void>
 }
 
@@ -100,11 +100,12 @@ export class MongoChatTranscript implements ChatTranscript {
 
   async recent(
     chatId: string,
-    options: { maxTokens: number; before?: string },
+    options: { maxTokens: number; excluding?: string[] },
   ): Promise<ChatTurn[]> {
     await this.ready()
+    const excluding = options.excluding ?? []
     const rows = await this.entries
-      .find({ chatId, ...(options.before ? { messageId: { $ne: options.before } } : {}) })
+      .find({ chatId, ...(excluding.length > 0 ? { messageId: { $nin: excluding } } : {}) })
       .sort({ at: -1 })
       .limit(MAX_ROWS)
       .toArray()
@@ -136,10 +137,11 @@ export class MemoryChatTranscript implements ChatTranscript {
 
   async recent(
     chatId: string,
-    options: { maxTokens: number; before?: string },
+    options: { maxTokens: number; excluding?: string[] },
   ): Promise<ChatTurn[]> {
+    const excluding = new Set(options.excluding ?? [])
     const entries = (this.chats.get(chatId) ?? [])
-      .filter((entry) => entry.messageId !== options.before)
+      .filter((entry) => !excluding.has(entry.messageId))
       .slice()
       .reverse()
     return fitToBudget(

@@ -71,17 +71,41 @@ export function isFromBot(message: TelegramMessage): boolean {
   return message.is_automatic_forward === true
 }
 
+const SERVICE_FIELDS = [
+  'new_chat_members', 'left_chat_member', 'new_chat_title', 'new_chat_photo',
+  'delete_chat_photo', 'group_chat_created', 'supergroup_chat_created',
+  'channel_chat_created', 'pinned_message', 'migrate_to_chat_id', 'migrate_from_chat_id',
+  'message_auto_delete_timer_changed', 'video_chat_started', 'video_chat_ended',
+  'video_chat_scheduled', 'video_chat_participants_invited', 'forum_topic_created',
+  'forum_topic_edited', 'forum_topic_closed', 'forum_topic_reopened',
+  'general_forum_topic_hidden', 'general_forum_topic_unhidden', 'boost_added',
+  'giveaway_created', 'successful_payment', 'users_shared', 'chat_shared',
+  'write_access_allowed', 'proximity_alert_triggered', 'web_app_data',
+] as const satisfies ReadonlyArray<keyof TelegramMessage>
+
+/**
+ * Whether Telegram generated this message rather than a person: a join, a
+ * leave, a pin, a title change. They carry no text today, but the rule is
+ * stated rather than relied on, so a service message that grows a caption
+ * still never reaches the transcript.
+ */
+export function isServiceMessage(message: TelegramMessage): boolean {
+  return SERVICE_FIELDS.some((field) => message[field] !== undefined)
+}
+
 /**
  * A Telegram message as the rest of the service sees it, or nothing when the
- * message is not something to answer: no text, from a bot, or from the
- * account itself.
+ * message is not a person saying something: no text, a service message, from
+ * a bot or a channel, or from the account itself. Only human lines reach the
+ * transcript, the drafter, or memory.
  */
 export function toChatMessage(
   message: TelegramMessage,
   bot: BotIdentity,
 ): ChatMessage | undefined {
   const author = message.from
-  if (!author || isFromBot(message) || author.id === bot.id) return undefined
+  if (!author || isFromBot(message) || isServiceMessage(message)) return undefined
+  if (author.id === bot.id) return undefined
   const raw = message.text ?? message.caption
   if (!raw) return undefined
   const text = stripBotMention(raw, bot)

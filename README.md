@@ -476,9 +476,11 @@ What it answers:
   rule is applied again on this side so an admin turning privacy mode off does
   not turn the account into a chatterbox;
 - nothing from software: another bot (a buy bot's alerts included), a message
-  posted as a channel or an anonymous admin, or a channel post Telegram copied
-  into the discussion group. Two bots in one room cannot loop, and the account
-  never answers an alert;
+  posted as a channel or an anonymous admin, a channel post Telegram copied
+  into the discussion group, or a service message (a join, a leave, a pin, a
+  title change). Only human lines reach the transcript, the drafter, or
+  memory. Two bots in one room cannot loop, and the account never answers an
+  alert;
 - nothing older than `TELEGRAM_MAX_MESSAGE_AGE_S` when first seen, so a restart
   does not answer an hour of backlog at once.
 
@@ -515,10 +517,28 @@ still a different actor id on each side -- Telegram and X do not share a
 user id -- but everything the account has said about the topic is there for
 both. Sour and abusive messages are answered and not kept, as on X.
 
-Chats are handled one message at a time each, and different chats in parallel:
+Chats are handled one turn at a time each, and different chats in parallel:
 a DM waiting on a slow group is a person left on read, and two replies to the
-same person racing each other read out of order. A GIF, when the drafter asks
-for one, is sent after the text by URL from Giphy and fails soft.
+same person racing each other read out of order. Within a chat, messages from
+one person are debounced: after each one the bot waits `TELEGRAM_DEBOUNCE_MS`
+(2.5 s) for the next, and answers the run of them as one turn, so "hey" /
+"quick q" / the question gets one reply threaded under the last piece. Two
+people in the same seconds are two turns.
+
+An answer is a reply, a reaction, or both. A reaction is an emoji Telegram
+lets a bot put on a message, from Telegram's own list; the drafter picks from
+a subset of it. A greeting, a thank-you, a "lfg" gets a reaction only, which
+in a group is the difference between a member and a bot. A question gets
+words. Snark and abuse get no reaction whatever the drafter chose; that rule
+is in code, not only in the prompt. The drafter's final message is a fixed
+four-line shape (`REACTION:` / `REPLY:` / `GIF:` / `TONE:`) because the
+structured-output step otherwise packages whatever prose it wrote, and prose
+always contains a reply.
+
+A GIF is rare now: only when the GIF is the joke, never for a greeting, never
+without words, and never more than one per chat per `TELEGRAM_GIF_COOLDOWN_S`
+(10 minutes) however keen the drafter is. It is sent after the text by URL
+from Giphy and fails soft.
 
 `TELEGRAM_DRY_RUN=true` logs each draft instead of sending it. It is separate
 from `DRY_RUN` on purpose: that one is about publishing to a public timeline,

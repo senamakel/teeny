@@ -250,9 +250,15 @@ export function chatPersonOf(message: ChatMessage): Person {
   }
 }
 
-/** What the chat drafter produces for one incoming message. */
+/**
+ * What the chat drafter produces for one incoming message. At least one of
+ * `text` and `reaction` is set: a message can be answered, reacted to, or
+ * both, and a reaction alone is a real answer to "gm".
+ */
 export interface ChatReply {
-  text: string
+  text?: string
+  /** An emoji from Telegram's reaction set, put on the message being answered. */
+  reaction?: string
   gifQuery?: string
   incomingTone?: IncomingTone
 }
@@ -266,6 +272,11 @@ export interface ChatMemory {
 
 export interface ChatModel {
   reply(input: {
+    /**
+     * The message being answered. When several arrived from one person in
+     * quick succession, this is the last of them with the texts joined, so
+     * "hey" / "quick q" / "what does $TINY do" is one question, not three.
+     */
     message: ChatMessage
     memory: string
     /** The last few turns of this chat, oldest first, the account's own marked. */
