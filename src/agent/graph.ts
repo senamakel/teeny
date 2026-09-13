@@ -1,4 +1,4 @@
-import { HumanMessage, isAIMessage, type BaseMessage } from '@langchain/core/messages'
+import { HumanMessage, isAIMessage, isToolMessage, type BaseMessage } from '@langchain/core/messages'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import { ChatOpenAI } from '@langchain/openai'
 import { MemorySaver } from '@langchain/langgraph'
@@ -9,6 +9,7 @@ import { createMarketTools } from './tools/market.js'
 import { createMemoryTools } from './tools/memory.js'
 import { createXTools } from './tools/x.js'
 import { systemPrompt } from './prompt.js'
+import { summariseResult } from '../journal/journal.js'
 import type { Persona } from './soul.js'
 import type { GlobalMarketClient } from '../market/global.js'
 import type { TokenMarket } from '../market/market.js'
@@ -109,10 +110,25 @@ function lastText(messages: BaseMessage[]): string {
   return ''
 }
 
-function toolSteps(messages: BaseMessage[]): AgentRunResult['steps'] {
+/**
+ * Every tool call the run made, in order, each paired with a line of what came
+ * back. The result is found by tool_call_id rather than by position because
+ * a model may issue several calls in one turn and the replies can land in
+ * any order.
+ */
+export function toolSteps(messages: BaseMessage[]): AgentRunResult['steps'] {
+  const results = new Map<string, string>()
+  for (const message of messages) {
+    if (isToolMessage(message) && message.tool_call_id) {
+      results.set(message.tool_call_id, summariseResult(message.content))
+    }
+  }
   return messages.flatMap((message) =>
     isAIMessage(message)
-      ? (message.tool_calls ?? []).map((call) => ({ tool: call.name, input: call.args }))
+      ? (message.tool_calls ?? []).map((call) => {
+          const result = call.id ? results.get(call.id) : undefined
+          return { tool: call.name, input: call.args, ...(result !== undefined ? { result } : {}) }
+        })
       : [],
   )
 }

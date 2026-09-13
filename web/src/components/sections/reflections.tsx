@@ -25,6 +25,7 @@ const OUTCOME_LABEL: Record<Outcome, string> = {
   "dry-run": "dry run",
   skipped: "no reply",
   held: "held",
+  failed: "failed",
 }
 
 function when(iso: string): string {
@@ -54,7 +55,15 @@ function ReflectionCard({ entry }: { entry: Reflection }) {
           <Badge variant="outline" className={TONE_STYLE[entry.tone]}>
             {entry.tone}
           </Badge>
-          <Badge variant={entry.outcome === "posted" ? "default" : "secondary"}>
+          <Badge
+            variant={
+              entry.outcome === "posted"
+                ? "default"
+                : entry.outcome === "failed"
+                  ? "destructive"
+                  : "secondary"
+            }
+          >
             {OUTCOME_LABEL[entry.outcome]}
           </Badge>
         </span>
@@ -164,7 +173,7 @@ export function Reflections({ feed }: { feed: MindFeed }) {
   const all = feed.reflections
   const replies = all.filter((e) => e.trigger === "mention" && e.outcome !== "skipped" && e.outcome !== "held")
   const charts = all.filter((e) => e.trigger === "chart")
-  const quiet = all.filter((e) => e.outcome === "skipped" || e.outcome === "held")
+  const quiet = all.filter((e) => e.outcome === "skipped" || e.outcome === "held" || e.outcome === "failed")
 
   return (
     <Container>

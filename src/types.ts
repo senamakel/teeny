@@ -133,6 +133,15 @@ export interface ReplyDraft {
   gifQuery?: string
   /** Absent means unjudged, which is treated as safe to remember. */
   incomingTone?: IncomingTone
+  /**
+   * The rest is for the journal, and none of it changes what gets posted:
+   * the drafter's reasoning in its own words, what it decided against, the
+   * tools it called, and what memory said before it started.
+   */
+  thinking?: string
+  declined?: string[]
+  tools?: Array<{ name: string; result: string }>
+  recalled?: string[]
 }
 
 export interface LanguageModel {
@@ -198,7 +207,8 @@ export interface XTools {
 
 export interface AgentRunResult {
   output: string
-  steps: Array<{ tool: string; input: unknown }>
+  /** `result` is one line of what the tool returned, when the run kept it. */
+  steps: Array<{ tool: string; input: unknown; result?: string }>
 }
 
 export interface Agent {

@@ -1,7 +1,7 @@
-import { HumanMessage } from '@langchain/core/messages'
+import { HumanMessage, type BaseMessage } from '@langchain/core/messages'
 import { createReactAgent } from '@langchain/langgraph/prebuilt'
 import { z } from 'zod'
-import { buildTools, createChatModel, type AgentOptions } from './graph.js'
+import { buildTools, createChatModel, toolSteps, type AgentOptions } from './graph.js'
 import { truncateAtBoundary } from './house-style.js'
 import { findOwnTokenAddresses, ownTokenNote } from './own-token.js'
 import { draftPrompt } from './prompt.js'
@@ -31,6 +31,25 @@ const responseFormat = z.object({
       '`neutral` is a blunt or plain question. `negative` is snark, dismissiveness, FUD, ' +
       'or a cheap shot at the project: roastable. `hostile` is abuse, slurs, threats, ' +
       'targeted harassment, or someone plainly trying to start a fight: not roastable.',
+    ),
+  // The two below are published, verbatim, on the account's own page as the
+  // record of how it thinks. They change nothing about what gets posted.
+  thinking: z
+    .string()
+    .max(600)
+    .describe(
+      'Two to four sentences, first person, on how you read the post and why you are ' +
+      'answering it this way: what memory or the thread told you, which rule applied, ' +
+      'what the reply is for. Plain and honest; this is shown publicly as your reasoning.',
+    ),
+  declined: z
+    .array(z.string().max(120))
+    .max(4)
+    .default([])
+    .describe(
+      'Things you considered and decided against, one short line each, e.g. ' +
+      '"a price target, even hedged" or "a GIF, because this is a real question". ' +
+      'Empty when nothing was on the table.',
     ),
 })
 
@@ -124,10 +143,17 @@ export class AgentReplyModel implements LanguageModel {
     const parsed = responseFormat.safeParse(result.structuredResponse)
     if (!parsed.success) throw new Error('The reply agent returned no usable reply text')
     const gifQuery = parsed.data.gifQuery?.trim()
+    const tools = toolSteps(result.messages as BaseMessage[]).map((step) => ({
+      name: step.tool,
+      result: step.result ?? '',
+    }))
     return {
       text: truncateAtBoundary(parsed.data.reply.trim(), MAX_REPLY_LENGTH),
       ...(gifQuery ? { gifQuery } : {}),
       incomingTone: parsed.data.incomingTone === 'negative' ? 'negative' : parsed.data.incomingTone,
+      thinking: parsed.data.thinking.trim(),
+      declined: parsed.data.declined.map((line) => line.trim()).filter(Boolean),
+      tools,
     }
   }
 }

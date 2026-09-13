@@ -1,3 +1,4 @@
+import type { Journal } from '../journal/journal.js'
 import type { Agent } from '../types.js'
 
 export interface ChartJobDependencies {
@@ -8,6 +9,9 @@ export interface ChartJobDependencies {
   /** Refuses to run again inside this window. Defaults to 20 hours. */
   minIntervalMs?: number
   now?: () => number
+  /** Whether post_chart actually publishes; the journal says which. */
+  dryRun?: boolean
+  journal?: Journal
 }
 
 /**
@@ -52,6 +56,40 @@ export class ChartJob {
       { tools: result.steps.map((step) => step.tool), output: result.output },
       'chart job: done',
     )
+    await this.journal(now, result)
     return true
+  }
+
+  /**
+   * The chart turn, for the mind page. The caption is whatever was handed to
+   * post_chart, so the journal shows what went out rather than the agent's
+   * summary of it; the summary is the thinking.
+   */
+  private async journal(now: number, result: Awaited<ReturnType<Agent['run']>>): Promise<void> {
+    const { journal, logger, symbol, timeframe, dryRun } = this.dependencies
+    if (!journal) return
+    const posted = result.steps.find((step) => step.tool === 'post_chart')
+    const caption =
+      posted && typeof posted.input === 'object' && posted.input !== null && 'text' in posted.input
+        ? String((posted.input as { text: unknown }).text)
+        : ''
+    try {
+      await journal.record({
+        id: `chart:${new Date(now).toISOString().slice(0, 10)}`,
+        at: new Date(now).toISOString(),
+        trigger: 'chart',
+        incoming: `daily ${symbol} chart, ${timeframe}`,
+        tone: 'neutral',
+        recalled: [],
+        tools: result.steps.map((step) => ({ name: step.tool, result: step.result ?? '' })),
+        thinking: result.output,
+        said: caption,
+        declined: [],
+        outcome: posted ? (dryRun ? 'dry-run' : 'posted') : 'skipped',
+        ...(posted ? {} : { outcomeNote: 'the agent finished without posting' }),
+      })
+    } catch (error) {
+      logger.error({ err: error }, 'chart job: could not journal the turn')
+    }
   }
 }

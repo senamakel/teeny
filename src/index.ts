@@ -7,6 +7,7 @@ import { ReplyHarness } from './harness/reply-harness.js'
 import { IngestJob } from './jobs/ingest-job.js'
 import { ReplyJob } from './jobs/reply-job.js'
 import { ReplyWorker } from './jobs/reply-worker.js'
+import { MongoJournal } from './journal/journal.js'
 import { MongoMentionQueue } from './queue/mentions.js'
 import { buildChartAgent } from './agent/chart-wiring.js'
 import { GlobalMarketClient } from './market/global.js'
@@ -119,6 +120,9 @@ const queue = new MongoMentionQueue({
   database: config.MONGO_DATABASE,
   collection: config.MENTIONS_COLLECTION,
 })
+// Every role writes to it and the ingest role serves it, so it lives in the
+// Mongo all three containers already share.
+const journal = new MongoJournal({ uri: config.MONGO_URI, database: config.MONGO_DATABASE })
 const app = buildServer({
   memory,
   consumerSecret: config.X_API_SECRET,
@@ -128,6 +132,10 @@ const app = buildServer({
   queue,
   botUserId: () => x.userId(),
   botUsername,
+  mind: {
+    journal,
+    status: { mode: config.AGENT_MODE, model: config.LLM_MODEL, dryRun: config.DRY_RUN },
+  },
 })
 const role = config.SERVICE_ROLE
 const runsIngest = role === 'all' || role === 'ingest'
@@ -171,6 +179,7 @@ if (runsReplies) {
     maxReplyIntervalMs: config.REPLY_MAX_INTERVAL_MS,
     botUserId: () => x.userId(),
     ...(gifs ? { gifs: gifs.source } : {}),
+    journal,
   })
   if (config.REPLY_MODE === 'worker') {
     new ReplyWorker({
@@ -199,6 +208,8 @@ if (runsChart) {
     symbol: config.CHART_TOKEN_SYMBOL,
     timeframe: config.CHART_TIMEFRAME,
     logger: app.log,
+    dryRun: config.DRY_RUN,
+    journal,
   })
   cron.schedule(config.CHART_CRON, () => {
     void chartJob.run().catch((error: unknown) => app.log.error({ err: error }, 'chart job failed'))

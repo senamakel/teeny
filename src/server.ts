@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify'
 import { timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
+import { redactReflection, type Journal } from './journal/journal.js'
 import type { MentionQueue } from './queue/mentions.js'
 import type { Agent, Memory } from './types.js'
 import {
@@ -38,6 +39,15 @@ export function buildServer(options: {
   /** The account's own id, so its own posts are not answered. */
   botUserId?: () => Promise<string | undefined>
   botUsername?: string
+  /**
+   * The mind, served at GET /mind for the landing page. Read over the compose
+   * network, not the public vhost: nginx does not route it, and the page is
+   * what redacts and presents it.
+   */
+  mind?: {
+    journal: Journal
+    status: { mode: string; model: string; dryRun: boolean }
+  }
 }): FastifyInstance {
   const app = Fastify({ logger: options.logger ?? false })
 
@@ -59,6 +69,29 @@ export function buildServer(options: {
   app.get('/queue', async (_request, reply) => {
     if (!options.queue) return reply.code(503).send({ error: 'no mention queue is configured' })
     return { counts: await options.queue.counts() }
+  })
+
+  app.get('/mind', async (request, reply) => {
+    if (!options.mind) return reply.code(503).send({ error: 'no journal is configured' })
+    const query = request.query as { limit?: string }
+    const limit = Math.min(Math.max(Number(query.limit) || 40, 1), 200)
+    const [reflections, counts] = await Promise.all([
+      options.mind.journal.recent(limit),
+      options.queue ? options.queue.counts().catch(() => undefined) : Promise.resolve(undefined),
+    ])
+    return {
+      source: 'live',
+      generatedAt: new Date().toISOString(),
+      status: {
+        ...options.mind.status,
+        queue: {
+          pending: counts?.pending ?? 0,
+          done: counts?.replied ?? 0,
+          failed: counts?.failed ?? 0,
+        },
+      },
+      reflections: reflections.map(redactReflection),
+    }
   })
 
   app.get('/webhooks/x', async (request, reply) => {
@@ -138,6 +171,24 @@ export function buildServer(options: {
       task: parsed.data.task,
       ...(parsed.data.threadId ? { threadId: parsed.data.threadId } : {}),
     })
+    // An ad-hoc task is a turn of the mind like any other. The task text is
+    // the operator's, so it is journaled as what came in.
+    if (options.mind) {
+      await options.mind.journal
+        .record({
+          trigger: 'task',
+          incoming: parsed.data.task,
+          tone: 'neutral',
+          recalled: [],
+          tools: result.steps.map((step) => ({ name: step.tool, result: step.result ?? '' })),
+          thinking: '',
+          said: result.output,
+          declined: [],
+          outcome: result.steps.some((step) => step.tool === 'x_post') ? 'posted' : 'held',
+          outcomeNote: 'ad-hoc task via /agent/run',
+        })
+        .catch((error: unknown) => request.log.warn({ err: error }, 'could not journal the task'))
+    }
     return reply.code(200).send(result)
   })
 

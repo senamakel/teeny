@@ -21,7 +21,7 @@ describe('ReplyHarness', () => {
     }
     const harness = new ReplyHarness(memory, model)
 
-    await expect(harness.generate(post)).resolves.toEqual({ text: 'An open-source dapp.' })
+    await expect(harness.generate(post)).resolves.toMatchObject({ text: 'An open-source dapp.' })
     expect(memory.captureMention).toHaveBeenCalledWith(post)
     expect(memory.recall).toHaveBeenCalledWith(expect.any(String), {
       person: { id: 'user:x-777', username: 'web3knight' },
@@ -86,7 +86,7 @@ describe('ReplyHarness', () => {
 
     await expect(
       new ReplyHarness(memory, model).generate({ id: '1', text: 'hello' }),
-    ).resolves.toEqual({ text: 'hi' })
+    ).resolves.toMatchObject({ text: 'hi' })
   })
 })
 
@@ -195,7 +195,7 @@ describe('when memory is down', () => {
     const model: LanguageModel = { reply: vi.fn().mockResolvedValue({ text: 'hi' }) }
     await expect(
       new ReplyHarness(broken(), model).generate({ id: '1', text: 'gm' }),
-    ).resolves.toEqual({ text: 'hi' })
+    ).resolves.toMatchObject({ text: 'hi' })
   })
 
   it('tells the drafter it has no memory rather than passing an error through', async () => {

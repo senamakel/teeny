@@ -2,7 +2,8 @@ import type { FastifyBaseLogger } from 'fastify'
 import { applyHouseStyle } from '../agent/house-style.js'
 import { ReplyHarness } from '../harness/reply-harness.js'
 import type { MentionQueue } from '../queue/mentions.js'
-import type { GifSource, XClient, XTools } from '../types.js'
+import type { Journal } from '../journal/journal.js'
+import type { GifSource, ReplyDraft, XClient, XPost, XTools } from '../types.js'
 
 /**
  * Drains the cache. Never talks to X's search.
@@ -48,8 +49,42 @@ export class ReplyJob {
       maxReplyIntervalMs?: number
       /** Injectable for the tests; defaults to Math.random. */
       random?: () => number
+      /** The mind, for the landing page. Optional, and never in the way of a reply. */
+      journal?: Journal
     },
   ) {}
+
+  /**
+   * One line in the journal per mention, whatever happened to it. Failing to
+   * write it is logged and nothing else: the reply has already gone out or
+   * already failed, and the journal is the record, not the act.
+   */
+  private async journal(
+    post: XPost,
+    draft: Partial<ReplyDraft>,
+    outcome: 'posted' | 'dry-run' | 'skipped' | 'failed',
+    note?: string,
+  ): Promise<void> {
+    const { journal, logger } = this.dependencies
+    if (!journal) return
+    try {
+      await journal.record({
+        id: `mention:${post.id}`,
+        trigger: 'mention',
+        incoming: post.text,
+        tone: draft.incomingTone ?? 'neutral',
+        recalled: draft.recalled ?? [],
+        tools: draft.tools ?? [],
+        thinking: draft.thinking ?? '',
+        said: outcome === 'posted' || outcome === 'dry-run' ? (draft.text ?? '') : '',
+        declined: draft.declined ?? [],
+        outcome,
+        ...(note ? { outcomeNote: note } : {}),
+      })
+    } catch (error) {
+      logger.warn({ err: error, postId: post.id }, 'could not journal the turn')
+    }
+  }
 
   /** When the last reply was actually published, across runs. */
   private lastReplyAt = 0
@@ -140,6 +175,12 @@ export class ReplyJob {
             { postId: post.id },
             'refused to answer the account\'s own post',
           )
+          await this.journal(
+            post,
+            { thinking: 'This is my own post. Answering it would start a loop of me replying to myself.' },
+            'skipped',
+            'the account wrote this post',
+          )
           continue
         }
 
@@ -180,7 +221,8 @@ export class ReplyJob {
             posted?.id,
             drafted.incomingTone,
           )
-          if (drafted.incomingTone === 'negative' || drafted.incomingTone === 'hostile') {
+          const sour = drafted.incomingTone === 'negative' || drafted.incomingTone === 'hostile'
+          if (sour) {
             this.dependencies.logger.info(
               { postId: post.id, tone: drafted.incomingTone },
               'answered but not remembered: the incoming post read as sour',
@@ -190,6 +232,12 @@ export class ReplyJob {
             ...(posted?.id ? { id: posted.id } : {}),
             text: styled.text,
           })
+          await this.journal(
+            post,
+            { ...drafted, text: styled.text },
+            this.dependencies.dryRun ? 'dry-run' : 'posted',
+            sour ? 'sour tone: answered, not remembered' : undefined,
+          )
           this.dependencies.logger.info(
             {
               postId: post.id,
@@ -208,6 +256,7 @@ export class ReplyJob {
             { err: error, postId: post.id, attempts: item.attempts + 1 },
             'failed to reply to a cached mention',
           )
+          await this.journal(post, {}, 'failed', message)
         }
       }
       // It took a batch, so there may be more behind it.

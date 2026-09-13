@@ -8,7 +8,7 @@
 
 export type Trigger = 'mention' | 'chart' | 'task'
 export type Tone = 'friendly' | 'neutral' | 'negative' | 'hostile' | 'confused'
-export type Outcome = 'posted' | 'dry-run' | 'skipped' | 'held'
+export type Outcome = 'posted' | 'dry-run' | 'skipped' | 'held' | 'failed'
 
 export interface ToolCall {
   name: string
@@ -315,13 +315,19 @@ export const LESSONS: Lesson[] = [
   },
 ]
 
+/**
+ * The live feed is GET /mind on the bot, reached over the compose network.
+ * Anything short of a good answer falls back to the samples, which the page
+ * labels as such, so a bot that is down never takes the page with it.
+ */
 export async function loadMind(): Promise<MindFeed> {
   const url = process.env.MIND_FEED_URL
   if (!url) return SAMPLE
   try {
-    const response = await fetch(url, { next: { revalidate: 60 } })
+    const response = await fetch(url, { next: { revalidate: 60 }, signal: AbortSignal.timeout(5_000) })
     if (!response.ok) return SAMPLE
     const feed = (await response.json()) as MindFeed
+    if (!Array.isArray(feed.reflections)) return SAMPLE
     return { ...feed, source: 'live' }
   } catch {
     return SAMPLE

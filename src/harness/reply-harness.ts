@@ -6,6 +6,7 @@ import {
   type XPost,
   type XTools,
 } from '../types.js'
+import { summariseRecall } from '../journal/journal.js'
 
 function isSour(tone: ReplyDraft['incomingTone']): boolean {
   return tone === 'negative' || tone === 'hostile'
@@ -82,11 +83,18 @@ export class ReplyHarness {
       ? `${recalled}\n\nWHAT YOU YOURSELF HAVE POSTED RECENTLY:\n${ownActivity}`
       : recalled
 
-    const draft = await this.model.reply({
+    const drafted = await this.model.reply({
       post,
       memory,
       ...(thread.length > 0 ? { thread } : {}),
     })
+    // What memory said goes on the draft for the journal: the page shows
+    // "recalled" next to "thinking", and it should be what was actually
+    // recalled, not the drafter's paraphrase of it.
+    const draft: ReplyDraft = {
+      ...drafted,
+      recalled: [...summariseRecall(recalled, 3), ...summariseRecall(ownActivity, 2)],
+    }
 
     // Sour and abusive posts are answered but not kept. Memory is what the
     // account carries into every future conversation, and an insult stored

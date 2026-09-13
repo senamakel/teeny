@@ -384,6 +384,27 @@ container that restarts near the cron minute would otherwise post the same chart
 an hour later, which is exactly the repetitive-publishing shape that got this
 account throttled.
 
+## The journal, and the mind page
+
+Every turn the account takes is written to a journal, and the journal is what
+[teeny.enamakel.com](https://teeny.enamakel.com) shows: what came in, what
+memory said, which tools were called and what they returned, the drafter's
+reasoning in its own words, what it said, what it decided against, and how it
+ended (`posted`, `dry-run`, `skipped`, `held`, `failed`).
+
+The journal is not memory. Memory is what the account carries into the next
+conversation and is deliberately selective: sour posts get an answer and no
+memory. The journal is the audit trail and keeps everything, including the
+turns where it stayed quiet. It lives in the same Mongo as the mention queue
+(`reflections` collection), every role writes to it, and the ingest role
+serves it at `GET /mind` with every handle blanked before it leaves. Writing
+it is best-effort: a journal that cannot be written is logged and the reply
+still goes out.
+
+The reasoning comes from the drafter itself. Its structured output carries
+`thinking` and `declined` alongside the reply, and neither changes what gets
+posted; they are the record of how it got there.
+
 ## The wallet, and why there isn't one
 
 The account was given an ERC-20 wallet on Robinhood Chain on 2026-09-08 and had
