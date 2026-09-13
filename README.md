@@ -78,9 +78,9 @@ more than the voice.
 | `find_similar_pages` | Exa similarity search around one good source. |
 | `web_answer` | Exa's cited answer endpoint for a single fact. |
 | `find_gif` | Searches the account's own Giphy channel, or all of Giphy on request. |
-| `look_at_image` | Describes an image by URL through a vision model. Only with `VISION_MODEL`. |
-| `generate_image` | Draws a picture from a prompt and returns a `mediaId`. Only with `IMAGE_GEN_API_KEY`. |
-| `generate_video` | Films a few seconds from a prompt and returns a `mediaId`. Only with `VIDEO_GEN_API_KEY`. |
+| `look_at_image` | Describes an image by URL through the vision ladder. Off when `VISION_MODEL` is blank. |
+| `generate_image` | Draws a picture, with Tiny's look from the reference sheet, and returns a `mediaId`. `IMAGE_GEN_ENABLED`. |
+| `generate_video` | Films a few seconds, same sheet, and returns a `mediaId`. `VIDEO_GEN_ENABLED`. |
 
 `x_post` takes a `gifId` from `find_gif` and attaches it: the id is resolved
 against Giphy server-side and the bytes are uploaded to X through the chunked
@@ -128,15 +128,22 @@ checkpointer; that state is lost on restart. The endpoint returns 503 while
 ## Pictures
 
 The account can look at images, draw them, and film short clips, on X and on
-Telegram alike. Each is a separate switch, off until its provider is set, so a
-box with none of the keys runs exactly as before and `test/capabilities.test.ts`
-still asserts the unchanged tool list.
+Telegram alike. All three default to the LLM ladder, which serves them on the
+same URL and key as chat (`llm-ladder-router` PR #18): a `vision` chat ladder
+whose rungs read image input, an `image` ladder in the OpenAI Images shape,
+and a `video` ladder that answers with a job to poll. Seeing is on by default;
+drawing and filming are opt-in because each is a bill. Any part can be pointed
+at another OpenAI-compatible endpoint with its own URL, key and model.
 
-| Capability | Switch | Provider shape |
-| --- | --- | --- |
-| Seeing | `VISION_MODEL` | any OpenAI-compatible chat endpoint whose model accepts `image_url` parts; URL and key default to the LLM's |
-| Drawing | `IMAGE_GEN_API_KEY` | OpenAI `/images/generations` (`gpt-image-*`, `dall-e-*`) |
-| Filming | `VIDEO_GEN_API_KEY` | OpenAI `/videos` (`sora-2`, `sora-2-pro`): create, poll, download |
+| Capability | Switch | Default | Shape |
+| --- | --- | --- | --- |
+| Seeing | `VISION_MODEL` (blank = off) | `vision` on the ladder | chat completions with `image_url` parts |
+| Drawing | `IMAGE_GEN_ENABLED` | `image` on the ladder | `POST /images/generations`; also `gpt-image-*` / `dall-e-*` directly |
+| Filming | `VIDEO_GEN_ENABLED` | `video` on the ladder | `POST /video/generations` + polled `media.job`; `VIDEO_GEN_API=openai` for Sora's `/videos` |
+
+With nothing enabled beyond the default vision, the tool list gains only
+`look_at_image`; `test/capabilities.test.ts` asserts exactly which tools appear
+with which provider.
 
 **Seeing** happens before drafting rather than on request. A photo sent to the
 bot on Telegram is downloaded and described, and the description lands in the
@@ -159,9 +166,30 @@ caption, and `x_post` takes it directly. A drafter's `mediaId` only counts when
 a tool in that same run actually returned it, so a model that has learned the
 id format cannot attach something another turn made. A copy of everything
 generated is written to `MEDIA_OUTPUT_DIR` (`data/media` by default) so a
-person can see what went out.
+person can see what went out. A square request carries no `size` at all and
+takes the ladder's default; the image can come back as PNG, JPEG or WebP
+depending on which rung served, and the type is read from the bytes.
 
-Both are rationed by `MediaBudget`: `MEDIA_IMAGES_PER_DAY` and
+### What Tiny looks like
+
+The image ladder is text-to-image only; reference-image input is a stated
+non-goal there. So the account's artwork is turned into words instead. The ten
+pictures from the marquee on tinyhumansworld.com are vendored under
+`assets/tiny/` (see the README there). At startup the vision ladder describes
+each one for an illustrator -- body, face, colours by name, materials, style --
+and the chat model distils the descriptions into a single character sheet of
+what is constant across them. The sheet is cached at `REFERENCE_SHEET_PATH`
+(`data/media/reference-sheet.json`), keyed by the list of pictures, so it costs
+a dozen model calls once rather than on every boot.
+
+`generate_image` and `generate_video` prepend the sheet to the prompt whenever
+the picture features Tiny, which is the default; the prompt then describes the
+scene and what Tiny is doing rather than what Tiny looks like. `featuresTiny:
+false` skips it for a picture with no Tiny in it. `TINY_REFERENCE_IMAGES`
+overrides the list (paths or URLs), and `none` turns the sheet off. If the
+sheet cannot be built the tool says so and draws from the prompt alone.
+
+Both generators are rationed by `MediaBudget`: `MEDIA_IMAGES_PER_DAY` and
 `MEDIA_VIDEOS_PER_DAY`, counted separately because a clip costs a hundred
 times what a picture does, shared by every drafter in the process, reset at
 UTC midnight. The prompt asks for restraint -- only when somebody asks, or when
