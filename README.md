@@ -461,6 +461,75 @@ container that restarts near the cron minute would otherwise post the same chart
 an hour later, which is exactly the repetitive-publishing shape that got this
 account throttled.
 
+## The morning post
+
+A good-morning post every day, at 08:00 UTC by default. Unlike the chart agent
+it is not an agent: it is a fixed pipeline of model calls, because the steps
+are the same every morning and a video generation is not something to leave to
+a model's judgement about whether it "feels" like filming today.
+
+It is off by default (`MORNING_ENABLED=false`). It needs `EXA_API_KEY` for the
+news and `IMAGE_GEN_ENABLED=true` for the picture; with `VIDEO_GEN_ENABLED=true`
+the post carries a clip, without it the picture. It runs in the `all` or
+`morning` role, one process, because two on the same timer say good morning twice.
+
+```sh
+npm run morning-dry-run              # the whole pipeline, dry: reads, draws, films, captions
+npm run morning-dry-run -- --publish # actually posts, if DRY_RUN=false
+```
+
+A rehearsal spends real generations out of the same daily budget, and writes
+everything it made to `MEDIA_OUTPUT_DIR` so it can be looked at.
+
+### The stages
+
+1. **Recall.** Two CortexDB queries, every run: what the account has posted about
+   recently, and who it is talking to. Same reason as the chart harness: left to
+   a tool call it is skipped or doubled.
+2. **Read the news.** One Exa news search per topic in `MORNING_NEWS_TOPICS`
+   (AI, crypto, tech by default), bounded to the last `MORNING_NEWS_DAYS`.
+   Duplicates are folded, and anything political is dropped *before the model
+   sees it* by a blunt word list in `src/morning/news.ts` — elections, wars,
+   named politicians, regulators, sanctions, courts. The prompt says the same
+   thing again; the filter is there so the model cannot be argued out of it by
+   a headline.
+3. **Pick.** The model chooses one story by number, preferring AI, then crypto
+   (never price), then a broader trend, and not one memory says was already
+   covered. On a day with nothing worth posting it answers `0` and names
+   something of the lab's own to talk about instead.
+4. **Seed and draw.** One of the ten official pictures under `assets/tiny/` is
+   chosen at random. The image ladder takes no picture as input, so the seed
+   reaches it as words: the vision ladder's description of that one picture,
+   boiled down by the model to what is particular about it (pose, palette,
+   mood), placed between the character sheet and the scene. The model writes
+   the scene — Tiny doing one clear thing that connects to the story, in a
+   morning — and the picture is generated square. Then the vision ladder
+   **looks at the result**: an image rung is not bound to the sheet, and in
+   rehearsal one served a purple robot. A picture that fails the look is drawn
+   once more; the second is kept either way and the problem noted.
+5. **Script and film.** A `MORNING_VIDEO_SECONDS` shot script written from the
+   scene — two to four beats with timings, one location, ending on a morning
+   gesture — plus a one-line summary of what a viewer sees. The clip is
+   generated from the sheet, the seed and the script, tried twice with a pause
+   between, because the marketplace answers "no provider could accept this job"
+   often enough that a single miss would make most mornings a picture. A
+   verbatim retry gets the same failed job back, so the second attempt carries
+   a different prompt.
+6. **Caption.** Written knowing what is attached: a good morning, the story in
+   a line or two (as what was reported, not as fact checked; no people, no
+   numbers not given, never a price), and a line about what Tiny does in the
+   clip so the words and the video read as one thing. Under 280 characters,
+   the emoji cap, no URLs, then through the house style like any other post.
+7. **Post, remember, journal.** The clip if there is one, else the picture; a
+   still over X's 5 MB limit is re-encoded as JPEG on the way up (a rung served
+   a nine-megabyte PNG). What went out is written back to memory as a
+   `morning_post` activity — the text, the story, the seed, the scene and the
+   script — and the turn is journaled with `trigger: morning` for the mind page.
+   No picture means no post: the visual is the post.
+
+Every generation prompt is capped at 2000 characters, which is Surplus's limit
+on the video surface; over it, the seed is the part that goes.
+
 ## The journal, and the mind page
 
 Every turn the account takes is written to a journal, and the journal is what
@@ -768,6 +837,7 @@ npm run lint
 npm run build
 npm run webhook     # read or move the X Account Activity registration
 npm run chart-dry-run   # rehearse the daily chart post without publishing
+npm run morning-dry-run # rehearse the good-morning post: reads, draws, films, captions, no post
 npm run telegram-dry-run -- "hi"            # one Telegram DM through the real drafter, printed not sent
 npm run telegram-dry-run -- --group "@teenythebot gm"   # the same, as a group mention
 ```
