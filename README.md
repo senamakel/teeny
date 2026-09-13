@@ -474,7 +474,10 @@ What it answers:
   Telegram's privacy mode already withholds the rest from the bot, and the same
   rule is applied again on this side so an admin turning privacy mode off does
   not turn the account into a chatterbox;
-- nothing from another bot, so two bots in one room cannot loop;
+- nothing from software: another bot (a buy bot's alerts included), a message
+  posted as a channel or an anonymous admin, or a channel post Telegram copied
+  into the discussion group. Two bots in one room cannot loop, and the account
+  never answers an alert;
 - nothing older than `TELEGRAM_MAX_MESSAGE_AGE_S` when first seen, so a restart
   does not answer an hour of backlog at once.
 

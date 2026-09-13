@@ -55,17 +55,33 @@ function displayName(user: TelegramUser): string {
 }
 
 /**
+ * Whether a message came from software rather than a person.
+ *
+ * Bots do not talk to bots here, which closes the loop two bots in one group
+ * would otherwise fall into, and keeps the account from answering a buy bot's
+ * every alert. Three shapes count: a bot user; a message posted as a channel
+ * or an anonymous admin, where `from` is Telegram's placeholder and the real
+ * sender is a chat; and a channel post Telegram copied into the linked
+ * discussion group. A person sending a GIF through an inline bot is still a
+ * person, so `via_bot` does not count.
+ */
+export function isFromBot(message: TelegramMessage): boolean {
+  if (!message.from || message.from.is_bot) return true
+  if (message.sender_chat) return true
+  return message.is_automatic_forward === true
+}
+
+/**
  * A Telegram message as the rest of the service sees it, or nothing when the
  * message is not something to answer: no text, from a bot, or from the
- * account itself. Bots do not talk to bots here, which closes the loop two
- * bots in one group would otherwise fall into.
+ * account itself.
  */
 export function toChatMessage(
   message: TelegramMessage,
   bot: BotIdentity,
 ): ChatMessage | undefined {
   const author = message.from
-  if (!author || author.is_bot || author.id === bot.id) return undefined
+  if (!author || isFromBot(message) || author.id === bot.id) return undefined
   const raw = message.text ?? message.caption
   if (!raw) return undefined
   const text = stripBotMention(raw, bot)

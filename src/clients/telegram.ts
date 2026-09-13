@@ -34,6 +34,12 @@ export interface TelegramMessage {
   date: number
   chat: TelegramChat
   from?: TelegramUser
+  /** Set when the message was posted as a channel or an anonymous admin, not a person. */
+  sender_chat?: TelegramChat
+  /** A post from a linked channel, copied into the discussion group by Telegram. */
+  is_automatic_forward?: boolean
+  /** The inline bot a person sent this through, e.g. a GIF picked via @gif. */
+  via_bot?: TelegramUser
   text?: string
   caption?: string
   entities?: TelegramMessageEntity[]
