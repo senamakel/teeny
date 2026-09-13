@@ -8,3 +8,4 @@ deploy
 key.pem
 key.pem.pub
 npm-debug.log
+web

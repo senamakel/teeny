@@ -103,6 +103,27 @@ services:
       mongo:
         condition: service_healthy
 
+  # The landing page at teeny.enamakel.com: Teeny's mind, turned inside out.
+  # Its own image from ./web, nothing shared with the agent, and the host nginx
+  # vhost in deploy/nginx/teeny.enamakel.com.conf is what puts it on the
+  # internet. MIND_FEED_URL is where it will read the live reflection feed
+  # from once the bot publishes one; unset, it shows labelled samples.
+  web:
+    image: teeny-web:current
+    build:
+      context: ../web
+    restart: unless-stopped
+    environment:
+      MIND_FEED_URL: ${MIND_FEED_URL:-}
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3120}:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
   # Long-term memory. Every model call it makes goes to the same ladder the
   # agent uses, so there is one egress path and one set of provider keys on the
   # box rather than a second copy living inside a database.

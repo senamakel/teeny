@@ -64,6 +64,8 @@ envval() { sed -n "s/^$1=//p" "$2" 2>/dev/null | tail -1; }
 COMPOSE="docker compose --project-directory $REMOTE_DIR/deploy -f $REMOTE_DIR/deploy/compose.prod.yaml --env-file $REMOTE_DIR/deploy/.env"
 BOT_PORT="${BOT_PORT:-$(envval BOT_PORT deploy/.env)}"
 BOT_PORT="${BOT_PORT:-3110}"
+WEB_PORT="${WEB_PORT:-$(envval WEB_PORT deploy/.env)}"
+WEB_PORT="${WEB_PORT:-3120}"
 
 [ -f "$DEPLOY_KEY" ] || die "no SSH key at $DEPLOY_KEY (override with DEPLOY_KEY=...)"
 
@@ -82,6 +84,7 @@ if [ "$ROLLBACK" -eq 1 ]; then
   remote "docker image inspect $PROJECT:previous >/dev/null 2>&1" \
     || die "no $PROJECT:previous on the box, nothing to roll back to"
   remote "docker tag $PROJECT:previous $PROJECT:current && $COMPOSE up -d --no-build bot bot-reply"
+  remote "docker image inspect $PROJECT-web:previous >/dev/null 2>&1 && docker tag $PROJECT-web:previous $PROJECT-web:current && $COMPOSE up -d --no-build web" || true
   say "Rolled back. Check: ./deploy/deploy.sh --logs"
   exit 0
 fi
@@ -141,6 +144,8 @@ rsync -az --delete \
   --exclude 'dist' \
   --exclude 'data' \
   --exclude 'worktrees' \
+  --exclude 'web/node_modules' \
+  --exclude 'web/.next' \
   --exclude 'key.pem' \
   --exclude 'key.pem.pub' \
   --exclude '.env' \
@@ -185,6 +190,8 @@ remote "$COMPOSE build" || die "image build failed"
 # Keep the outgoing image so a bad deploy can be undone in one command.
 remote "docker image inspect $PROJECT:current >/dev/null 2>&1 && docker tag $PROJECT:current $PROJECT:previous || true"
 remote "docker tag $PROJECT:current $PROJECT:$GIT_SHA || true"
+remote "docker image inspect $PROJECT-web:current >/dev/null 2>&1 && docker tag $PROJECT-web:current $PROJECT-web:previous || true"
+remote "docker tag $PROJECT-web:current $PROJECT-web:$GIT_SHA || true"
 
 if [ "$BUILD_ONLY" -eq 1 ]; then
   # cutover.sh needs the image on the box before it stops the old agent, so
@@ -202,6 +209,13 @@ for attempt in $(seq 1 60); do
   if remote "curl -fsS --max-time 3 http://127.0.0.1:$BOT_PORT/health >/dev/null"; then
     say "Healthy after ${attempt}s"
     remote "curl -sS http://127.0.0.1:$BOT_PORT/queue" || true; echo
+    # The site is not worth failing the agent's deploy over, so it is checked
+    # and reported rather than gated on.
+    if remote "curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:$WEB_PORT/"; then
+      say "The landing page answers on 127.0.0.1:$WEB_PORT"
+    else
+      warn "the landing page is not answering on 127.0.0.1:$WEB_PORT; check: $COMPOSE logs web"
+    fi
     say "Deployed $GIT_SHA. Logs: ./deploy/deploy.sh --logs   Undo: ./deploy/deploy.sh --rollback"
     exit 0
   fi

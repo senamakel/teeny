@@ -24,6 +24,7 @@ cp deploy/.env.example deploy/.env   # the infrastructure around it
 | Container          | What it does                              | Host port         |
 | ------------------ | ----------------------------------------- | ----------------- |
 | `teeny-bot-1`      | X ingest, the webhook, `/agent/run`       | `127.0.0.1:3110`  |
+| `teeny-web-1`      | the landing page, teeny.enamakel.com       | `127.0.0.1:3120`  |
 | `teeny-bot-reply-1`| drains the queue and posts the replies     | none              |
 | `teeny-cortexdb-1` | long-term memory                           | `127.0.0.1:3142`  |
 | `teeny-tika-1`     | text extraction for CortexDB               | none              |
@@ -36,6 +37,19 @@ back only 7 days and every post retrieved is billed — so a mention missed whil
 the model was down is gone for good. Replying has neither, which is why the
 reply half can be restarted or paused without touching the half that cannot
 afford to stop.
+
+## The landing page
+
+`web/` is a separate Next.js app with its own image (`teeny-web:current`),
+built from the same `deploy.sh` run and published on `127.0.0.1:3120`. Host
+nginx puts it on the internet as `teeny.enamakel.com`; the vhost is
+`deploy/nginx/teeny.enamakel.com.conf` and `deploy/web-vhost.sh` installs it
+and issues the certificate, in the right order, once. Cloudflare proxies the
+name and reaches this origin over HTTPS.
+
+The page reads its live reflection feed from `MIND_FEED_URL` (deploy/.env)
+and shows labelled samples while that is unset. A bad site build never fails
+the agent's deploy: the health step reports the page rather than gating on it.
 
 ## The ladder
 
