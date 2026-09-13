@@ -16,6 +16,7 @@ interface RawPost {
   conversationId?: string
   createdAt?: string
   inReplyToUserId?: string
+  attachments?: { mediaKeys?: string[] | null } | null
 }
 
 interface RawUser {
@@ -23,16 +24,40 @@ interface RawUser {
   username?: string
 }
 
+interface RawMedia {
+  mediaKey?: string
+  type?: string
+  url?: string
+  previewImageUrl?: string
+  altText?: string
+}
+
 function toPosts(
   data: RawPost[] | undefined,
   users: RawUser[] | undefined,
+  media: RawMedia[] | undefined = undefined,
 ): XPost[] {
   const usernames = new Map(
     (users ?? []).flatMap((user) => (user.id && user.username ? [[user.id, user.username]] : [])),
   )
+  const attachments = new Map(
+    (media ?? []).flatMap((item) => (item.mediaKey ? [[item.mediaKey, item]] : [])),
+  )
   return (data ?? []).flatMap((post) => {
     if (!post.id || !post.text) return []
     const username = post.authorId ? usernames.get(post.authorId) : undefined
+    const attached = (post.attachments?.mediaKeys ?? []).flatMap((key) => {
+      const item = attachments.get(key)
+      if (!item?.type) return []
+      return [
+        {
+          type: item.type,
+          ...(item.url ? { url: item.url } : {}),
+          ...(item.previewImageUrl ? { previewUrl: item.previewImageUrl } : {}),
+          ...(item.altText ? { altText: item.altText } : {}),
+        },
+      ]
+    })
     return [
       {
         id: post.id,
@@ -42,12 +67,16 @@ function toPosts(
         ...(post.conversationId ? { conversationId: post.conversationId } : {}),
         ...(post.createdAt ? { createdAt: post.createdAt } : {}),
         ...(post.inReplyToUserId ? { inReplyToUserId: post.inReplyToUserId } : {}),
+        ...(attached.length > 0 ? { media: attached } : {}),
       },
     ]
   })
 }
 
-const POST_FIELDS = ['created_at', 'conversation_id', 'text'] as const
+const POST_FIELDS = ['created_at', 'conversation_id', 'text', 'attachments'] as const
+// Photos carry `url`; videos and GIFs only a preview frame. Both are enough to
+// look at, and neither costs anything extra: media is an expansion, not a post.
+const MEDIA_FIELDS = ['media_key', 'type', 'url', 'preview_image_url', 'alt_text'] as const
 
 /** X accepts up to 5 MB per APPEND call; this stays well inside that. */
 const UPLOAD_CHUNK_BYTES = 4 * 1024 * 1024
@@ -110,19 +139,21 @@ export class XApiClient implements XClient, XTools {
       ...(options.sortOrder ? { sortOrder: options.sortOrder } : {}),
       postFields: [...POST_FIELDS],
       userFields: [...USER_FIELDS],
-      expansions: ['author_id', 'in_reply_to_user_id'],
+      mediaFields: [...MEDIA_FIELDS],
+      expansions: ['author_id', 'in_reply_to_user_id', 'attachments.media_keys'],
     })
-    return toPosts(response.data, response.includes?.users)
+    return toPosts(response.data, response.includes?.users, response.includes?.media)
   }
 
   async getPost(id: string): Promise<XPost | undefined> {
     const response = await this.readClient.posts.getById(id, {
       postFields: [...POST_FIELDS],
       userFields: [...USER_FIELDS],
-      expansions: ['author_id', 'in_reply_to_user_id'],
+      mediaFields: [...MEDIA_FIELDS],
+      expansions: ['author_id', 'in_reply_to_user_id', 'attachments.media_keys'],
     })
     const post = response.data
-    return post ? toPosts([post], response.includes?.users)[0] : undefined
+    return post ? toPosts([post], response.includes?.users, response.includes?.media)[0] : undefined
   }
 
   /** Replies/comments on a post, found through its conversation id. */
@@ -223,10 +254,13 @@ export class XApiClient implements XClient, XTools {
   async uploadMedia(media: XMedia): Promise<{ mediaId: string }> {
     const initialized = await this.writeClient.media.initializeUpload({
       mediaType: media.mimeType,
+      // By category, not by MIME type: X puts a still image, an animation and
+      // a video through three different pipelines and rejects the post, not
+      // the upload, when one lands in the wrong one.
       mediaCategory:
         media.mimeType === 'image/gif'
           ? 'tweet_gif'
-          : media.mimeType === 'image/png'
+          : media.mimeType.startsWith('image/')
             ? 'tweet_image'
             : 'tweet_video',
       totalBytes: media.data.byteLength,

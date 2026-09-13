@@ -7,6 +7,7 @@ import {
   type XTools,
 } from '../types.js'
 import { summariseRecall } from '../journal/journal.js'
+import type { ImageReader } from '../media/types.js'
 
 function isSour(tone: ReplyDraft['incomingTone']): boolean {
   return tone === 'negative' || tone === 'hostile'
@@ -32,6 +33,12 @@ export class ReplyHarness {
      * search is ten, so this is the most expensive thing a reply does.
      */
     private readonly thread?: { x: XTools; maxPosts: number },
+    /**
+     * Something that can look at the post's pictures. Omit and the drafter
+     * answers the words alone, which is what it always did; a mention that
+     * is only a screenshot then gets answered as if it were blank.
+     */
+    private readonly vision?: ImageReader,
   ) {}
 
   async generate(post: XPost): Promise<ReplyDraft> {
@@ -45,7 +52,7 @@ export class ReplyHarness {
     // a thread often says almost nothing alone -- "sure, go on" -- and a lookup
     // keyed on that finds nothing, where the same lookup keyed on the whole
     // exchange finds the person, the project, and what was promised earlier.
-    const thread = await this.readThread(post)
+    const [thread, images] = await Promise.all([this.readThread(post), this.lookAt(post)])
     const conversation = thread
       .map(
         (entry) =>
@@ -87,6 +94,7 @@ export class ReplyHarness {
       post,
       memory,
       ...(thread.length > 0 ? { thread } : {}),
+      ...(images.length > 0 ? { images } : {}),
     })
     // What memory said goes on the draft for the journal: the page shows
     // "recalled" next to "thinking", and it should be what was actually
@@ -142,6 +150,32 @@ export class ReplyHarness {
     // middle of a long thread is the part a reply can most afford to miss.
     const [first, ...rest] = ordered
     return [...(first ? [first] : []), ...rest.slice(-(this.thread.maxPosts - 1))]
+  }
+
+  /**
+   * What is in the post's pictures, one line each. Every failure is a
+   * picture the drafter does not get to see rather than a reply that does
+   * not go out; a video contributes its preview frame, which is what X
+   * exposes, and the description says so.
+   */
+  private async lookAt(post: XPost): Promise<string[]> {
+    const reader = this.vision
+    if (!reader || !post.media?.length) return []
+    const looked = await Promise.all(
+      post.media.slice(0, 4).map(async (item) => {
+        const url = item.url ?? item.previewUrl
+        if (!url) return undefined
+        try {
+          const description = await reader.describe({ url })
+          return item.type === 'photo'
+            ? description
+            : `(a ${item.type === 'animated_gif' ? 'GIF' : 'video'}; this is its preview frame) ${description}`
+        } catch {
+          return undefined
+        }
+      }),
+    )
+    return looked.filter((entry): entry is string => Boolean(entry))
   }
 
   /** Skipped for the same reason the mention was: the exchange is not kept. */

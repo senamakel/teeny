@@ -3,6 +3,7 @@ import { applyHouseStyle } from '../agent/house-style.js'
 import { ReplyHarness } from '../harness/reply-harness.js'
 import type { MentionQueue } from '../queue/mentions.js'
 import type { Journal } from '../journal/journal.js'
+import type { MediaStore } from '../media/store.js'
 import type { GifSource, ReplyDraft, XClient, XPost, XTools } from '../types.js'
 
 /**
@@ -24,6 +25,8 @@ export class ReplyJob {
       dryRun: boolean
       maxReplies: number
       gifs?: GifSource
+      /** Where the drafter's generate_image / generate_video calls leave their files. */
+      media?: MediaStore
       maxEmoji?: number
       /** Last line of defence against answering the account's own posts. */
       botUserId?: () => Promise<string | undefined>
@@ -140,6 +143,31 @@ export class ReplyJob {
     }
   }
 
+  /**
+   * A file the drafter generated, uploaded for attaching. Like a GIF it fails
+   * soft: the reply was written to stand on its own, and a picture that did
+   * not make it is a smaller loss than a person left unanswered.
+   */
+  private async attachGenerated(mediaId: string): Promise<string[] | undefined> {
+    const { media, logger } = this.dependencies
+    const stored = media?.get(mediaId)
+    if (!stored) {
+      logger.warn({ mediaId }, 'the drafted mediaId is not in the store; replying with text only')
+      return undefined
+    }
+    try {
+      const uploaded = await this.dependencies.x.uploadMedia({
+        data: stored.data,
+        mimeType: stored.mimeType,
+      })
+      logger.info({ mediaId, kind: stored.kind, bytes: stored.data.byteLength }, 'attaching generated media')
+      return [uploaded.mediaId]
+    } catch (error) {
+      logger.warn({ err: error, mediaId }, 'generated media upload failed; replying with text only')
+      return undefined
+    }
+  }
+
   /** Resolves true when it answered something, which is what tells a worker
    * loop to come straight back rather than idle. */
   async run(): Promise<boolean> {
@@ -199,10 +227,13 @@ export class ReplyJob {
             )
           }
 
-          const mediaIds =
-            this.dependencies.dryRun || !drafted.gifQuery
-              ? undefined
-              : await this.attachGif(drafted.gifQuery)
+          const mediaIds = this.dependencies.dryRun
+            ? undefined
+            : drafted.mediaId
+              ? await this.attachGenerated(drafted.mediaId)
+              : drafted.gifQuery
+                ? await this.attachGif(drafted.gifQuery)
+                : undefined
           // Immediately before publishing, not before drafting: the model call
           // takes seconds of its own, and pacing from the start of the turn
           // would make the real gap between two posts whatever was left over.
@@ -244,7 +275,8 @@ export class ReplyJob {
               replyId: posted?.id,
               text: styled.text,
               gifQuery: drafted.gifQuery,
-              gifAttached: Boolean(mediaIds),
+              mediaId: drafted.mediaId,
+              mediaAttached: Boolean(mediaIds),
               dryRun: this.dependencies.dryRun,
             },
             'replied to a cached mention',
