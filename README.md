@@ -9,6 +9,7 @@ mascot, as an X account. It:
 - recalls relevant CortexDB context before each harness turn;
 - drafts replies with a LangGraph agent that can research before it answers;
 - exposes the same agent over HTTP so it can be given ad-hoc tasks;
+- talks on Telegram as the same account, in DMs and in groups it is named in;
 - persists a small local cursor to prevent duplicate replies;
 - defaults to dry-run mode so no post is published accidentally.
 
@@ -433,6 +434,58 @@ GIFs are the default rather than the exception. The drafter is told to reach
 for one on greetings, reactions and jokes, and to skip it only when the post is
 a real question wanting a real answer.
 
+## Telegram
+
+The same account, on Telegram, as `@teenythebot`. Set `TELEGRAM_BOT_TOKEN` from
+@BotFather and it starts; leave it blank and nothing Telegram-shaped runs.
+
+It long-polls `getUpdates` rather than taking a webhook, so it needs no public
+URL and no route through the host nginx. The cost is that Telegram allows one
+poller per token -- a second gets `409 Conflict`, not a second bot -- so the
+role is single-homed: `SERVICE_ROLE=telegram` in its own container in
+production, or `all` for a local run that does everything in one process.
+
+What it answers:
+
+- everything in a DM;
+- in a group, a message that names it (`@teenythebot ...`), a reply to
+  something it said, or a command addressed to it (`/start@teenythebot`).
+  Telegram's privacy mode already withholds the rest from the bot, and the same
+  rule is applied again on this side so an admin turning privacy mode off does
+  not turn the account into a chatterbox;
+- nothing from another bot, so two bots in one room cannot loop;
+- nothing older than `TELEGRAM_MAX_MESSAGE_AGE_S` when first seen, so a restart
+  does not answer an hour of backlog at once.
+
+Each turn runs the same LangGraph drafter the X replies use, with the same
+memory, research, X-reading and market tools, and no publish tool: `x_post` is
+absent and the reply is sent by the loop, not by the model. It differs from the
+X drafter in what it is told about the room: a chat message may run to a few
+short paragraphs rather than 260 characters, it sees the last
+`TELEGRAM_HISTORY_LENGTH` turns of the chat (held in process, the account's own
+turns marked), and in a group it is asked to be one voice among several. House
+style is still applied on the way out: one emoji, no em dashes, plain text
+only, because Telegram's Markdown mode rejects the whole message over one
+stray underscore and a reply that fails to send over formatting helps nobody.
+
+Memory is the one CortexDB store X uses, not a second one. A message is
+captured as a chat turn from `user:telegram-<id>`, labelled `telegram`, and
+recall runs the same two passes: about this person, and about the topic. Somebody
+who asked about the roadmap on X last week and turns up in a group today is
+still a different actor id on each side -- Telegram and X do not share a
+user id -- but everything the account has said about the topic is there for
+both. Sour and abusive messages are answered and not kept, as on X.
+
+Chats are handled one message at a time each, and different chats in parallel:
+a DM waiting on a slow group is a person left on read, and two replies to the
+same person racing each other read out of order. A GIF, when the drafter asks
+for one, is sent after the text by URL from Giphy and fails soft.
+
+`TELEGRAM_DRY_RUN=true` logs each draft instead of sending it. It is separate
+from `DRY_RUN` on purpose: that one is about publishing to a public timeline,
+and a DM is not a broadcast, so a Telegram bot with a token set is expected to
+answer.
+
 ## Memory is per person
 
 Every mention is stored as a chat turn whose `observedActor` is the person who
@@ -573,6 +626,8 @@ npm run lint
 npm run build
 npm run webhook     # read or move the X Account Activity registration
 npm run chart-dry-run   # rehearse the daily chart post without publishing
+npm run telegram-dry-run -- "hi"            # one Telegram DM through the real drafter, printed not sent
+npm run telegram-dry-run -- --group "@teenythebot gm"   # the same, as a group mention
 ```
 
 Runtime cursor data is stored at `data/state.json` and is ignored by
@@ -581,8 +636,9 @@ Git. Long-term activity and conversation memory lives in CortexDB.
 ## Deployment
 
 The service runs on a DigitalOcean box as a Compose stack — the agent split
-into an ingest half and a reply half, CortexDB, Tika, and Mongo — behind the
-box's host nginx, talking to the ladder for every model call.
+into an ingest half, a reply half, the chart poster and the Telegram poller,
+CortexDB, Tika, and Mongo — behind the box's host nginx, talking to the ladder
+for every model call.
 
 ```sh
 cp .env.example .env                 # the agent's credentials

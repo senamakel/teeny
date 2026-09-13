@@ -95,3 +95,28 @@ describe('chart agent config', () => {
     expect(loadConfig(REQUIRED as unknown as NodeJS.ProcessEnv).KOL_WALLETS).toEqual([])
   })
 })
+
+describe('telegram config', () => {
+  it('is off when the token is blank, which is how a filled-in .env spells absent', () => {
+    const config = loadConfig({ ...REQUIRED, TELEGRAM_BOT_TOKEN: '' } as unknown as NodeJS.ProcessEnv)
+    expect(config.TELEGRAM_BOT_TOKEN).toBeUndefined()
+    expect(config.TELEGRAM_DRY_RUN).toBe(false)
+    expect(config.TELEGRAM_MAX_MESSAGE_AGE_S).toBe(300)
+  })
+
+  it('accepts a token in the shape BotFather hands out', () => {
+    const config = loadConfig({
+      ...REQUIRED,
+      TELEGRAM_BOT_TOKEN: '8782739916:AAGsGFV_6Rxbng3KmKWp8FgPe0gbiDTis-o',
+      SERVICE_ROLE: 'telegram',
+    } as unknown as NodeJS.ProcessEnv)
+    expect(config.TELEGRAM_BOT_TOKEN).toBe('8782739916:AAGsGFV_6Rxbng3KmKWp8FgPe0gbiDTis-o')
+    expect(config.SERVICE_ROLE).toBe('telegram')
+  })
+
+  it('rejects something that is not a bot token rather than polling with it', () => {
+    expect(() =>
+      loadConfig({ ...REQUIRED, TELEGRAM_BOT_TOKEN: 'not-a-token' } as unknown as NodeJS.ProcessEnv),
+    ).toThrow()
+  })
+})

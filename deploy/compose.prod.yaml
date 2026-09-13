@@ -4,8 +4,8 @@
 # other projects and one host nginx owns :80 and :443, so nothing here may take
 # a public port; the front proxy reaches the webhook over loopback.
 #
-# The stack is four containers: the agent split into an ingest half and a reply
-# half over one Mongo cache, CortexDB for long-term memory, and Tika for the
+# The stack: the agent split into an ingest half, a reply half, a chart poster
+# and a Telegram poller over one Mongo cache, CortexDB for long-term memory, and Tika for the
 # documents CortexDB ingests. The ladder is not defined here — it is a
 # container this project does not own, joined to this network by deploy.sh.
 
@@ -102,6 +102,35 @@ services:
       PORT: "3003"
     volumes:
       - chart-data:/app/data
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  # Talks on Telegram. Its own container because Telegram allows one poller
+  # per bot token -- a second one gets 409s, not a second bot -- so the role
+  # is single-homed like the chart job. Starts only when TELEGRAM_BOT_TOKEN is
+  # set in ../.env; without it the container boots, logs `telegram: false`,
+  # and idles on its unpublished port.
+  bot-telegram:
+    image: teeny:current
+    build:
+      context: ..
+    restart: unless-stopped
+    env_file:
+      # raw: compose would otherwise interpolate the values, and
+      # CHART_COMMUNITY_QUERY="$TINY -is:retweet" loses its ticker.
+      - path: ../.env
+        format: raw
+    environment:
+      CORTEX_API_URL: http://cortexdb:3141
+      LLM_BASE_URL: ${LADDER_URL:-http://ladder:6969/v1}
+      LLM_API_KEY: ${LADDER_API_KEY:?set LADDER_API_KEY in deploy/.env}
+      MONGO_URI: mongodb://${MONGO_ROOT_USERNAME:-teeny}:${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD}@mongo:27017/${MONGO_DATABASE:-teeny}?authSource=admin
+      MONGO_DATABASE: ${MONGO_DATABASE:-teeny}
+      SERVICE_ROLE: telegram
+      PORT: "3004"
+    volumes:
+      - telegram-data:/app/data
     depends_on:
       mongo:
         condition: service_healthy
@@ -246,4 +275,5 @@ volumes:
   bot-data:
   chart-data:
   reply-data:
+  telegram-data:
   cortexdb-data:

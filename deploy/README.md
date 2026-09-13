@@ -26,6 +26,7 @@ cp deploy/.env.example deploy/.env   # the infrastructure around it
 | `teeny-bot-1`      | X ingest, the webhook, `/agent/run`       | `127.0.0.1:3110`  |
 | `teeny-web-1`      | the landing page, teeny.enamakel.com       | `127.0.0.1:3120`  |
 | `teeny-bot-reply-1`| drains the queue and posts the replies     | none              |
+| `teeny-bot-telegram-1` | long-polls Telegram as `@teenythebot`  | none              |
 | `cortexdb-cortexdb-1` | long-term memory, **not this stack's**: `/opt/cortexdb`, joined to `teeny_default` as `cortexdb` | `127.0.0.1:3142` |
 | `teeny-mongo-1`    | the mention queue                          | `127.0.0.1:27020` |
 | `ladder`           | the model endpoint, owned by no project    | `127.0.0.1:6969`  |

@@ -21,7 +21,8 @@
     "airdrop-sim": "tsx src/scripts/airdrop-sim.ts",
     "unsay": "tsx src/scripts/unsay.ts",
     "requeue-unpaid": "tsx src/scripts/requeue-unpaid.ts",
-    "chart-dry-run": "tsx src/scripts/chart-dry-run.ts"
+    "chart-dry-run": "tsx src/scripts/chart-dry-run.ts",
+    "telegram-dry-run": "tsx src/scripts/telegram-dry-run.ts"
   },
   "dependencies": {
     "@langchain/core": "^1.2.9",

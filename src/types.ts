@@ -204,3 +204,68 @@ export interface AgentRunResult {
 export interface Agent {
   run(input: { task: string; threadId?: string }): Promise<AgentRunResult>
 }
+
+// --- chat channels ---------------------------------------------------------
+// Telegram is a conversation, not a timeline: one person (or one group) talking
+// to the account directly, in a thread that keeps its own recent history. The
+// X types above are about posts; these are about turns.
+
+/** One message from a person in a chat channel, normalised away from the API. */
+export interface ChatMessage {
+  /** Unique within the channel, e.g. Telegram's message_id scoped by chat. */
+  id: string
+  channel: 'telegram'
+  /** The conversation this message belongs to: a DM or a group. */
+  chatId: string
+  /** `private` is a DM with the account; anything else is a room. */
+  chatKind: 'private' | 'group'
+  chatTitle?: string
+  text: string
+  authorId: string
+  authorUsername?: string
+  authorName?: string
+  createdAt?: string
+  /** Set when the message is a reply to something the account itself sent. */
+  repliesToBot?: boolean
+}
+
+/**
+ * The person behind a chat message, namespaced the same way X authors are so
+ * CortexDB keeps one record per human per channel: `user:telegram-<id>`.
+ */
+export function chatPersonOf(message: ChatMessage): Person {
+  return {
+    id: `user:${message.channel}-${message.authorId}`,
+    ...(message.authorUsername ? { username: message.authorUsername } : {}),
+  }
+}
+
+/** What the chat drafter produces for one incoming message. */
+export interface ChatReply {
+  text: string
+  gifQuery?: string
+  incomingTone?: IncomingTone
+}
+
+/** Long-term memory as a chat channel needs it: the same store, different keys. */
+export interface ChatMemory {
+  captureChatMessage(message: ChatMessage): Promise<void>
+  recall(query: string, options?: { person?: Person }): Promise<string>
+  captureChatReply(message: ChatMessage, reply: string, sentId?: string): Promise<void>
+}
+
+export interface ChatModel {
+  reply(input: {
+    message: ChatMessage
+    memory: string
+    /** The last few turns of this chat, oldest first, the account's own marked. */
+    history?: ChatTurn[]
+  }): Promise<ChatReply>
+}
+
+/** One remembered turn of a chat, kept in process so a reply can see what led up to it. */
+export interface ChatTurn {
+  from: 'bot' | 'person'
+  authorName?: string
+  text: string
+}

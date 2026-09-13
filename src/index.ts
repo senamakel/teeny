@@ -19,6 +19,10 @@ import { GiphyClient } from './clients/giphy.js'
 import { CortexMemory } from './memory/cortex.js'
 import { buildServer } from './server.js'
 import { FileStateStore } from './state/file-state.js'
+import { AgentChatModel } from './agent/chat-model.js'
+import { TelegramApiClient } from './clients/telegram.js'
+import { ChatHarness } from './harness/chat-harness.js'
+import { TelegramBot } from './telegram/bot.js'
 
 const config = loadConfig()
 const memory = new CortexMemory(
@@ -135,6 +139,9 @@ const runsReplies = role === 'all' || role === 'reply'
 // The chart agent publishes on its own timer. It is opt-in and single-homed:
 // two containers on the same schedule would post the same chart twice.
 const runsChart = config.CHART_ENABLED && (role === 'all' || role === 'chart')
+// Telegram long-polls, and Telegram allows one poller per token, so this is
+// single-homed for the same reason the chart job is.
+const runsTelegram = Boolean(config.TELEGRAM_BOT_TOKEN) && (role === 'all' || role === 'telegram')
 
 if (runsIngest) {
   const ingestJob = new IngestJob({
@@ -205,6 +212,39 @@ if (runsChart) {
   })
 }
 
+let telegramHandle: string | false = false
+if (runsTelegram && config.TELEGRAM_BOT_TOKEN) {
+  const telegram = new TelegramApiClient({ token: config.TELEGRAM_BOT_TOKEN })
+  // The bot's own handle comes from the token, as the X handle does. Without
+  // it the bot cannot tell which group messages are for it, so a failure here
+  // is fatal rather than something to poll past.
+  const me = await telegram.getMe()
+  if (!me.username) throw new Error('the Telegram bot has no username; set one with @BotFather')
+  telegramHandle = me.username
+  const bot = new TelegramBot({
+    api: telegram,
+    harness: new ChatHarness(
+      memory,
+      new AgentChatModel({ ...agentOptions, channelHandle: me.username }),
+    ),
+    logger: app.log,
+    bot: { id: me.id, username: me.username },
+    dryRun: config.TELEGRAM_DRY_RUN,
+    ...(gifs ? { gifs: gifs.source } : {}),
+    maxEmoji: config.MAX_EMOJI_PER_POST,
+    maxMessageAgeMs: config.TELEGRAM_MAX_MESSAGE_AGE_S * 1_000,
+    pollTimeoutSeconds: config.TELEGRAM_POLL_TIMEOUT_S,
+    historyLength: config.TELEGRAM_HISTORY_LENGTH,
+  })
+  void bot.start()
+  const shutdown = (): void => {
+    bot.stop()
+    void bot.drain().finally(() => process.exit(0))
+  }
+  process.once('SIGTERM', shutdown)
+  process.once('SIGINT', shutdown)
+}
+
 await app.listen({ host: '0.0.0.0', port: config.PORT })
 app.log.info(
   {
@@ -233,6 +273,9 @@ app.log.info(
         : config.REPLY_CRON
       : false,
     agentEndpoint: Boolean(useAgent && config.AGENT_API_TOKEN),
+    telegram: telegramHandle
+      ? `@${telegramHandle}${config.TELEGRAM_DRY_RUN ? ' (dry run)' : ''}`
+      : false,
     chart: runsChart
       ? `${config.CHART_TOKEN_SYMBOL} ${config.CHART_TIMEFRAME} at "${config.CHART_CRON}" via ${config.CHART_RENDERER}`
       : false,
