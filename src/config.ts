@@ -57,7 +57,7 @@ const schema = z.object({
   X_SEARCH_MAX_RESULTS: z.coerce.number().int().min(10).max(100).default(10),
   // `all` runs every role in one process. Split them to scale or restart the
   // reply side without pausing ingestion, which is the half with a deadline.
-  SERVICE_ROLE: z.enum(['all', 'ingest', 'reply', 'api', 'chart', 'telegram']).default('all'),
+  SERVICE_ROLE: z.enum(['all', 'ingest', 'reply', 'api', 'chart']).default('all'),
   INGEST_CRON: z.string().default('*/5 * * * *'),
   // `worker` drains the queue continuously, which is what makes a webhook
   // delivery turn into a reply in seconds rather than by the next tick.
@@ -143,9 +143,10 @@ const schema = z.object({
 
   // --- telegram ------------------------------------------------------------
   // The same account on Telegram: DMs, and groups it is named in. Set the
-  // token and it runs; leave it blank and nothing Telegram-shaped starts. Long
-  // polling, so it is single-homed like the chart job: two processes polling
-  // one token get 409s from Telegram, not two bots.
+  // token and it runs; leave it blank and nothing Telegram-shaped starts. It
+  // runs inside the ingest process, next to the webhook: long polling means
+  // exactly one process may hold the token (a second gets 409s, not a second
+  // bot), and ingest is already the half that runs in exactly one place.
   TELEGRAM_BOT_TOKEN: blankable(
     z.string().regex(/^\d+:[A-Za-z0-9_-]{30,}$/, 'must be a Telegram bot token'),
   ),
