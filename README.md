@@ -533,6 +533,13 @@ back only 7 days and every post retrieved is billed, so a mention missed while
 the model was down is gone for good. Replying has neither; it can be slow,
 retried, or paused.
 
+They are separate jobs, not separate processes. `SERVICE_ROLE=all`, the
+default and what production runs, puts ingest, the reply worker, the chart
+cron and Telegram on one event loop in one container; the other roles exist
+so the halves *can* be split across containers if that is ever worth the
+extra logs to read. Split, the chart cron and the Telegram poller must each
+run in exactly one place.
+
 Two things get queued: a direct mention or reply to the account, and anything
 further away where somebody actually typed the handle.
 
@@ -661,8 +668,7 @@ Git. Long-term activity and conversation memory lives in CortexDB.
 ## Deployment
 
 The service runs on a DigitalOcean box as a Compose stack — the agent split
-into an ingest half (which is also the Telegram side), a reply half and the
-chart poster, CortexDB, Tika, and Mongo — behind the box's host nginx, talking to the ladder
+one container running every role, plus Mongo and the landing page — behind the box's host nginx, talking to the ladder
 for every model call.
 
 ```sh

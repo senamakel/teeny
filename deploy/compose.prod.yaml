@@ -4,19 +4,24 @@
 # other projects and one host nginx owns :80 and :443, so nothing here may take
 # a public port; the front proxy reaches the webhook over loopback.
 #
-# The stack: the agent split into an ingest half, a reply half and a chart
-# poster over one Mongo cache, CortexDB for long-term memory, and Tika for the
-# documents CortexDB ingests. The ladder is not defined here — it is a
-# container this project does not own, joined to this network by deploy.sh.
+# The stack: the agent in one container -- X ingest, the webhook, the reply
+# worker, the chart cron, Telegram and /agent/run, all on node-cron and one
+# event loop -- over a Mongo mention cache, plus the landing page. CortexDB
+# for long-term memory is shared and lives outside this file, and the ladder
+# is a container this project does not own, joined to this network by
+# deploy.sh.
 
 name: teeny
 
 services:
-  # Reads X and fills the mention cache. It also serves the webhook and the
-  # agent endpoint, because those are cheap and belong next to the public port,
-  # and it is the Telegram side of the account: that long-polls, Telegram
-  # allows one poller per token, and this is the one container that already
-  # must run in exactly one place.
+  # The whole agent. SERVICE_ROLE defaults to `all`, so this one process reads
+  # X and fills the mention cache, serves the webhook and /agent/run, drains
+  # the cache into replies, posts the daily chart, and polls Telegram. It used
+  # to be three containers over the same image; one is simpler to run and to
+  # read the logs of, and nothing in it needs to scale separately. The roles
+  # still exist in the code, so splitting again is a compose change, not a
+  # code one -- but the chart cron and the Telegram poller must each run in
+  # exactly one place, so never run two copies of this with `all`.
   bot:
     image: teeny:current
     build:
@@ -37,7 +42,6 @@ services:
       LLM_API_KEY: ${LADDER_API_KEY:?set LADDER_API_KEY in deploy/.env}
       MONGO_URI: mongodb://${MONGO_ROOT_USERNAME:-teeny}:${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD}@mongo:27017/${MONGO_DATABASE:-teeny}?authSource=admin
       MONGO_DATABASE: ${MONGO_DATABASE:-teeny}
-      SERVICE_ROLE: ingest
     ports:
       - "127.0.0.1:${BOT_PORT:-3110}:3001"
     volumes:
@@ -51,63 +55,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
-
-  # Drains the cache. Split from ingestion so it can be restarted, slowed, or
-  # redeployed without pausing the half that has a deadline: a mention outside
-  # X's 7-day search window cannot be fetched again.
-  bot-reply:
-    image: teeny:current
-    build:
-      context: ..
-    restart: unless-stopped
-    env_file:
-      # raw: compose would otherwise interpolate the values, and
-      # CHART_COMMUNITY_QUERY="$TINY -is:retweet" loses its ticker.
-      - path: ../.env
-        format: raw
-    environment:
-      CORTEX_API_URL: http://cortexdb:3141
-      LLM_BASE_URL: ${LADDER_URL:-http://ladder:6969/v1}
-      LLM_API_KEY: ${LADDER_API_KEY:?set LADDER_API_KEY in deploy/.env}
-      MONGO_URI: mongodb://${MONGO_ROOT_USERNAME:-teeny}:${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD}@mongo:27017/${MONGO_DATABASE:-teeny}?authSource=admin
-      MONGO_DATABASE: ${MONGO_DATABASE:-teeny}
-      SERVICE_ROLE: reply
-      # Nothing reaches this one over HTTP, so it listens on a port it does not
-      # publish rather than fighting the ingest container for 3001.
-      PORT: "3002"
-    volumes:
-      - reply-data:/app/data
-    depends_on:
-      mongo:
-        condition: service_healthy
-
-  # Posts the daily chart. Its own container because it must run in exactly one
-  # place: two processes on the same cron would post the same chart twice, and a
-  # near-duplicate post an hour apart is the shape that got this account
-  # throttled once already. Opt in with CHART_ENABLED=true in ../.env.
-  bot-chart:
-    image: teeny:current
-    build:
-      context: ..
-    restart: unless-stopped
-    env_file:
-      # raw: compose would otherwise interpolate the values, and
-      # CHART_COMMUNITY_QUERY="$TINY -is:retweet" loses its ticker.
-      - path: ../.env
-        format: raw
-    environment:
-      CORTEX_API_URL: http://cortexdb:3141
-      LLM_BASE_URL: ${LADDER_URL:-http://ladder:6969/v1}
-      LLM_API_KEY: ${LADDER_API_KEY:?set LADDER_API_KEY in deploy/.env}
-      MONGO_URI: mongodb://${MONGO_ROOT_USERNAME:-teeny}:${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD}@mongo:27017/${MONGO_DATABASE:-teeny}?authSource=admin
-      MONGO_DATABASE: ${MONGO_DATABASE:-teeny}
-      SERVICE_ROLE: chart
-      PORT: "3003"
-    volumes:
-      - chart-data:/app/data
-    depends_on:
-      mongo:
-        condition: service_healthy
 
   # The landing page at teeny.enamakel.com: Teeny's mind, turned inside out.
   # Its own image from ./web, nothing shared with the agent, and the host nginx
@@ -248,6 +195,4 @@ services:
 volumes:
   mongo-data:
   bot-data:
-  chart-data:
-  reply-data:
   cortexdb-data:
