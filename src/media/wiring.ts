@@ -91,3 +91,33 @@ export function buildMedia(
     ...(reference ? { reference } : {}),
   }
 }
+
+/**
+ * The same access with some of the generators taken away.
+ *
+ * Who may generate is decided per turn, not per process: the Telegram drafter
+ * never does, the X drafter only when the person asked, a calendar item only
+ * for the kind it was given. Seeing is never taken away; the store and the
+ * budget are the same objects, so an id made elsewhere is still attachable
+ * and the day's count stays one count.
+ */
+export function gateMedia(
+  media: MediaAccess | undefined,
+  allow: { images?: boolean; videos?: boolean },
+): MediaAccess | undefined {
+  if (!media) return undefined
+  const { images, videos, reference, ...rest } = media
+  const keptImages = allow.images ? images : undefined
+  const keptVideos = allow.videos ? videos : undefined
+  return {
+    ...rest,
+    ...(keptImages ? { images: keptImages } : {}),
+    ...(keptVideos ? { videos: keptVideos } : {}),
+    ...(reference && (keptImages || keptVideos) ? { reference } : {}),
+  }
+}
+
+/** Whether anything here can generate at all, before a gate is worth computing. */
+export function canGenerate(media: MediaAccess | undefined): { images: boolean; videos: boolean } {
+  return { images: Boolean(media?.images), videos: Boolean(media?.videos) }
+}
