@@ -27,6 +27,7 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/SOUL.md ./SOUL.md
 COPY --from=builder /app/CONTEXT.md ./CONTEXT.md
 COPY --from=builder /app/skills ./skills
+COPY --from=builder /app/assets ./assets
 
 # The reply job keeps its cursor on disk, and the chart agent writes each PNG it
 # renders next to it, so the path is a volume in compose.
