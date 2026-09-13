@@ -116,7 +116,7 @@ function ReflectionCard({ entry }: { entry: Reflection }) {
           </div>
 
           <div>
-            <Label>{entry.trigger === "chart" ? "Posted" : "Said"}</Label>
+            <Label>{entry.trigger === "chart" || entry.trigger === "morning" ? "Posted" : "Said"}</Label>
             {entry.said ? (
               <blockquote className="border-l-2 border-primary pl-3 text-sm italic">
                 {entry.said}
@@ -172,7 +172,7 @@ function Feed({ entries }: { entries: Reflection[] }) {
 export function Reflections({ feed }: { feed: MindFeed }) {
   const all = feed.reflections
   const replies = all.filter((e) => e.trigger === "mention" && e.outcome !== "skipped" && e.outcome !== "held")
-  const charts = all.filter((e) => e.trigger === "chart")
+  const charts = all.filter((e) => e.trigger === "chart" || e.trigger === "morning")
   const quiet = all.filter((e) => e.outcome === "skipped" || e.outcome === "held" || e.outcome === "failed")
 
   return (
@@ -195,7 +195,7 @@ export function Reflections({ feed }: { feed: MindFeed }) {
         <TabsList variant="line" className="mb-6">
           <TabsTrigger value="all">All · {all.length}</TabsTrigger>
           <TabsTrigger value="replies">Replies · {replies.length}</TabsTrigger>
-          <TabsTrigger value="charts">Chart reads · {charts.length}</TabsTrigger>
+          <TabsTrigger value="charts">Posts · {charts.length}</TabsTrigger>
           <TabsTrigger value="quiet">Stayed quiet · {quiet.length}</TabsTrigger>
         </TabsList>
         <TabsContent value="all"><Feed entries={all} /></TabsContent>
