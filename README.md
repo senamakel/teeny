@@ -79,8 +79,8 @@ more than the voice.
 | `web_answer` | Exa's cited answer endpoint for a single fact. |
 | `find_gif` | Searches the account's own Giphy channel, or all of Giphy on request. |
 | `look_at_image` | Describes an image by URL through the vision ladder. Off when `VISION_MODEL` is blank. |
-| `generate_image` | Draws a picture, with Tiny's look from the reference sheet, and returns a `mediaId`. `IMAGE_GEN_ENABLED`. |
-| `generate_video` | Films a few seconds, same sheet, and returns a `mediaId`. `VIDEO_GEN_ENABLED`. |
+| `generate_image` | Draws a picture, with Tiny's look from the reference sheet, and returns a `mediaId`. `IMAGE_GEN_ENABLED`; present on a calendar item that carries an image, on an X reply that explicitly asked, on a task; never on Telegram. |
+| `generate_video` | Films a few seconds, same sheet, and returns a `mediaId`. `VIDEO_GEN_ENABLED`; same gating. |
 
 `x_post` takes a `gifId` from `find_gif` and attaches it: the id is resolved
 against Giphy server-side and the bytes are uploaded to X through the chunked
@@ -158,17 +158,76 @@ about. `look_at_image` covers everything else -- the media URLs listed by
 `x_get_post` and `x_search_posts`, or a link somebody shared -- and fetches
 only public https hostnames, never an address or anything that names the box.
 
-**Drawing and filming** are tools the drafters and the task agent all have.
-They return a `mediaId`; the bytes stay in an in-process `MediaStore` and are
-attached by whichever job asked: the reply job uploads it to X in place of a
-GIF, the Telegram bot sends it as a photo or video with the reply as its
-caption, and `x_post` takes it directly. A drafter's `mediaId` only counts when
-a tool in that same run actually returned it, so a model that has learned the
-id format cannot attach something another turn made. A copy of everything
-generated is written to `MEDIA_OUTPUT_DIR` (`data/media` by default) so a
-person can see what went out. A square request carries no `size` at all and
-takes the ladder's default; the image can come back as PNG, JPEG or WebP
+**Drawing and filming** return a `mediaId`; the bytes stay in an in-process
+`MediaStore` and are attached by whichever job asked: the reply job uploads it
+to X in place of a GIF, the calendar job posts it to X and sends it to Telegram
+with the text as caption, and `x_post` takes it directly. A drafter's `mediaId`
+only counts when a tool in that same run actually returned it, so a model that
+has learned the id format cannot attach something another turn made. A copy of
+everything generated is written to `MEDIA_OUTPUT_DIR` (`data/media` by default)
+so a person can see what went out. A square request carries no `size` at all
+and takes the ladder's default; the image can come back as PNG, JPEG or WebP
 depending on which rung served, and the type is read from the bytes.
+
+### When the account generates
+
+Generation is expensive and public, so *when* it happens is decided outside
+the model, per turn, by `gateMedia`. Seeing is never taken away; the sketchbook
+is handed out like this:
+
+| Turn | Generates? | Decided by |
+| --- | --- | --- |
+| Content calendar item | yes, exactly the kind the item declares | `calendar.json` |
+| X reply | only when the post **explicitly asked** for a picture or a clip | `MediaGate`, one cheap classifier call on the post alone, before the drafter runs |
+| Telegram reply | never | the chat drafter is built without the tools |
+| `/agent/run` task | yes, when the task calls for it | the operator wrote the task |
+
+The X gate is a model call rather than a word list because "make me a tiny",
+"pic pls" and "can u draw that" are all asks and "nice pic" is not. It runs
+without tools or persona, with the post as data, and any failure is "no". When
+the tools are absent the prompt tells the drafter not to offer, promise, or
+apologise for a picture; when they are present, the ask is real and it makes
+one. On Telegram the prompt says the pictures come on their own schedule.
+
+### The content calendar
+
+`calendar.json` is a list of scheduled posts, each with a cron, the channels
+it goes to, a brief in the operator's words, and whether it carries an image,
+a video, or nothing:
+
+```json
+{
+  "timezone": "UTC",
+  "items": [
+    {
+      "name": "gm",
+      "cron": "0 7 * * *",
+      "channels": ["x", "telegram"],
+      "media": "image",
+      "aspect": "square",
+      "brief": "A good-morning post. One line, warm, nothing to sell. Tiny doing something small with the morning; vary the scene, memory says what yesterday's was."
+    }
+  ]
+}
+```
+
+`CALENDAR_ENABLED=true` schedules every enabled item; it is off by default
+because it publishes, and single-homed like the chart job. Each run recalls
+what the item posted on earlier days, drafts through the same agent as
+everything else with the generation tool for exactly its kind of media, and
+publishes deterministically: X via `createPost`, Telegram to the item's
+`telegramChatIds` or `CALENDAR_TELEGRAM_CHAT_IDS`, the text as the picture's
+caption. An item that promised a picture and did not get one is **held**, not
+posted bare -- a "gm" with the image missing reads as a broken bot to everyone
+who has seen the ones with it. What went out is written to memory under
+`calendar_post` so tomorrow's run can avoid yesterday's scene, and to the
+journal under the `calendar` trigger. A per-item guard refuses to run the same
+item twice within an hour, for the restart-near-the-cron-minute case.
+
+```sh
+npm run calendar-dry-run -- gm             # draft and generate, publish nothing
+npm run calendar-dry-run -- gm --publish   # posts, if DRY_RUN=false
+```
 
 ### What Tiny looks like
 
@@ -686,8 +745,9 @@ The webhook handler queues and returns. It does not draft: X retries a delivery
 it does not see acknowledged quickly, and a model call takes far longer than
 the line is held open.
 
-`SERVICE_ROLE` decides what a process runs: `all` (both, the default),
-`ingest`, `reply`, or `api` for the webhook and agent endpoint alone. The same
+`SERVICE_ROLE` decides what a process runs: `all` (everything, the default),
+`ingest`, `reply`, `chart`, `calendar`, or `api` for the webhook and agent
+endpoint alone. The same
 image serves every role, so splitting them is a compose change rather than a
 build. Run the reply side as its own container when you want to restart or
 redeploy it without pausing ingestion.

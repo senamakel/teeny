@@ -26,6 +26,9 @@ import { ChatHarness } from './harness/chat-harness.js'
 import { TelegramBot } from './telegram/bot.js'
 import { MongoChatTranscript } from './telegram/transcript.js'
 import { buildMedia } from './media/wiring.js'
+import { ContentAgent } from './agent/content-model.js'
+import { loadCalendar } from './calendar/calendar.js'
+import { CalendarJob } from './jobs/calendar-job.js'
 
 const config = loadConfig()
 const memory = new CortexMemory(
@@ -162,6 +165,9 @@ const runsReplies = role === 'all' || role === 'reply'
 // The chart agent publishes on its own timer. It is opt-in and single-homed:
 // two containers on the same schedule would post the same chart twice.
 const runsChart = config.CHART_ENABLED && (role === 'all' || role === 'chart')
+// The content calendar publishes on its own timers and is the one place the
+// account generates media unasked. Opt-in and single-homed, like the chart.
+const runsCalendar = config.CALENDAR_ENABLED && (role === 'all' || role === 'calendar')
 // Telegram lives in the ingest process. It long-polls, and Telegram allows one
 // poller per token, so it rides with the role that already runs in exactly one
 // place rather than getting a container of its own.
@@ -239,6 +245,42 @@ if (runsChart) {
   cron.schedule(config.CHART_CRON, () => {
     void chartJob.run().catch((error: unknown) => app.log.error({ err: error }, 'chart job failed'))
   })
+}
+
+const calendarItems: string[] = []
+if (runsCalendar) {
+  const calendar = loadCalendar(config.CALENDAR_PATH)
+  // A sending-only client, separate from the bot's poller: sending does not
+  // hold the token the way long polling does, so this may run in a process
+  // that is not the Telegram one.
+  const telegram = config.TELEGRAM_BOT_TOKEN
+    ? new TelegramApiClient({ token: config.TELEGRAM_BOT_TOKEN })
+    : undefined
+  const calendarJob = new CalendarJob({
+    agent: new ContentAgent(agentOptions),
+    memory,
+    x,
+    ...(telegram ? { telegram } : {}),
+    ...(media ? { media: media.store } : {}),
+    logger: app.log,
+    dryRun: config.DRY_RUN,
+    telegramChatIds: config.CALENDAR_TELEGRAM_CHAT_IDS,
+    maxEmoji: config.MAX_EMOJI_PER_POST,
+    journal,
+  })
+  for (const item of calendar.items) {
+    if (!item.enabled) continue
+    calendarItems.push(`${item.name} "${item.cron}"`)
+    cron.schedule(
+      item.cron,
+      () => {
+        void calendarJob
+          .run(item)
+          .catch((error: unknown) => app.log.error({ err: error, item: item.name }, 'calendar job failed'))
+      },
+      calendar.timezone ? { timezone: calendar.timezone } : {},
+    )
+  }
 }
 
 let telegramHandle: string | false = false
@@ -321,6 +363,7 @@ app.log.info(
     chart: runsChart
       ? `${config.CHART_TOKEN_SYMBOL} ${config.CHART_TIMEFRAME} at "${config.CHART_CRON}" via ${config.CHART_RENDERER}`
       : false,
+    calendar: runsCalendar ? calendarItems : false,
   },
   'teeny started',
 )
