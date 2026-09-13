@@ -97,7 +97,7 @@ if [ "$ROLLBACK" -eq 1 ]; then
   say "Rolling back to the previous image"
   remote "docker image inspect $PROJECT:previous >/dev/null 2>&1" \
     || die "no $PROJECT:previous on the box, nothing to roll back to"
-  remote "docker tag $PROJECT:previous $PROJECT:current && $COMPOSE up -d --no-build bot bot-reply"
+  remote "docker tag $PROJECT:previous $PROJECT:current && $COMPOSE up -d --no-build bot bot-reply bot-chart bot-telegram"
   remote "docker image inspect $PROJECT-web:previous >/dev/null 2>&1 && docker tag $PROJECT-web:previous $PROJECT-web:current && $COMPOSE up -d --no-build web" || true
   say "Rolled back. Check: ./deploy/deploy.sh --logs"
   exit 0
@@ -134,6 +134,17 @@ if [ "$(cfg DRY_RUN .env)" = "false" ]; then
   say "DRY_RUN=false — this deploy PUBLISHES replies as @$(cfg X_BOT_USERNAME .env)"
 else
   warn "DRY_RUN is not false: replies will be drafted and logged, never posted."
+fi
+
+# Telegram is a second public face of the account; say whether it is going up.
+if [ -n "$(envval TELEGRAM_BOT_TOKEN .env)" ]; then
+  if [ "$(envval TELEGRAM_DRY_RUN .env)" = "true" ]; then
+    warn "TELEGRAM_BOT_TOKEN is set with TELEGRAM_DRY_RUN=true: Telegram replies are drafted and logged, never sent."
+  else
+    say "TELEGRAM_BOT_TOKEN is set — this deploy ANSWERS on Telegram"
+  fi
+else
+  warn "TELEGRAM_BOT_TOKEN is empty: the bot-telegram container will idle."
 fi
 
 say "Checking the box"

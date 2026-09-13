@@ -1,5 +1,13 @@
 import { V1Client } from 'cortexdbai/v1'
-import { personOf, type Memory, type Person, type XPost } from '../types.js'
+import {
+  chatPersonOf,
+  personOf,
+  type ChatMemory,
+  type ChatMessage,
+  type Memory,
+  type Person,
+  type XPost,
+} from '../types.js'
 
 /**
  * The shape of a captured record is part of its identity. Bumping this makes
@@ -14,7 +22,7 @@ function ignoreIdempotencyConflict(error: unknown): void {
   if (!message.includes('IDEMPOTENCY_CONFLICT')) throw error
 }
 
-export class CortexMemory implements Memory {
+export class CortexMemory implements Memory, ChatMemory {
   private readonly client: V1Client
 
   constructor(
@@ -131,6 +139,57 @@ export class CortexMemory implements Memory {
         observedAt: new Date().toISOString(),
         idempotencyKey: `x:reply:${CAPTURE_VERSION}:${input.id}:${postedId ?? 'dry-run'}`,
         ...(person ? { observedActor: { id: person.id, type: 'person' } } : {}),
+      },
+      { wait: 'captured' },
+    ).catch(ignoreIdempotencyConflict)
+  }
+
+  /**
+   * A Telegram message, stored the way a mention is: a chat turn from the
+   * person who wrote it, in the same scope as everything from X. One store on
+   * purpose -- somebody who asked about the roadmap on X last week and turns
+   * up in a Telegram group today is the same person, and the account should
+   * know it. The channel is a label, not a scope.
+   */
+  async captureChatMessage(message: ChatMessage): Promise<void> {
+    const person = chatPersonOf(message)
+    await this.client.experience(
+      this.scope,
+      {
+        text: message.text,
+        role: 'user',
+        labels: [
+          message.channel,
+          'message',
+          message.chatKind,
+          ...(person.username ? [`@${person.username}`] : []),
+          `chat:${message.channel}-${message.chatId}`,
+        ],
+        observedAt: message.createdAt ?? new Date().toISOString(),
+        idempotencyKey: `${message.channel}:message:${CAPTURE_VERSION}:${message.chatId}:${message.id}`,
+        observedActor: { id: person.id, type: 'person' },
+      },
+      { wait: 'captured' },
+    ).catch(ignoreIdempotencyConflict)
+  }
+
+  async captureChatReply(message: ChatMessage, reply: string, sentId?: string): Promise<void> {
+    const person = chatPersonOf(message)
+    await this.client.experience(
+      this.scope,
+      {
+        text: reply,
+        role: 'assistant',
+        labels: [
+          message.channel,
+          'reply',
+          sentId ? 'sent' : 'dry-run',
+          ...(person.username ? [`@${person.username}`] : []),
+          `chat:${message.channel}-${message.chatId}`,
+        ],
+        observedAt: new Date().toISOString(),
+        idempotencyKey: `${message.channel}:reply:${CAPTURE_VERSION}:${message.chatId}:${message.id}:${sentId ?? 'dry-run'}`,
+        observedActor: { id: person.id, type: 'person' },
       },
       { wait: 'captured' },
     ).catch(ignoreIdempotencyConflict)
