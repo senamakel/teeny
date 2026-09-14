@@ -89,7 +89,7 @@ export class ModelJudge implements Judge {
     // and a classifier that varies is one whose logs cannot be reasoned about.
     // Function calling rather than the library's default: through the ladder,
     // the json-schema route answered every category as the last enum value.
-    this.model = createChatModel({ ...llm, temperature: 0 }).withStructuredOutput(verdictSchema, {
+    this.model = createChatModel({ source: 'judge', ...llm, temperature: 0 }).withStructuredOutput(verdictSchema, {
       name: 'content_verdict',
       method: 'functionCalling',
     })

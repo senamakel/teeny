@@ -59,7 +59,7 @@ export class ContentAgent {
       videos: item.media === 'video',
     })
     return createReactAgent({
-      llm: createChatModel(options.llm),
+      llm: createChatModel({ source: 'calendar', ...options.llm }),
       tools: buildTools({ ...options, allowPosting: false, ...(media ? { media } : {}) }),
       prompt: contentPrompt({
         botUsername: options.botUsername,

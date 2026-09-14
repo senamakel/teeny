@@ -295,6 +295,7 @@ export class AlgoCritic implements Critic {
     // a cap well above that, because a rung that runs out mid-array hands
     // back half a JSON object and the read is lost.
     this.model = createChatModel({
+      source: 'critic',
       ...llm,
       temperature: llm.temperature ?? 0.1,
       maxTokens: llm.maxTokens ?? 2_000,

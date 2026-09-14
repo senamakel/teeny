@@ -94,7 +94,7 @@ export class AgentChatModel implements ChatModel {
     // every one of those is a bill and a post the operator did not plan.
     const media = gateMedia(options.media, {})
     return createReactAgent({
-      llm: createChatModel(options.llm),
+      llm: createChatModel({ source: 'chat', ...options.llm }),
       tools: buildTools({ ...options, allowPosting: false, ...(media ? { media } : {}) }),
       prompt: chatPrompt({
         botUsername: options.botUsername,

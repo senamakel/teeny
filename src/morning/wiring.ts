@@ -5,6 +5,7 @@ import { OpenAITextModel } from '../media/reference.js'
 import type { MediaAccess } from '../media/wiring.js'
 import type { SafetyGate } from '../safety/gate.js'
 import type { Critic } from '../critic/algo.js'
+import type { InferenceLedger } from '../ledger/ledger.js'
 import type { Memory, XTools, XTrend } from '../types.js'
 import { ExaNewsSource } from './news.js'
 import { MorningPipeline } from './pipeline.js'
@@ -35,6 +36,8 @@ export function buildMorningPipeline(
     safety?: Pick<SafetyGate, 'outbound'>
     /** The ranker's reader; the pipeline shows it the script and the caption. */
     critic?: Critic
+    /** Where every text step is written down. */
+    ledger?: InferenceLedger
   },
 ): MorningPipeline {
   if (!config.EXA_API_KEY) throw new Error('EXA_API_KEY is not set, so there is no news to read')
@@ -60,6 +63,8 @@ export function buildMorningPipeline(
       baseUrl: config.LLM_BASE_URL,
       apiKey: config.LLM_API_KEY,
       model: config.LLM_MODEL,
+      source: 'morning',
+      ...(options.ledger ? { ledger: options.ledger } : {}),
     }),
     images: options.media.images,
     ...(options.media.videos ? { videos: options.media.videos } : {}),

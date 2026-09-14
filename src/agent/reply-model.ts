@@ -98,7 +98,7 @@ export class AgentReplyModel implements LanguageModel {
     // prompt tells it not to offer one.
     const media = gateMedia(options.media, { images: asked.image, videos: asked.video })
     return createReactAgent({
-      llm: createChatModel(options.llm),
+      llm: createChatModel({ source: 'reply', ...options.llm }),
       tools: buildTools({ ...options, allowPosting: false, ...(media ? { media } : {}) }),
       prompt: draftPrompt({
         botUsername: options.botUsername,

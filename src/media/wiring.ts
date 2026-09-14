@@ -5,6 +5,7 @@ import { MediaBudget, MediaStore } from './store.js'
 import type { ImageGenerator, ImageReader, VideoGenerator } from './types.js'
 import { LadderVideoGenerator, OpenAIVideoGenerator } from './videos.js'
 import { OpenAIVisionReader } from './vision.js'
+import type { InferenceLedger } from '../ledger/ledger.js'
 
 /**
  * Everything media-shaped a turn may reach, built once and shared by every
@@ -32,7 +33,11 @@ export interface MediaAccess {
  */
 export function buildMedia(
   config: Config,
-  options: { log?: (event: string, detail?: Record<string, unknown>) => void } = {},
+  options: {
+    log?: (event: string, detail?: Record<string, unknown>) => void
+    /** Where the vision reads and the sheet's text step are written down. */
+    ledger?: InferenceLedger
+  } = {},
 ): MediaAccess | undefined {
   const visionModel = config.VISION_MODEL.trim()
   const reader = visionModel
@@ -40,6 +45,7 @@ export function buildMedia(
         baseUrl: config.VISION_BASE_URL ?? config.LLM_BASE_URL,
         apiKey: config.VISION_API_KEY ?? config.LLM_API_KEY,
         model: visionModel,
+        ...(options.ledger ? { ledger: options.ledger } : {}),
       })
     : undefined
   const images = config.IMAGE_GEN_ENABLED
@@ -73,6 +79,8 @@ export function buildMedia(
             baseUrl: config.LLM_BASE_URL,
             apiKey: config.LLM_API_KEY,
             model: config.LLM_MODEL,
+            source: 'reference',
+            ...(options.ledger ? { ledger: options.ledger } : {}),
           }),
           cachePath: config.REFERENCE_SHEET_PATH,
           ...(options.log ? { log: options.log } : {}),

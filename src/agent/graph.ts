@@ -19,6 +19,8 @@ import type { TokenMarket } from '../market/market.js'
 import type { MediaAccess } from '../media/wiring.js'
 import type { SafetyGate } from '../safety/gate.js'
 import type { Agent, AgentRunResult, GifSource, Memory, XTools } from '../types.js'
+import { LedgerCallbacks } from '../ledger/callbacks.js'
+import type { InferenceLedger } from '../ledger/ledger.js'
 
 export interface LlmOptions {
   baseUrl: string
@@ -27,6 +29,13 @@ export interface LlmOptions {
   temperature?: number
   /** A cap on the answer. Unset, the endpoint's default. */
   maxTokens?: number
+  /**
+   * Where every call is written down. Unset, nothing is: the ledger is a
+   * record, not a dependency, and a rehearsal script runs without one.
+   */
+  ledger?: InferenceLedger
+  /** What the calls are for, as the ledger names it: `reply`, `chart`, `judge`... */
+  source?: string
 }
 
 export interface AgentOptions {
@@ -91,6 +100,19 @@ export function createChatModel(options: LlmOptions): ChatOpenAI {
     temperature: options.temperature ?? 0.3,
     ...(options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens }),
     configuration: { baseURL: options.baseUrl },
+    // Every call this model makes, whatever graph it is in, leaves a row.
+    ...(options.ledger
+      ? {
+          callbacks: [
+            new LedgerCallbacks({
+              ledger: options.ledger,
+              lane: 'mascot',
+              source: options.source ?? 'agent',
+              model: options.model,
+            }),
+          ],
+        }
+      : {}),
   })
 }
 
@@ -191,7 +213,7 @@ export class LangGraphAgent implements Agent {
   constructor(options: AgentOptions) {
     this.maxSteps = options.maxSteps ?? 24
     this.graph = createReactAgent({
-      llm: createChatModel(options.llm),
+      llm: createChatModel({ source: 'task', ...options.llm }),
       tools: buildTools(options),
       prompt: systemPrompt({
         botUsername: options.botUsername,

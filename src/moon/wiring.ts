@@ -2,6 +2,7 @@ import { renderPersona, type Persona } from '../agent/soul.js'
 import type { Config } from '../config.js'
 import { OpenAITextModel } from '../media/reference.js'
 import type { SafetyGate } from '../safety/gate.js'
+import type { InferenceLedger } from '../ledger/ledger.js'
 import type { Memory, XTools } from '../types.js'
 import { CoinGeckoLeaderboard } from './leaderboard.js'
 import { MoonPipeline } from './pipeline.js'
@@ -21,6 +22,8 @@ export function buildMoonPipeline(
     allowPosting?: boolean
     logger?: { info: (object: unknown, message?: string) => void }
     safety?: Pick<SafetyGate, 'outbound'>
+    /** Where the caption call is written down. */
+    ledger?: InferenceLedger
   },
 ): MoonPipeline {
   return new MoonPipeline({
@@ -29,6 +32,8 @@ export function buildMoonPipeline(
       baseUrl: config.LLM_BASE_URL,
       apiKey: config.LLM_API_KEY,
       model: config.LLM_MODEL,
+      source: 'moon',
+      ...(options.ledger ? { ledger: options.ledger } : {}),
     }),
     memory: options.memory,
     x: options.x,

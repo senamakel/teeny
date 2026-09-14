@@ -1,3 +1,5 @@
+import { recordCompletion, type CompletionResponse } from '../ledger/completion.js'
+import type { InferenceLedger } from '../ledger/ledger.js'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, extname } from 'node:path'
 import type { ImageInput, ImageMimeType, ImageReader } from './types.js'
@@ -69,32 +71,45 @@ export interface TextModel {
 /** A plain chat completion, for the one text step that distils the looks into a sheet. */
 export class OpenAITextModel implements TextModel {
   constructor(
-    private readonly options: { baseUrl: string; apiKey: string; model: string; fetch?: typeof fetch },
+    private readonly options: {
+      baseUrl: string
+      apiKey: string
+      model: string
+      fetch?: typeof fetch
+      /** Where the call is written down, and what it is called there. */
+      ledger?: InferenceLedger
+      source?: string
+    },
   ) {}
 
   async complete(input: { system?: string; prompt: string }): Promise<string> {
     const doFetch = this.options.fetch ?? fetch
+    const startedAt = Date.now()
+    const messages = [
+      ...(input.system ? [{ role: 'system', content: input.system }] : []),
+      { role: 'user', content: input.prompt },
+    ]
     const response = await doFetch(`${this.options.baseUrl.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
       headers: { authorization: `Bearer ${this.options.apiKey}`, 'content-type': 'application/json' },
-      body: JSON.stringify({
-        model: this.options.model,
-        temperature: 0.2,
-        messages: [
-          ...(input.system ? [{ role: 'system', content: input.system }] : []),
-          { role: 'user', content: input.prompt },
-        ],
-      }),
+      body: JSON.stringify({ model: this.options.model, temperature: 0.2, messages }),
       signal: AbortSignal.timeout(90_000),
     })
-    const body = (await response.json().catch(() => ({}))) as {
-      choices?: Array<{ message?: { content?: string } }>
+    const body = (await response.json().catch(() => ({}))) as CompletionResponse & {
       error?: { message?: string }
     }
     if (!response.ok) {
       throw new Error(`text request failed (${response.status}): ${body.error?.message ?? 'no detail'}`)
     }
-    const text = body.choices?.[0]?.message?.content?.trim()
+    await recordCompletion(this.options.ledger, {
+      source: this.options.source ?? 'text',
+      model: this.options.model,
+      messages,
+      response: body,
+      startedAt,
+    })
+    const content = body.choices?.[0]?.message?.content
+    const text = typeof content === 'string' ? content.trim() : undefined
     if (!text) throw new Error('the text model returned nothing')
     return text
   }

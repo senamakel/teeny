@@ -39,7 +39,7 @@ export class MediaGate {
   private readonly model: Judge
 
   constructor(llm: LlmOptions, judge?: Judge) {
-    this.model = judge ?? createChatModel({ ...llm, temperature: 0 }).withStructuredOutput(verdict)
+    this.model = judge ?? createChatModel({ source: 'media-gate', ...llm, temperature: 0 }).withStructuredOutput(verdict)
   }
 
   async asks(text: string): Promise<MediaAsk> {

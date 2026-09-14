@@ -1,3 +1,4 @@
+import type { InferenceLedger } from '../ledger/ledger.js'
 import type { Config } from '../config.js'
 import { NativeChartRenderer, ScreenshotChartRenderer, type ChartRenderer } from '../chart/renderer.js'
 import { GlobalMarketClient } from '../market/global.js'
@@ -28,6 +29,8 @@ export function buildChartAgent(
     safety?: Pick<SafetyGate, 'outbound'>
     /** The ranker's reader, for the post text before post_chart. */
     critic?: Critic
+    /** Where every step of the read is written down. */
+    ledger?: InferenceLedger
   },
 ): ChartHarness {
   const address = config.CHART_TOKEN_ADDRESS
@@ -54,6 +57,7 @@ export function buildChartAgent(
       baseUrl: config.LLM_BASE_URL,
       apiKey: config.LLM_API_KEY,
       model: config.LLM_MODEL,
+      ...(options.ledger ? { ledger: options.ledger } : {}),
     },
     ...(options.persona ? { persona: options.persona } : {}),
     ...(config.EXA_API_KEY ? { exaApiKey: config.EXA_API_KEY } : {}),
