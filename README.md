@@ -640,17 +640,35 @@ everything it made to `MEDIA_OUTPUT_DIR` so it can be looked at.
 1. **Recall.** Two CortexDB queries, every run: what the account has posted about
    recently, and who it is talking to. Same reason as the chart harness: left to
    a tool call it is skipped or doubled.
-2. **Read the news.** One Exa news search per topic in `MORNING_NEWS_TOPICS`
-   (AI, crypto, tech by default), bounded to the last `MORNING_NEWS_DAYS`.
-   Duplicates are folded, and anything political is dropped *before the model
-   sees it* by a blunt word list in `src/morning/news.ts` — elections, wars,
-   named politicians, regulators, sanctions, courts. The prompt says the same
-   thing again; the filter is there so the model cannot be argued out of it by
-   a headline.
-3. **Pick.** The model chooses one story by number, preferring AI, then crypto
-   (never price), then a broader trend, and not one memory says was already
-   covered. On a day with nothing worth posting it answers `0` and names
-   something of the lab's own to talk about instead.
+2. **Read the news, and the timeline.** One Exa news search per topic in
+   `MORNING_NEWS_TOPICS` (AI, crypto, tech by default), bounded to the last
+   `MORNING_NEWS_DAYS`. Next to it, X's own recent search over three corners
+   in `src/morning/timeline.ts` — AI memes and jokes (given twice the room),
+   AI, crypto builders — originals only, English, the last `MORNING_X_HOURS`,
+   `MORNING_X_POSTS_PER_QUERY` posts a corner, plus X's trends list for
+   `MORNING_X_TRENDS_WOEID` (the US) where the tier has it. Each post arrives
+   with its counters and is ordered by what the ranker would have paid for it
+   (a reply or quote is ten likes); a post nobody replied to is dropped as
+   quiet, and one with a contract address, a stranger's cashtag or a giveaway
+   in it as promotion. Duplicates are folded, and anything political is
+   dropped *before the model sees it* by a blunt word list in
+   `src/morning/news.ts` — elections, wars, named politicians, regulators,
+   sanctions, courts. The prompt says the same thing again; the filter is
+   there so the model cannot be argued out of it by a headline. X bills every
+   post read and floors a page at ten, so the timeline costs roughly eighty
+   posts a morning at the default; `MORNING_X_POSTS_PER_QUERY=0` turns it
+   off, and `MORNING_X_QUERIES` (`label=query;…`) replaces the corners.
+3. **Pick.** The model sees both lists as one numbered list — the news, then
+   the timeline, then the trends — and chooses the way the ranker scores:
+   first it shortlists up to three candidates and writes the replies it
+   expects under each (a candidate whose replies it cannot imagine is not
+   one), then it picks, with a strong preference for an AI joke the timeline
+   is already making, then AI news people are arguing about, then crypto
+   (never price), then a broader trend; never at a person, never something
+   memory says was already covered. It also writes the `hook` — the stance
+   people will push on or the blank they will fill — which the scene, the
+   caption and the ranker's reader all get. On a day with nothing worth
+   posting it answers `0` and names something of the lab's own instead.
 4. **Seed and draw.** One of the ten official pictures under `assets/tiny/` is
    chosen at random. The image ladder takes no picture as input, so the seed
    reaches it as words: the vision ladder's description of that one picture,

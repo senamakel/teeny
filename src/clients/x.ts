@@ -6,8 +6,10 @@ import type {
   XCreateOptions,
   XMedia,
   XPost,
+  XPostMetrics,
   XSearchOptions,
   XTools,
+  XTrend,
 } from '../types.js'
 
 interface RawPost {
@@ -18,6 +20,14 @@ interface RawPost {
   createdAt?: string
   inReplyToUserId?: string
   attachments?: { mediaKeys?: string[] | null } | null
+  publicMetrics?: {
+    likeCount?: number
+    replyCount?: number
+    repostCount?: number
+    quoteCount?: number
+    bookmarkCount?: number
+    impressionCount?: number
+  } | null
 }
 
 interface RawUser {
@@ -69,12 +79,25 @@ function toPosts(
         ...(post.createdAt ? { createdAt: post.createdAt } : {}),
         ...(post.inReplyToUserId ? { inReplyToUserId: post.inReplyToUserId } : {}),
         ...(attached.length > 0 ? { media: attached } : {}),
+        ...(post.publicMetrics ? { metrics: toMetrics(post.publicMetrics) } : {}),
       },
     ]
   })
 }
 
-const POST_FIELDS = ['created_at', 'conversation_id', 'text', 'attachments'] as const
+function toMetrics(raw: NonNullable<RawPost['publicMetrics']>): XPostMetrics {
+  return {
+    likes: raw.likeCount ?? 0,
+    replies: raw.replyCount ?? 0,
+    reposts: raw.repostCount ?? 0,
+    quotes: raw.quoteCount ?? 0,
+    ...(raw.bookmarkCount !== undefined ? { bookmarks: raw.bookmarkCount } : {}),
+    ...(raw.impressionCount !== undefined ? { impressions: raw.impressionCount } : {}),
+  }
+}
+
+// The counters ride along on the same request: a field, not a post, so nothing extra is billed.
+const POST_FIELDS = ['created_at', 'conversation_id', 'text', 'attachments', 'public_metrics'] as const
 // Photos carry `url`; videos and GIFs only a preview frame. Both are enough to
 // look at, and neither costs anything extra: media is an expansion, not a post.
 const MEDIA_FIELDS = ['media_key', 'type', 'url', 'preview_image_url', 'alt_text'] as const
@@ -137,6 +160,7 @@ export class XApiClient implements XClient, XTools {
       maxResults: Math.min(Math.max(options.maxResults ?? 10, 10), 100),
       ...(options.sinceId ? { sinceId: options.sinceId } : {}),
       ...(options.startTime ? { startTime: options.startTime } : {}),
+      ...(options.endTime ? { endTime: options.endTime } : {}),
       ...(options.sortOrder ? { sortOrder: options.sortOrder } : {}),
       postFields: [...POST_FIELDS],
       userFields: [...USER_FIELDS],
@@ -155,6 +179,23 @@ export class XApiClient implements XClient, XTools {
     })
     const post = response.data
     return post ? toPosts([post], response.includes?.users, response.includes?.media)[0] : undefined
+  }
+
+  /**
+   * What X says is trending, worldwide (WOEID 1) unless told a place. Not
+   * every access tier has the endpoint; a refusal is an empty list, and the
+   * caller reads the timeline without it.
+   */
+  async trends(options: { woeid?: number; max?: number } = {}): Promise<XTrend[]> {
+    const response = await this.readClient.trends.getByWoeid(options.woeid ?? 1, {
+      maxTrends: Math.min(Math.max(options.max ?? 20, 1), 50),
+      trendFields: ['trend_name', 'tweet_count'],
+    })
+    return (response.data ?? []).flatMap((trend) => {
+      const name = trend.trendName?.trim()
+      if (!name) return []
+      return [{ name, ...(trend.tweetCount !== undefined ? { posts: trend.tweetCount } : {}) }]
+    })
   }
 
   /** Replies/comments on a post, found through its conversation id. */

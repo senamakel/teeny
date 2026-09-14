@@ -186,3 +186,16 @@ describe('the critic config', () => {
     expect(loadConfig({ ...REQUIRED, ALGO_CRITIC: 'false' } as unknown as NodeJS.ProcessEnv).ALGO_CRITIC).toBe(false)
   })
 })
+
+describe('the morning timeline config', () => {
+  it('reads twenty posts a corner over the last day by default, and zero turns it off', () => {
+    const config = loadConfig(REQUIRED as unknown as NodeJS.ProcessEnv)
+    expect(config.MORNING_X_POSTS_PER_QUERY).toBe(20)
+    expect(config.MORNING_X_HOURS).toBe(24)
+    expect(config.MORNING_X_QUERIES).toBe('')
+    expect(config.MORNING_X_TRENDS_WOEID).toBe(23_424_977)
+    const off = loadConfig({ ...REQUIRED, MORNING_X_POSTS_PER_QUERY: '0', MORNING_X_HOURS: '48' } as unknown as NodeJS.ProcessEnv)
+    expect(off.MORNING_X_POSTS_PER_QUERY).toBe(0)
+    expect(off.MORNING_X_HOURS).toBe(48)
+  })
+})

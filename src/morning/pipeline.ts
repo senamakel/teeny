@@ -8,6 +8,8 @@ import type { SafetyGate } from '../safety/gate.js'
 import { renderCritique, type Critic, type Critique } from '../critic/algo.js'
 import type { Memory, XTools } from '../types.js'
 import { gatherNews, renderStories, type NewsSource, type Story } from './news.js'
+import { gatherTimeline, renderTrends, type TimelineQuery, type TimelineSource } from './timeline.js'
+import type { XTrend } from '../types.js'
 import {
   askJson,
   captionPrompt,
@@ -31,6 +33,16 @@ import {
 
 export interface MorningPipelineOptions {
   news: NewsSource
+  /**
+   * X's own timeline, read next to the news: what people are already joking
+   * and arguing about, with the counters that say so. Absent, the morning
+   * is chosen from the news alone.
+   */
+  timeline?: TimelineSource
+  timelineQueries?: TimelineQuery[]
+  /** How far back the timeline is read, and how many posts each corner may contribute (0 turns it off). */
+  timelineHours?: number
+  postsPerQuery?: number
   text: TextModel
   images: ImageGenerator
   /** Absent: the post carries the picture instead of a clip. */
@@ -94,6 +106,9 @@ const VIDEO_ATTEMPTS = 2
 
 export interface MorningResult {
   stories: Story[]
+  /** What the timeline offered, numbered after the news in what the model saw. */
+  posts: Story[]
+  trends: XTrend[]
   droppedAsPolitical: number
   pick: Pick
   story?: Story
@@ -158,25 +173,50 @@ export class MorningPipeline {
       ),
     ])
 
-    // 2. The news, minus politics.
-    const { stories, dropped } = await gatherNews(options.news, {
-      topics: options.topics,
-      days: options.newsDays,
-      perTopic: options.storiesPerTopic,
-    })
-    log('news gathered', { stories: stories.length, droppedAsPolitical: dropped })
+    // 2. The news, minus politics, and the timeline next to it: what X is
+    // already talking about, best conversations first.
+    const [{ stories, dropped: droppedNews }, { posts, dropped: droppedPosts, quiet, trends }] = await Promise.all([
+      gatherNews(options.news, {
+        topics: options.topics,
+        days: options.newsDays,
+        perTopic: options.storiesPerTopic,
+      }),
+      options.timeline
+        ? gatherTimeline(options.timeline, {
+            queries: options.timelineQueries ?? [],
+            hours: options.timelineHours ?? 24,
+            perQuery: options.postsPerQuery ?? 10,
+          })
+        : Promise.resolve({ posts: [] as Story[], dropped: 0, quiet: 0, trends: [] as XTrend[] }),
+    ])
+    const dropped = droppedNews + droppedPosts
+    log('news gathered', { stories: stories.length, posts: posts.length, quiet, trends: trends.length, dropped })
+    if (options.timeline && posts.length === 0) problems.push('the timeline gave nothing; chosen from the news alone')
 
-    // 3. Choose the story.
+    // 3. Choose the subject, from both lists as one.
+    const candidates = [...stories, ...posts]
     const pick = await askJson(options.text, {
-      ...pickPrompt(context, { stories: renderStories(stories), history }),
+      ...pickPrompt(context, {
+        stories: renderStories(stories),
+        timeline: renderStories(posts, stories.length + 1),
+        trends: renderTrends(trends),
+        history,
+      }),
       schema: pickSchema,
     })
-    const story = pick.story > 0 ? stories[pick.story - 1] : undefined
+    const story = pick.story > 0 ? candidates[pick.story - 1] : undefined
     if (pick.story > 0 && !story) {
-      problems.push(`the model chose story ${pick.story} of ${stories.length}; using its headline alone`)
+      problems.push(`the model chose story ${pick.story} of ${candidates.length}; using its headline alone`)
     }
     if (!story && pick.fallback) pick.angle = `${pick.angle} (${pick.fallback})`
-    log('story chosen', { story: pick.story, topic: pick.topic, headline: pick.headline })
+    log('story chosen', {
+      story: pick.story,
+      from: story?.kind === 'x' ? 'timeline' : story ? 'news' : 'own',
+      topic: pick.topic,
+      headline: pick.headline,
+      hook: pick.hook,
+      shortlist: pick.shortlist,
+    })
 
     // 4. A seed picture and the scene, then the picture itself. The seed's
     // description is an illustrator's brief of a whole picture, a thousand
@@ -195,10 +235,14 @@ export class MorningPipeline {
     }
     // The article itself, for the scene: the excerpt is two sentences and a
     // picture built from two sentences is a picture of a desk. Unreadable is
-    // fine; the headline and the picked visual carry it.
-    const article = story
-      ? await options.news.read(story.url, { maxCharacters: ARTICLE_CHARACTERS }).catch(() => '')
-      : ''
+    // fine; the headline and the picked visual carry it. A post from the
+    // timeline is its own article: the text, and what its picture showed.
+    const article =
+      story?.kind === 'x'
+        ? [`${story.source}: ${story.excerpt}`, story.media ? `Their picture: ${story.media}` : undefined].filter(Boolean).join('\n')
+        : story
+          ? await options.news.read(story.url, { maxCharacters: ARTICLE_CHARACTERS }).catch(() => '')
+          : ''
     const scene = await askJson(options.text, {
       ...scenePrompt({ pick, article, seedLook: seed?.look }),
       schema: sceneSchema,
@@ -344,6 +388,8 @@ export class MorningPipeline {
 
     const base: Omit<MorningResult, 'outcome' | 'postedId'> = {
       stories,
+      posts,
+      trends,
       droppedAsPolitical: dropped,
       pick,
       ...(story ? { story } : {}),
@@ -482,7 +528,8 @@ export class MorningPipeline {
         topic: result.pick.topic,
         headline: result.pick.headline,
         angle: result.pick.angle,
-        ...(result.story ? { source: result.story.source, url: result.story.url } : {}),
+        ...(result.pick.hook ? { hook: result.pick.hook } : {}),
+        ...(result.story ? { source: result.story.source, url: result.story.url, from: result.story.kind ?? 'news' } : {}),
         ...(result.seed ? { seed: result.seed.url } : {}),
         scene: result.scene.scene,
         storyCue: result.scene.storyCue,
@@ -506,7 +553,7 @@ function messageOf(error: unknown): string {
 
 /** The story as the critic hears it: enough to judge the caption's subject, not the article. */
 function about(pick: Pick): string {
-  return `Story: ${pick.headline}\nAngle: ${pick.angle}`
+  return [`Story: ${pick.headline}`, `Angle: ${pick.angle}`, pick.hook ? `Hook: ${pick.hook}` : undefined].filter(Boolean).join('\n')
 }
 
 /**

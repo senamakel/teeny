@@ -9,6 +9,18 @@ export interface XPost {
   inReplyToUserId?: string
   /** Pictures and clips attached to the post, when the fetch asked for them. */
   media?: XPostMedia[]
+  /** The public counters, when the fetch asked for them. What the ranker's actions add up to, after the fact. */
+  metrics?: XPostMetrics
+}
+
+/** X's public counters on a post. Bookmarks and impressions are there when X gives them. */
+export interface XPostMetrics {
+  likes: number
+  replies: number
+  reposts: number
+  quotes: number
+  bookmarks?: number
+  impressions?: number
 }
 
 /**
@@ -195,6 +207,14 @@ export interface XSearchOptions {
   /** ISO 8601, within the last 7 days. Ignored by X when sinceId is also set. */
   startTime?: string
   sortOrder?: 'recency' | 'relevancy'
+  /** ISO 8601, within the last 7 days. */
+  endTime?: string
+}
+
+/** One trend as X names it: the phrase, and how many posts carry it when X says. */
+export interface XTrend {
+  name: string
+  posts?: number
 }
 
 export interface XCreateOptions {

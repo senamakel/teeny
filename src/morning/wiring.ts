@@ -5,9 +5,10 @@ import { OpenAITextModel } from '../media/reference.js'
 import type { MediaAccess } from '../media/wiring.js'
 import type { SafetyGate } from '../safety/gate.js'
 import type { Critic } from '../critic/algo.js'
-import type { Memory, XTools } from '../types.js'
+import type { Memory, XTools, XTrend } from '../types.js'
 import { ExaNewsSource } from './news.js'
 import { MorningPipeline } from './pipeline.js'
+import { XTimelineSource, parseTimelineQueries } from './timeline.js'
 
 /**
  * Builds the morning pipeline from configuration.
@@ -22,7 +23,8 @@ export function buildMorningPipeline(
   config: Config,
   options: {
     memory: Memory
-    x: XTools
+    /** The X client; when it can read trends, the morning reads them too. */
+    x: XTools & { trends?(options?: { woeid?: number }): Promise<XTrend[]> }
     media: MediaAccess | undefined
     persona: Persona
     botUsername: string
@@ -41,6 +43,19 @@ export function buildMorningPipeline(
   }
   return new MorningPipeline({
     news: new ExaNewsSource(createExaClient(config.EXA_API_KEY)),
+    ...(config.MORNING_X_POSTS_PER_QUERY > 0
+      ? {
+          timeline: new XTimelineSource({
+            searchPosts: (query, searchOptions) => options.x.searchPosts(query, searchOptions),
+            ...(options.x.trends && config.MORNING_X_TRENDS_WOEID > 0
+              ? { trends: () => options.x.trends!({ woeid: config.MORNING_X_TRENDS_WOEID }) }
+              : {}),
+          }),
+          timelineQueries: parseTimelineQueries(config.MORNING_X_QUERIES),
+          timelineHours: config.MORNING_X_HOURS,
+          postsPerQuery: config.MORNING_X_POSTS_PER_QUERY,
+        }
+      : {}),
     text: new OpenAITextModel({
       baseUrl: config.LLM_BASE_URL,
       apiKey: config.LLM_API_KEY,

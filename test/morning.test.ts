@@ -15,7 +15,17 @@ import { ExaNewsSource, gatherNews, isPolitical, renderStories, type NewsSource,
 import { MorningPipeline, type MorningPipelineOptions, type MorningResult } from '../src/morning/pipeline.js'
 import type { Critic, Critique } from '../src/critic/algo.js'
 import { askJson, extractJson, pickSchema, scriptPrompt } from '../src/morning/stages.js'
-import type { Memory, XMedia, XTools } from '../src/types.js'
+import {
+  XTimelineSource,
+  conversationScore,
+  gatherTimeline,
+  parseTimelineQueries,
+  renderTrends,
+  storyOf,
+  TIMELINE_QUERIES,
+  type TimelineSource,
+} from '../src/morning/timeline.js'
+import type { Memory, XMedia, XPost, XTools } from '../src/types.js'
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0])
 const MP4 = new Uint8Array([0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70])
@@ -153,7 +163,7 @@ describe('the script stage', () => {
     const { system, prompt } = scriptPrompt(
       { persona: 'SOUL\n<skill name="video-script">beats</skill>', botUsername: 'TinyMascot', today: '2026-09-14' },
       {
-        pick: { story: 1, headline: 'A model launched', topic: 'ai', angle: 'local-first has no status page', visual: 'a board' },
+        pick: { shortlist: [], story: 1, headline: 'A model launched', topic: 'ai', hook: '', angle: 'local-first has no status page', visual: 'a board' },
         scene: { concepts: ['a dead status board'], scene: 'A status board over a stage.', storyCue: 'the board', alt: 'a board' },
         seconds: 10,
       },
@@ -334,6 +344,109 @@ function pipeline(overrides: Partial<Omit<MorningPipelineOptions, 'videos'>> & {
   return { run: () => new MorningPipeline(options).run(), x, memory, images, videos, text }
 }
 
+// --- the timeline --------------------------------------------------------------
+
+const MEME: XPost = {
+  id: '77',
+  text: 'the model said "you\'re absolutely right" nine times in one session and i am cooked\nhttps://t.co/x',
+  authorUsername: 'someone',
+  createdAt: '2026-09-14T04:00:00Z',
+  media: [{ type: 'photo', url: 'https://pbs/x.jpg', altText: 'a robot nodding' }],
+  metrics: { likes: 4_200, replies: 310, reposts: 90, quotes: 140, impressions: 900_000 },
+}
+const QUIET: XPost = {
+  id: '78',
+  text: 'new open weights model dropped, benchmarks look fine',
+  authorUsername: 'lab',
+  metrics: { likes: 12, replies: 0, reposts: 1, quotes: 0 },
+}
+
+describe('the timeline', () => {
+  it('turns a post into a story with its counters, its picture, and its own url', () => {
+    const s = storyOf(MEME, TIMELINE_QUERIES[0]!)
+    expect(s).toMatchObject({
+      title: 'the model said "you\'re absolutely right" nine times in one session and i am cooked',
+      url: 'https://x.com/someone/status/77',
+      source: '@someone on X',
+      topic: 'ai memes',
+      kind: 'x',
+      media: 'a robot nodding',
+      metrics: { replies: 310 },
+    })
+    expect(s.excerpt).not.toContain('https://')
+  })
+
+  it("values what a post already earned the way the ranker does: a reply is ten likes", () => {
+    expect(conversationScore(storyOf(QUIET, TIMELINE_QUERIES[1]!))).toBe(12 * 0.5 + 1)
+    expect(conversationScore(storyOf(MEME, TIMELINE_QUERIES[0]!))).toBe(310 * 5 + 140 * 5 + 90 + 4_200 * 0.5)
+  })
+
+  it('reads recent originals by relevancy inside the window, best conversations first, and shrugs at a search that fails', async () => {
+    const searchPosts = vi.fn().mockResolvedValue([QUIET, MEME])
+    const source = new XTimelineSource({ searchPosts }, () => Date.parse('2026-09-14T08:00:00Z'))
+    const found = await source.pulse(TIMELINE_QUERIES[0]!, { hours: 24, limit: 20 })
+    expect(found.map((s) => s.url)).toEqual(['https://x.com/someone/status/77', 'https://x.com/lab/status/78'])
+    expect(searchPosts).toHaveBeenCalledWith(expect.stringContaining('has:media -has:cashtags -is:retweet -is:reply'), {
+      maxResults: 20,
+      startTime: '2026-09-13T07:59:00.000Z',
+      endTime: '2026-09-14T07:59:00.000Z',
+      sortOrder: 'relevancy',
+    })
+    expect(await source.trending()).toEqual([])
+    const broken = new XTimelineSource({ searchPosts: vi.fn().mockRejectedValue(new Error('429')), trends: vi.fn().mockRejectedValue(new Error('403')) })
+    expect(await broken.pulse(TIMELINE_QUERIES[0]!, { hours: 24, limit: 10 })).toEqual([])
+    expect(await broken.trending()).toEqual([])
+  })
+
+  it('gathers every corner with its share, drops promotions and politics, and is off at zero', async () => {
+    const source: TimelineSource = {
+      trending: vi.fn().mockResolvedValue([{ name: 'gm', posts: 100 }, { name: 'OpenAI', posts: 5_000 }]),
+      pulse: vi.fn().mockImplementation(async (query: { label: string }) =>
+        query.label === 'ai memes'
+          ? [storyOf(MEME, TIMELINE_QUERIES[0]!), storyOf({ id: '1', text: 'AIRDROP live, dm me' }, TIMELINE_QUERIES[0]!)]
+          : [storyOf({ id: '2', text: 'the senate hearing on AI was wild' }, TIMELINE_QUERIES[1]!), storyOf(QUIET, TIMELINE_QUERIES[1]!)],
+      ),
+    }
+    const { posts, dropped, quiet, trends } = await gatherTimeline(source, { queries: TIMELINE_QUERIES, hours: 24, perQuery: 10 })
+    // The quiet one -- twelve likes, no replies -- is not a conversation to walk into.
+    expect(posts.map((s) => s.title)).toEqual([MEME.text.split('\n')[0]])
+    expect(dropped).toBe(2)
+    expect(quiet).toBe(1)
+    expect(source.pulse).toHaveBeenCalledWith(TIMELINE_QUERIES[0], { hours: 24, limit: 20 })
+    expect(source.pulse).toHaveBeenCalledWith(TIMELINE_QUERIES[1], { hours: 24, limit: 10 })
+    expect(renderTrends(trends)).toBe('- OpenAI (5,000 posts)\n- gm (100 posts)')
+    expect(await gatherTimeline(source, { queries: TIMELINE_QUERIES, hours: 24, perQuery: 0 })).toEqual({ posts: [], dropped: 0, quiet: 0, trends: [] })
+    // A contract address or somebody else's cashtag is a promotion whatever the words.
+    const shilling: TimelineSource = {
+      trending: vi.fn().mockResolvedValue([]),
+      pulse: vi.fn().mockResolvedValue([
+        storyOf({ id: '3', text: 'hear me out, ca: 0x7927cd547e644db657d95cb04ea678c5feb37777 could run', metrics: { likes: 500, replies: 40, reposts: 0, quotes: 0 } }, TIMELINE_QUERIES[0]!),
+        storyOf({ id: '4', text: '$DARWIN is not an agent, it rewrites itself', metrics: { likes: 500, replies: 40, reposts: 0, quotes: 0 } }, TIMELINE_QUERIES[0]!),
+        storyOf({ id: '5', text: '$TINY holders, the model said we are absolutely right again', metrics: { likes: 500, replies: 40, reposts: 0, quotes: 0 } }, TIMELINE_QUERIES[0]!),
+      ]),
+    }
+    const read = await gatherTimeline(shilling, { queries: [TIMELINE_QUERIES[0]!], hours: 24, perQuery: 10 })
+    expect(read.posts.map((s) => s.url)).toEqual(['https://x.com/i/status/5'])
+    expect(read.dropped).toBe(2)
+  })
+
+  it('numbers the timeline after the news, with the counters under each post', () => {
+    const rendered = renderStories([storyOf(MEME, TIMELINE_QUERIES[0]!)], 3)
+    expect(rendered).toContain('[3] the model said')
+    expect(rendered).toContain('@someone on X, 2026-09-14 (ai memes)')
+    expect(rendered).toContain('picture: a robot nodding')
+    expect(rendered).toContain('310 replies, 140 quotes, 90 reposts, 4.2k likes, 900k views')
+  })
+
+  it('reads corners from configuration, or falls back to the built-in ones', () => {
+    expect(parseTimelineQueries('')).toBe(TIMELINE_QUERIES)
+    expect(parseTimelineQueries('robots=(robot OR robots) -is:retweet; memes')).toEqual([
+      { label: 'robots', query: '(robot OR robots) -is:retweet', topic: 'robots' },
+      { label: 'memes', query: 'memes', topic: 'memes' },
+    ])
+  })
+})
+
 describe('the morning pipeline', () => {
   it('reads, picks, draws from a seed, scripts, films, captions, posts the clip, and remembers', async () => {
     const reference = {
@@ -379,6 +492,49 @@ describe('the morning pipeline', () => {
         published: true,
       }),
     )
+  })
+
+  it('shows the picker the timeline after the news and the trends, and takes a post as the story', async () => {
+    const timeline: TimelineSource = {
+      trending: vi.fn().mockResolvedValue([{ name: 'gm', posts: 100 }]),
+      pulse: vi.fn().mockResolvedValue([storyOf(MEME, TIMELINE_QUERIES[0]!)]),
+    }
+    const text = stagedModel({
+      pick: '{"shortlist": [{"story": 3, "talk": "mine said it eleven times"}], "story": 3, "headline": "everybody is being told they are absolutely right", "topic": "ai", "hook": "the most sycophantic thing a model has said to you this week", "angle": "a model that agrees is not helping", "visual": "a robot nodding"}',
+    })
+    const { run, memory } = pipeline({ timeline, timelineQueries: [TIMELINE_QUERIES[0]!], postsPerQuery: 10, text })
+    const result = await run()
+    expect(result.posts).toHaveLength(1)
+    expect(result.story?.kind).toBe('x')
+    expect(result.problems).toEqual([])
+
+    const calls = (text.complete as ReturnType<typeof vi.fn>).mock.calls as Array<[{ system: string; prompt: string }]>
+    const pick = calls.find(([call]) => call.prompt.includes('"story": number'))![0]
+    expect(pick.prompt).toContain('[1] An open-source agent runtime crossed 40k stars')
+    expect(pick.prompt).toContain('[3] the model said')
+    expect(pick.prompt).toContain('310 replies')
+    expect(pick.prompt).toContain('- gm (100 posts)')
+    expect(pick.prompt).toContain('Strong preference for an AI meme')
+    // The post is its own article: the scene reads the text and the picture, and Exa is not asked.
+    const scene = calls.find(([call]) => call.prompt.includes('"storyCue": string'))![0]
+    expect(scene.prompt).toContain('@someone on X: the model said')
+    expect(scene.prompt).toContain('Their picture: a robot nodding')
+    expect(scene.prompt).toContain('The conversation the post starts: the most sycophantic')
+    const caption = calls.find(([call]) => call.prompt.includes('"text": string'))![0]
+    expect(caption.prompt).toContain('The conversation to start: the most sycophantic')
+    expect(memory.captureActivity).toHaveBeenCalledWith(
+      'morning_post',
+      '9001',
+      expect.objectContaining({ from: 'x', url: 'https://x.com/someone/status/77', hook: expect.stringContaining('sycophantic') }),
+    )
+  })
+
+  it('notes an empty timeline and chooses from the news', async () => {
+    const timeline: TimelineSource = { trending: vi.fn().mockResolvedValue([]), pulse: vi.fn().mockResolvedValue([]) }
+    const { run } = pipeline({ timeline, timelineQueries: TIMELINE_QUERIES })
+    const result = await run()
+    expect(result.outcome).toBe('posted')
+    expect(result.problems).toEqual(['the timeline gave nothing; chosen from the news alone'])
   })
 
   it('tells the picker what it already posted, and the caption who it is talking to', async () => {
@@ -750,8 +906,10 @@ describe('the morning job', () => {
   function result(overrides: Partial<MorningResult> = {}): MorningResult {
     return {
       stories: STORIES,
+      posts: [],
+      trends: [],
       droppedAsPolitical: 1,
-      pick: { story: 1, headline: 'h', topic: 'ai', angle: 'a', visual: 'v' },
+      pick: { shortlist: [], story: 1, headline: 'h', topic: 'ai', hook: '', angle: 'a', visual: 'v' },
       story: STORIES[0]!,
       scene: { concepts: ['a gag'], scene: 's', storyCue: 'c', alt: 'alt' },
       caption: 'gm',
