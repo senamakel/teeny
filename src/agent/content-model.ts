@@ -66,6 +66,7 @@ export class ContentAgent {
         dryRun: options.dryRun,
         channels: item.channels,
         ...(options.persona ? { persona: options.persona } : {}),
+        ...(options.critic ? { critic: true } : {}),
       }),
       responseFormat,
     })

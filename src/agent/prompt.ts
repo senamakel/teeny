@@ -4,6 +4,8 @@ export interface PromptOptions {
   botUsername: string
   dryRun: boolean
   persona?: Persona
+  /** Whether the x_critique tool is on the belt, so the rule to use it is only given when it is. */
+  critic?: boolean
 }
 
 /**
@@ -144,10 +146,23 @@ function identity(options: PromptOptions): string[] {
   ]
 }
 
+/**
+ * The ranker's reader, when it is on the belt. Standalone and quote posts
+ * are what it is for; a reply to a person is a conversation already.
+ */
+const CRITIC_RULE = [
+  '- Before x_post on a standalone or quote post, a caption, or a clip script, call',
+  '  x_critique on the exact text (with what the media shows, if any). It answers with what',
+  '  the For You ranker would do with it and concrete fixes. Rewrite a FLAT or RISKY draft',
+  '  using the fixes and ask once more; keep your voice, take the fix. A reply to a person',
+  '  does not need it unless you are unsure it leaves the conversation open.',
+]
+
 export function systemPrompt(options: PromptOptions): string {
   return [
     ...identity(options),
     ...OPERATING_RULES,
+    ...(options.critic ? CRITIC_RULE : []),
     '',
     ...CONTENT_RULES,
     '',
@@ -334,6 +349,13 @@ export function contentPrompt(options: PromptOptions & { channels: string[] }): 
     'You cannot publish from here; produce the best post and, when the brief calls for a',
     'picture or a clip, make it.',
     '',
+    ...(options.critic
+      ? [
+          '- Before you return, call x_critique on the exact post text (kind "post", or "caption"',
+          '  with what the media shows). Rewrite a FLAT or RISKY draft with its fixes and ask once',
+          '  more. A scheduled post nobody answers is a slot wasted.',
+        ]
+      : []),
     '- Start with recall_memory for what this calendar item posted on earlier days. Do not',
     '  repeat a scene, an angle or a line from any of them; a daily post that says the same',
     '  thing every day trains people to scroll past it.',
