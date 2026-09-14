@@ -276,9 +276,15 @@ else
   remote "GIT_SSH_COMMAND='ssh -i $BRAIN_DEPLOY_KEY -o IdentitiesOnly=yes -o BatchMode=yes' git clone -q $BRAIN_REMOTE $BRAIN_DIR" \
     || die "could not clone $BRAIN_REMOTE into $BRAIN_DIR with $BRAIN_DEPLOY_KEY"
 fi
+# A registry image is pulled so the box runs what is published; an image that
+# only exists on the box (built there by hand while nobody publishes one) is
+# used as it is. Neither is a die unless there is nothing to run at all.
 say "Pulling $OPENCOMPANY_IMAGE"
-remote "docker pull -q $OPENCOMPANY_IMAGE >/dev/null" \
-  || die "could not pull $OPENCOMPANY_IMAGE; set OPENCOMPANY_IMAGE in deploy/.env to an image the box can reach"
+if ! remote "docker pull -q $OPENCOMPANY_IMAGE >/dev/null 2>&1"; then
+  remote "docker image inspect $OPENCOMPANY_IMAGE >/dev/null 2>&1" \
+    || die "could not pull $OPENCOMPANY_IMAGE and the box has no such image; set OPENCOMPANY_IMAGE in deploy/.env to one it can reach"
+  warn "$OPENCOMPANY_IMAGE could not be pulled; using the copy already on the box"
+fi
 # The definition is data the agents rewrite. Validate what is on the box
 # before it is loaded, so a broken self-edit is this line rather than a
 # crash-looping container.
