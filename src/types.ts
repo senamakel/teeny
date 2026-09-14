@@ -250,13 +250,14 @@ export interface XTools {
   postMetrics(ids: string[]): Promise<XPostMetrics[]>
 }
 
-export interface XPostMetrics {
+/**
+ * The counters of one of the account's own posts, read back by id through
+ * the account's client, which is why impressions are always there: X shows
+ * them to the author and to nobody else.
+ */
+export interface XOwnPostMetrics extends XPostMetrics {
   id: string
   impressions: number
-  likes: number
-  replies: number
-  reposts: number
-  quotes: number
 }
 
 export interface AgentRunResult {
