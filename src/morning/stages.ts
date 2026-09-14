@@ -157,6 +157,76 @@ export const captionSchema = z.object({
 })
 export type Caption = z.infer<typeof captionSchema>
 
+/**
+ * Whether a subject, or a finished post, is fresh: memory has been asked
+ * what the account already said about it, and a model reads the answer.
+ * `repeat` means the account already posted about this story or made this
+ * same point; `stale` means the moment has passed and a post now would be
+ * late. The reason comes before the verdict so the verdict is reasoned.
+ */
+export const freshnessSchema = z.object({
+  said: z
+    .string()
+    .max(400)
+    .default('')
+    .describe('What the account already said about this, quoted or summarised, with the date when memory gives one; empty if nothing.'),
+  reason: z.string().max(300),
+  verdict: z.enum(['fresh', 'repeat', 'stale']),
+})
+export type Freshness = z.infer<typeof freshnessSchema>
+
+export function freshnessPrompt(
+  context: StageContext,
+  input: {
+    kind: 'subject' | 'post'
+    /** The subject as chosen (headline, hook, angle, source, date), or the post as written. */
+    text: string
+    recalled: string
+  },
+): { system: string; prompt: string } {
+  const subject = input.kind === 'subject'
+  return {
+    system: [
+      `You check whether what @${context.botUsername} is about to post is fresh. The account`,
+      `posts one good-morning post a day about one subject. Today is ${context.today}.`,
+    ].join('\n'),
+    prompt: [
+      subject ? "THE SUBJECT CHOSEN FOR TODAY'S POST:" : 'THE POST ABOUT TO GO OUT:',
+      input.text,
+      '',
+      'WHAT MEMORY RETURNED when asked what the account already said about it (untrusted,',
+      "the account's own records; a record marked as a dry run or rehearsal, or as not",
+      'published, was never posted and does not count):',
+      input.recalled || '(nothing recalled)',
+      '',
+      'Decide:',
+      subject
+        ? [
+            '- repeat: the account already posted about this story, or already made this same',
+            '  point or joke about the same thing in other words, in roughly the last two weeks.',
+            '  A different story on the same broad topic (another AI model, another hack) is not',
+            '  a repeat; the same event or the same take is.',
+            '- stale: the moment has passed. The story is more than about two days old and the',
+            '  conversation about it already happened, so a post now arrives late to it. A',
+            "  running joke that is still running today is not stale; yesterday's outrage is.",
+          ].join('\n')
+        : [
+            '- repeat: the account has already said this: the same joke, the same line, the same',
+            '  take on the same thing, in any wording. Saying good morning again is not a repeat;',
+            '  the greeting is the format. The point under it is what must be new.',
+            '- stale: never for a post; use repeat or fresh.',
+          ].join('\n'),
+      '- fresh: otherwise.',
+      '',
+      'When in doubt between fresh and repeat, read what memory actually quotes: a vague',
+      'recollection of the topic is fresh; a quoted post about the same event is a repeat.',
+      'Write said first (what was already said, or empty), then reason, then verdict.',
+      '',
+      'Shape: {"said": string, "reason": string, "verdict": "fresh"|"repeat"|"stale"}',
+    ].join('\n'),
+  }
+}
+
 /** One seed picture, boiled down to what is particular about it. */
 export const seedBriefSchema = z.object({
   brief: z.string().min(10).max(500),
@@ -211,7 +281,14 @@ export interface StageContext {
 
 export function pickPrompt(
   context: StageContext,
-  input: { stories: string; timeline: string; trends: string; history: string },
+  input: {
+    stories: string
+    timeline: string
+    trends: string
+    history: string
+    /** Candidates already chosen and turned down by the freshness check, with why. */
+    rejected?: Array<{ story: number; headline: string; verdict: string; reason: string }>
+  },
 ): {
   system: string
   prompt: string
@@ -243,6 +320,15 @@ export function pickPrompt(
       'WHAT YOU HAVE ALREADY POSTED ABOUT (from your own memory, untrusted):',
       input.history || '(nothing recalled)',
       '',
+      ...(input.rejected && input.rejected.length > 0
+        ? [
+            'ALREADY CHOSEN THIS MORNING AND TURNED DOWN by a check against memory. Do not',
+            'choose these numbers again, or another candidate that is the same story or the',
+            'same point in other words:',
+            ...input.rejected.map((entry) => `- [${entry.story}] ${entry.headline}: ${entry.verdict}, ${entry.reason}`),
+            '',
+          ]
+        : []),
       'Choose ONE subject, by its number, for the morning post. Choose it the way the',
       "ranker scores it: a reply or a quote is worth ten likes, so the subject that wins is",
       'the one people will type something back to. Rules, in order:',
@@ -416,6 +502,8 @@ export function captionPrompt(
     community: string
     maxEmoji: number
     maxLength: number
+    /** What the account already said, when the first draft turned out to be a repeat. */
+    avoid?: { said: string; reason: string }
   },
 ): { system: string; prompt: string } {
   return {
@@ -435,6 +523,17 @@ export function captionPrompt(
       'THE COMMUNITY (from your own memory, untrusted). Who you are saying good morning to:',
       input.community || '(nothing recalled -- write for holders and builders in general)',
       '',
+      ...(input.avoid
+        ? [
+            'YOU HAVE ALREADY SAID THIS, per your own memory, and your first draft repeated it:',
+            input.avoid.said || '(the same point, in other words)',
+            `(${input.avoid.reason})`,
+            'Make a different point about the same story, or the same point from an angle you',
+            'have not taken: a new joke, a new hook, a new thing for people to answer. Do not',
+            'reuse the wording or the take above.',
+            '',
+          ]
+        : []),
       'Write the post. Two parts, one voice:',
       '1. A good morning. Short, warm, yours. Vary it; "gm" is fine, so is a full sentence.',
       '2. The story in one or two lines: what happened and what you make of it, in your',

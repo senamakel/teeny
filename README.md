@@ -669,6 +669,16 @@ everything it made to `MEDIA_OUTPUT_DIR` so it can be looked at.
    people will push on or the blank they will fill — which the scene, the
    caption and the ranker's reader all get. On a day with nothing worth
    posting it answers `0` and names something of the lab's own instead.
+   Then **the freshness check**: the chosen subject goes to memory by name
+   (headline, hook, source, date) and a model reads what comes back —
+   `repeat` if the account already posted about this story or made this
+   point in other words in the last two weeks, `stale` if the story is a
+   couple of days old and its conversation already happened, `fresh`
+   otherwise. A rehearsal in memory does not count as posted. A repeat or a
+   stale pick is turned down before anything is drawn, and the picker chooses
+   again with the rejected numbers and the reason in front of it, up to three
+   picks; the third stands whatever the verdict, with the problem noted. A
+   memory that cannot be reached is a problem line, not a missing morning.
 4. **Seed and draw.** One of the ten official pictures under `assets/tiny/` is
    chosen at random. The image ladder takes no picture as input, so the seed
    reaches it as words: the vision ladder's description of that one picture,
@@ -700,8 +710,11 @@ everything it made to `MEDIA_OUTPUT_DIR` so it can be looked at.
    given, never a price), and the `$TINY` cashtag worked in where it reads
    naturally, once. It does not describe the clip: the clip is the joke and
    the words are the greeting. Under 280 characters,
-   the emoji cap, no URLs, then through the house style like any other post,
-   then through the content filter like any other draft: a link it cuts stays
+   the emoji cap, no URLs, then through the house style like any other post.
+   The finished post is checked against memory the same way the subject was —
+   the subject was fresh, but the joke on it may be one the account has made —
+   and a repeat is rewritten once with what was already said in the prompt.
+   Then through the content filter like any other draft: a link it cuts stays
    cut, and a caption it holds is a missing morning, journaled as `held` and
    kept for [review](#reviewing-what-it-held) on the `morning` surface. Before
    the filter, the [ranker's reader](#the-rankers-reader) reads it, as it read
