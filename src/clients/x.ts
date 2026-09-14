@@ -7,6 +7,7 @@ import type {
   XMedia,
   XPost,
   XPostMetrics,
+  XOwnPostMetrics,
   XSearchOptions,
   XTools,
   XTrend,
@@ -88,11 +89,11 @@ function toPosts(
 function toMetrics(id: string, raw: NonNullable<RawPost['publicMetrics']>): XPostMetrics {
   return {
     id,
-    impressions: raw.impressionCount ?? 0,
     likes: raw.likeCount ?? 0,
     replies: raw.replyCount ?? 0,
     reposts: raw.repostCount ?? 0,
     quotes: raw.quoteCount ?? 0,
+    ...(raw.impressionCount !== undefined ? { impressions: raw.impressionCount } : {}),
     ...(raw.bookmarkCount !== undefined ? { bookmarks: raw.bookmarkCount } : {}),
   }
 }
@@ -300,8 +301,8 @@ export class XApiClient implements XClient, XTools {
    * client rather than the app's: impression counts are the account's to
    * see on its own posts, and the bearer is not the account.
    */
-  async postMetrics(ids: string[]): Promise<XPostMetrics[]> {
-    const metrics: XPostMetrics[] = []
+  async postMetrics(ids: string[]): Promise<XOwnPostMetrics[]> {
+    const metrics: XOwnPostMetrics[] = []
     for (let offset = 0; offset < ids.length; offset += 100) {
       const response = await this.writeClient.posts.getByIds(ids.slice(offset, offset + 100), {
         postFields: ['public_metrics', 'created_at'],
