@@ -47,6 +47,10 @@ const schema = z.object({
   AGENT_MODE: z.enum(['langgraph', 'simple']).default('langgraph'),
   AGENT_MAX_STEPS: z.coerce.number().int().min(1).max(100).default(24),
   AGENT_API_TOKEN: z.string().min(16).optional(),
+  // A copy of every verified X delivery is POSTed here, body and signature
+  // untouched, after X has been answered. Unset, nothing is forwarded.
+  WEBHOOK_FORWARD_URL: z.url().optional(),
+  WEBHOOK_FORWARD_TOKEN: z.string().min(16).optional(),
   SOUL_PATH: z.string().default('SOUL.md'),
   CONTEXT_PATH: z.string().default('CONTEXT.md'),
   SKILLS_DIR: z.string().default('skills'),

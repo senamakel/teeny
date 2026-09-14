@@ -1181,7 +1181,8 @@ number to paste into the terminal and no callback URL has to be registered.
 ## X webhook
 
 The service must be behind public HTTPS, and X has to be told where. In
-production that is `https://teeny.tinyhumans.ai/webhooks/x`.
+production that is `https://teeny.enamakel.com/api/webhooks/x`, which host
+nginx routes to the agent's `/webhooks/x`.
 
 ```sh
 npm run webhook                                   # where X delivers today
@@ -1192,8 +1193,15 @@ npm run webhook -- --set <url> --confirm          # do it
 The endpoint implements X's challenge-response check and validates the
 `x-twitter-webhooks-signature` header before accepting activity. `--set`
 registers the URL, which is when X sends the CRC challenge, and subscribes the
-account; the app is allowed one webhook, so an existing one is retired first
-and put back if the new registration is refused.
+account's mention, reply and quote events to it through the X Activity API
+(the older Account Activity API is deprecated and no longer takes new
+webhooks); the app is allowed one webhook, so an existing one is retired
+first, subscriptions and all, and put back if the new registration is refused.
+
+Since the app can deliver to one place only, `WEBHOOK_FORWARD_URL` sends a
+copy of every verified delivery on to another service -- the body as X sent
+it, signature header included, plus `WEBHOOK_FORWARD_TOKEN` as a bearer when
+set -- after X has been answered and without waiting for the receiver.
 
 ## Commands
 

@@ -257,3 +257,194 @@ describe('retweets', () => {
     await app.close()
   })
 })
+
+describe('forwarding a delivery', () => {
+  const payload = JSON.stringify({ favorite_events: [{ id: '456' }] })
+  const signature = `sha256=${createHmac('sha256', 'secret').update(payload).digest('base64')}`
+
+  it('sends a verified delivery on, body and signature untouched, after answering X', async () => {
+    const forward = vi.fn().mockResolvedValue(undefined)
+    const app = buildServer({ memory: memory(), consumerSecret: 'secret', forwarder: { forward } })
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhooks/x',
+      headers: { 'content-type': 'application/json', 'x-twitter-webhooks-signature': signature },
+      payload,
+    })
+    expect(response.statusCode).toBe(200)
+    expect(forward).toHaveBeenCalledTimes(1)
+    const [body, header] = forward.mock.calls[0] as [Buffer, string]
+    expect(body.toString('utf8')).toBe(payload)
+    expect(header).toBe(signature)
+    await app.close()
+  })
+
+  it('forwards nothing X did not sign', async () => {
+    const forward = vi.fn().mockResolvedValue(undefined)
+    const app = buildServer({ memory: memory(), consumerSecret: 'secret', forwarder: { forward } })
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhooks/x',
+      headers: { 'content-type': 'application/json', 'x-twitter-webhooks-signature': 'sha256=nope' },
+      payload,
+    })
+    expect(response.statusCode).toBe(401)
+    expect(forward).not.toHaveBeenCalled()
+    await app.close()
+  })
+
+  it('answers X even when the receiver is slow or failing', async () => {
+    let release: () => void = () => {}
+    const forward = vi.fn().mockReturnValue(new Promise<void>((resolve) => { release = resolve }))
+    const app = buildServer({ memory: memory(), consumerSecret: 'secret', forwarder: { forward } })
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhooks/x',
+      headers: { 'content-type': 'application/json', 'x-twitter-webhooks-signature': signature },
+      payload,
+    })
+    expect(response.statusCode).toBe(200)
+    release()
+    const failing = vi.fn().mockRejectedValue(new Error('receiver down'))
+    const app2 = buildServer({ memory: memory(), consumerSecret: 'secret', forwarder: { forward: failing } })
+    const again = await app2.inject({
+      method: 'POST',
+      url: '/webhooks/x',
+      headers: { 'content-type': 'application/json', 'x-twitter-webhooks-signature': signature },
+      payload,
+    })
+    expect(again.statusCode).toBe(200)
+    await app.close()
+    await app2.close()
+  })
+})
+
+describe('the forwarder', () => {
+  it('posts the bytes with the signature and a bearer, and swallows a refusal', async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = []
+    const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init: init ?? {} })
+      return new Response('no', { status: 503 })
+    })
+    const warn = vi.fn()
+    const { buildWebhookForwarder } = await import('../src/webhooks/forward.js')
+    const forwarder = buildWebhookForwarder({
+      url: 'https://backend.example/x',
+      token: 'a-token-of-sixteen-chars',
+      fetch: fetchMock as unknown as typeof fetch,
+      logger: { info: vi.fn(), warn },
+    })
+    await expect(forwarder.forward(Buffer.from('{"a":1}'), 'sha256=abc')).resolves.toBeUndefined()
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.url).toBe('https://backend.example/x')
+    expect(calls[0]!.init.method).toBe('POST')
+    expect(calls[0]!.init.headers).toMatchObject({
+      'content-type': 'application/json',
+      'x-twitter-webhooks-signature': 'sha256=abc',
+      authorization: 'Bearer a-token-of-sixteen-chars',
+    })
+    expect(Buffer.from(calls[0]!.init.body as Uint8Array).toString('utf8')).toBe('{"a":1}')
+    expect(warn).toHaveBeenCalledWith(expect.objectContaining({ status: 503 }), 'webhook copy refused')
+  })
+
+  it('survives a receiver that throws', async () => {
+    const { buildWebhookForwarder } = await import('../src/webhooks/forward.js')
+    const warn = vi.fn()
+    const forwarder = buildWebhookForwarder({
+      url: 'https://backend.example/x',
+      fetch: vi.fn().mockRejectedValue(new Error('ECONNREFUSED')) as unknown as typeof fetch,
+      logger: { info: vi.fn(), warn },
+    })
+    await expect(forwarder.forward(Buffer.from('{}'), undefined)).resolves.toBeUndefined()
+    expect(warn).toHaveBeenCalledWith(expect.objectContaining({ err: 'ECONNREFUSED' }), 'webhook copy not delivered')
+  })
+})
+
+describe('X Activity API deliveries', () => {
+  const BOT = '2094854245468000256'
+  const options = { botUserId: BOT, botUsername: 'TinyMascot' }
+
+  function event(eventType: string, payload: Record<string, unknown>, includes?: Record<string, unknown>) {
+    return {
+      data: {
+        event_type: eventType,
+        event_uuid: '777',
+        filter: { user_id: BOT },
+        tag: `teeny ${eventType}`,
+        payload,
+        ...(includes ? { includes } : {}),
+      },
+    }
+  }
+
+  it('reads a mention out of the envelope, with the author from includes', async () => {
+    const { mentionsFromActivity } = await import('../src/webhooks/activity.js')
+    const mentions = mentionsFromActivity(
+      event(
+        'post.mention.create',
+        { id: '900', text: 'hey @TinyMascot', author_id: '42', created_at: '2026-09-14T09:40:00.000Z' },
+        { users: [{ id: '42', username: 'someone' }] },
+      ),
+      options,
+    )
+    expect(mentions).toEqual([
+      { id: '900', text: 'hey @TinyMascot', authorId: '42', authorUsername: 'someone', createdAt: '2026-09-14T09:40:00.000Z' },
+    ])
+  })
+
+  it('takes a reply to the account as one, and keeps the reply target', async () => {
+    const { mentionsFromActivity } = await import('../src/webhooks/activity.js')
+    const mentions = mentionsFromActivity(
+      event('post.reply.create', { id: '901', text: 'nice one', author_id: '42', in_reply_to_user_id: BOT }),
+      options,
+    )
+    expect(mentions).toEqual([{ id: '901', text: 'nice one', authorId: '42', inReplyToUserId: BOT }])
+  })
+
+  it('answers neither the account itself nor an event that is not a post', async () => {
+    const { mentionsFromActivity } = await import('../src/webhooks/activity.js')
+    expect(
+      mentionsFromActivity(event('post.mention.create', { id: '902', text: '@TinyMascot me', author_id: BOT }), options),
+    ).toEqual([])
+    expect(mentionsFromActivity(event('like.create', { id: '903', text: '@TinyMascot', author_id: '42' }), options)).toEqual([])
+    expect(mentionsFromActivity(event('post.mention.create', {}), options)).toEqual([])
+  })
+
+  it('captures the other events under their event type, and no post events', async () => {
+    const { activityEntries, captureWebhookActivity } = await import('../src/webhooks/activity.js')
+    expect(activityEntries(event('follow.follow', { source: { id: '42' }, target: { id: BOT } }))).toEqual([
+      { kind: 'follow.follow', id: '777', payload: { source: { id: '42' }, target: { id: BOT } } },
+    ])
+    const store = memory()
+    await captureWebhookActivity(store, event('post.mention.create', { id: '904', text: '@TinyMascot', author_id: '42' }))
+    expect(store.captureActivity).not.toHaveBeenCalled()
+    await captureWebhookActivity(store, event('like.create', { id: '905', author_id: '42' }))
+    expect(store.captureActivity).toHaveBeenCalledWith('like.create', '905', { id: '905', author_id: '42' })
+  })
+
+  it('queues a mention from the new envelope end to end', async () => {
+    const payload = JSON.stringify(
+      event('post.mention.create', { id: '906', text: 'yo @TinyMascot', author_id: '42' }, { users: [{ id: '42', username: 'someone' }] }),
+    )
+    const cache = vi.fn().mockResolvedValue(1)
+    const app = buildServer({
+      memory: memory(),
+      consumerSecret: 'secret',
+      queue: { cache, takePending: vi.fn(), markReplied: vi.fn(), markFailed: vi.fn(), requeueApproved: vi.fn(), counts: vi.fn(), close: vi.fn() },
+      botUserId: async () => BOT,
+      botUsername: 'TinyMascot',
+    })
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhooks/x',
+      headers: {
+        'content-type': 'application/json',
+        'x-twitter-webhooks-signature': `sha256=${createHmac('sha256', 'secret').update(payload).digest('base64')}`,
+      },
+      payload,
+    })
+    expect(response.statusCode).toBe(200)
+    expect(cache).toHaveBeenCalledWith([{ id: '906', text: 'yo @TinyMascot', authorId: '42', authorUsername: 'someone' }])
+    await app.close()
+  })
+})

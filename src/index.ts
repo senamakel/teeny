@@ -37,6 +37,7 @@ import { AlgoCritic } from './critic/algo.js'
 import { ContentAgent } from './agent/content-model.js'
 import { loadCalendar } from './calendar/calendar.js'
 import { CalendarJob } from './jobs/calendar-job.js'
+import { buildWebhookForwarder } from './webhooks/forward.js'
 
 const config = loadConfig()
 const memory = new CortexMemory(
@@ -241,9 +242,21 @@ async function release(hold: Hold): Promise<string> {
 // Every role writes to it and the ingest role serves it, so it lives in the
 // Mongo all three containers already share.
 const journal = new MongoJournal({ uri: config.MONGO_URI, database: config.MONGO_DATABASE })
+const forwarder = config.WEBHOOK_FORWARD_URL
+  ? buildWebhookForwarder({
+      url: config.WEBHOOK_FORWARD_URL,
+      ...(config.WEBHOOK_FORWARD_TOKEN ? { token: config.WEBHOOK_FORWARD_TOKEN } : {}),
+      // The logger does not exist yet; the closure runs only after `app` does.
+      logger: {
+        info: (detail, event) => app.log.info(detail, event),
+        warn: (detail, event) => app.log.warn(detail, event),
+      },
+    })
+  : undefined
 const app = buildServer({
   memory,
   consumerSecret: config.X_API_SECRET,
+  ...(forwarder ? { forwarder } : {}),
   logger: { level: config.LOG_LEVEL },
   ...(useAgent ? { agent: new LangGraphAgent({ ...agentOptions, ...(critic ? { critic } : {}) }) } : {}),
   ...(config.AGENT_API_TOKEN ? { agentToken: config.AGENT_API_TOKEN } : {}),

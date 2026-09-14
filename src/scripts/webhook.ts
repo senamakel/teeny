@@ -20,6 +20,15 @@ import { loadConfig } from '../config.js'
  * is no moment where both URLs are registered. The account is without a webhook
  * in between; the cron poll is what covers that, and is why this is survivable.
  *
+ * Delivery is subscribed through the X Activity API (`/2/activity/subscriptions`,
+ * one subscription per event type, each naming the webhook), not the older
+ * Account Activity API: that one is deprecated, and since 2026-09-14 answers
+ * every subscription call for a freshly created webhook with "Webhook with
+ * specified ID not found, or not associated with app ID" -- it no longer
+ * associates new webhooks at all. The events are `post.mention.create`,
+ * `post.reply.create` and `post.quote.create`, the three ways somebody writes
+ * a post about the account; the queue folds a reply that also mentions.
+ *
  * The endpoints disagree about credentials, one by one rather than by family.
  * Most want the app-only bearer; creating a subscription acts for the account
  * and wants OAuth 1.0a user context. There is no rule to memorise, so every
@@ -130,9 +139,14 @@ async function call(
   }
   let result = await attempt(method, path, 'bearer', options.body)
 
-  // X names the credential it wanted in the 403 itself. Believe it rather than
-  // keeping a table of which endpoint takes which.
-  if (!result.ok && result.status === 403 && /OAuth 1\.0a/i.test(result.detail)) {
+  // X names the credential it wanted in the refusal itself. Believe it rather
+  // than keeping a table of which endpoint takes which: the older endpoints
+  // say so in a 403, the activity ones in a 400 `OauthAccessTokenRequired`.
+  if (
+    !result.ok &&
+    ((result.status === 403 && /OAuth 1\.0a/i.test(result.detail)) ||
+      (result.status === 400 && /OauthAccessTokenRequired|user access token/i.test(result.detail)))
+  ) {
     result = await attempt(method, path, 'oauth1', options.body)
   }
 
@@ -152,13 +166,61 @@ async function list(): Promise<Webhook[]> {
   return (response.data as Webhook[] | undefined) ?? []
 }
 
-async function subscriberIds(webhookId: string): Promise<string[]> {
-  const response = await call(
-    'GET',
-    `/2/account_activity/webhooks/${encodeURIComponent(webhookId)}/subscriptions/all/list`,
-  )
-  const data = response.data as { subscriptions?: Array<{ user_id?: string }> } | undefined
-  return (data?.subscriptions ?? []).flatMap((entry) => (entry.user_id ? [entry.user_id] : []))
+/** The three events that are somebody writing a post about the account. */
+const EVENTS = ['post.mention.create', 'post.reply.create', 'post.quote.create']
+
+interface Subscription {
+  subscription_id?: string
+  event_type?: string
+  webhook_id?: string
+  filter?: { user_id?: string }
+  tag?: string
+}
+
+async function subscriptions(): Promise<Subscription[]> {
+  const response = await call('GET', '/2/activity/subscriptions')
+  return (response.data as Subscription[] | undefined) ?? []
+}
+
+/** Subscriptions bound to one webhook, as "event_type for user". */
+async function subscribedTo(webhookId: string): Promise<Subscription[]> {
+  return (await subscriptions()).filter((entry) => entry.webhook_id === webhookId)
+}
+
+const describeSubscription = (entry: Subscription): string =>
+  `${entry.event_type} for ${entry.filter?.user_id ?? '?'}`
+
+/**
+ * One subscription per event, for the account, to this webhook. Existing
+ * ones are kept; only the missing events are created. The account is named
+ * by id in the filter, which is what makes the call user context.
+ */
+async function subscribe(webhookId: string, userId: string): Promise<Subscription[]> {
+  const have = await subscribedTo(webhookId)
+  for (const eventType of EVENTS) {
+    if (have.some((entry) => entry.event_type === eventType && entry.filter?.user_id === userId)) continue
+    await call('POST', '/2/activity/subscriptions', {
+      body: { event_type: eventType, filter: { user_id: userId }, webhook_id: webhookId, tag: `teeny ${eventType}` },
+    })
+    console.log(`  subscribed ${eventType}`)
+  }
+  return subscribedTo(webhookId)
+}
+
+/** Subscriptions left pointing at a webhook that is going away. */
+async function unsubscribe(webhookId: string): Promise<void> {
+  for (const entry of await subscribedTo(webhookId)) {
+    if (!entry.subscription_id) continue
+    await call('DELETE', `/2/activity/subscriptions/${encodeURIComponent(entry.subscription_id)}`)
+    console.log(`  unsubscribed ${describeSubscription(entry)}`)
+  }
+}
+
+async function accountId(): Promise<string> {
+  const response = await call('GET', '/2/users/me')
+  const id = (response.data as { id?: string } | undefined)?.id
+  if (!id) throw new Error(`could not read the account id: ${JSON.stringify(response)}`)
+  return id
 }
 
 async function describe(hooks: Webhook[]): Promise<void> {
@@ -171,8 +233,8 @@ async function describe(hooks: Webhook[]): Promise<void> {
     console.log(`    id ${hook.id}   valid ${hook.valid}   created ${hook.created_at ?? 'unknown'}`)
     if (!hook.id) continue
     try {
-      const subscribers = await subscriberIds(hook.id)
-      console.log(`    subscriptions: ${subscribers.join(', ') || 'none'}`)
+      const bound = await subscribedTo(hook.id)
+      console.log(`    subscriptions: ${bound.map(describeSubscription).join(', ') || 'none'}`)
     } catch (error) {
       console.log(`    subscriptions unreadable: ${(error as Error).message}`)
     }
@@ -194,6 +256,7 @@ async function main(): Promise<void> {
       console.log(`Would delete webhook ${deleteId}. Re-run with --confirm.`)
       return
     }
+    await unsubscribe(deleteId)
     await call('DELETE', `/2/webhooks/${encodeURIComponent(deleteId)}`)
     console.log(`Deleted ${deleteId}.`)
     return
@@ -231,6 +294,7 @@ async function main(): Promise<void> {
     for (const hook of stale) {
       if (!hook.id) continue
       console.log(`Retiring ${hook.url} (${hook.id}) ...`)
+      await unsubscribe(hook.id)
       await call('DELETE', `/2/webhooks/${encodeURIComponent(hook.id)}`)
     }
     console.log(`Registering ${target} ...`)
@@ -253,26 +317,18 @@ async function main(): Promise<void> {
   }
 
   console.log('Subscribing the account ...')
-  try {
-    await call(
-      'POST',
-      `/2/account_activity/webhooks/${encodeURIComponent(webhookId)}/subscriptions/all`,
-      { body: {} },
-    )
-  } catch (error) {
-    // A duplicate subscription is an error rather than a no-op here, and that
-    // is a success for our purposes. The read-back below is the real check.
-    console.log(`  (${(error as Error).message})`)
-  }
-
-  const subscribers = await subscriberIds(webhookId)
-  if (subscribers.length === 0) {
+  const userId = await accountId()
+  const bound = await subscribe(webhookId, userId)
+  const missing = EVENTS.filter(
+    (eventType) => !bound.some((entry) => entry.event_type === eventType && entry.filter?.user_id === userId),
+  )
+  if (missing.length > 0) {
     throw new Error(
-      'the new webhook has no subscription, so X will deliver nothing to it. ' +
+      `the webhook is missing subscriptions for ${missing.join(', ')}, so X will not deliver those. ` +
         'Subscribe with an access token belonging to the bot account.',
     )
   }
-  console.log(`  subscribed: ${subscribers.join(', ')}`)
+  console.log(`  subscribed: ${bound.map(describeSubscription).join(', ')}`)
 
   console.log('\nDone. X now delivers to:')
   await describe(await list())
