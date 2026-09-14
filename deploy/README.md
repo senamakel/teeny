@@ -82,11 +82,14 @@ checkout owner's:
   (`OPENCOMPANY_INFERENCE_URL` / `OPENCOMPANY_INFERENCE_KEY`, from the
   environment, never from the checkout). The console is served by the host at
   `/` on loopback only.
-- `brain-sync` (`deploy/brain-sync/`) pulls, stages, gates and pushes. The
+- `brain-sync` (`brain/sync/`, built from the submodule pinned here -- never
+  from the live checkout the agents can write to) pulls, stages, gates and
+  pushes. The
   gates: `gitleaks` over the staged tree, then a grep of the staged diff for
   every value in the two `.env` files, because the ladder key has no shape a
   scanner recognises. A hit unstages and logs `REFUSED`; nothing is
-  committed. `docker exec teeny-brain-sync-1 sync-now` runs a tick at once.
+  committed. It pushes as the teenydroid account (`BRAIN_SSH_KEY`).
+  `docker exec teeny-brain-sync-1 sync-now` runs a tick at once.
 
 ### What is and is not public
 
@@ -120,11 +123,14 @@ docker compose -f compose.prod.yaml start opencompany
 
 ### One-time setup on the box
 
-1. A write deploy key for `teenydroid/brain`, at `BRAIN_DEPLOY_KEY`:
-   ```sh
-   ssh-keygen -t ed25519 -N '' -C 'teeny brain-sync' -f ~/.ssh/brain_deploy_key
-   gh repo deploy-key add ~/.ssh/brain_deploy_key.pub -R teenydroid/brain --allow-write -t brain-sync
-   ```
+1. The teenydroid account's SSH key. `deploy.sh` generates `BRAIN_SSH_KEY`
+   on the box if it is missing and prints the public half until GitHub
+   accepts it; add it to the **teenydroid** account at
+   `https://github.com/settings/keys`. Nothing else on the box changes: the
+   sidecar and `deploy.sh` pass the key explicitly, `github.com` in
+   `~/.ssh/config` keeps using `droid`'s own key and account, and only the
+   opt-in alias `git@github-teenydroid:` uses the teenydroid key. `gh` on
+   the box stays signed in as it was. The private key never leaves the box.
 2. `OPENCOMPANY_IMAGE`, `BRAIN_ADMIN_EMAIL`, `BRAIN_UID`/`BRAIN_GID` in
    `deploy/.env`. There is no OpenCompany image published yet as of
    2026-09-14; the value is whatever tinyhumansai publishes, built with at

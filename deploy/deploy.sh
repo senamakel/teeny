@@ -34,7 +34,11 @@
 #     once, outside the rsynced tree, and never synced or deleted from here;
 #     the OpenCompany image is pulled, and the definition is checked before
 #     the stack is started so a broken self-edit fails the deploy, not the
-#     boot.
+#     boot. Only brain/sync -- the sidecar's image, pinned by the submodule --
+#     is rsynced, so the sidecar is always built from a reviewed copy.
+#  4. The SSH key brain-sync pushes with is the teenydroid account's key,
+#     generated on the box and never leaving it; a person adds the public
+#     half to the account once, and this script says whether GitHub knows it.
 
 set -euo pipefail
 
@@ -124,7 +128,7 @@ for required in MONGO_ROOT_PASSWORD CORTEX_API_KEY LADDER_API_KEY OPENCOMPANY_IM
 done
 BRAIN_DIR="$(cfg BRAIN_DIR deploy/.env)"; BRAIN_DIR="${BRAIN_DIR:-/home/droid/brain}"
 BRAIN_REMOTE="$(cfg BRAIN_REMOTE deploy/.env)"; BRAIN_REMOTE="${BRAIN_REMOTE:-git@github.com:teenydroid/brain.git}"
-BRAIN_DEPLOY_KEY="$(cfg BRAIN_DEPLOY_KEY deploy/.env)"; BRAIN_DEPLOY_KEY="${BRAIN_DEPLOY_KEY:-/home/droid/.ssh/brain_deploy_key}"
+BRAIN_SSH_KEY="$(cfg BRAIN_SSH_KEY deploy/.env)"; BRAIN_SSH_KEY="${BRAIN_SSH_KEY:-/home/droid/.ssh/teenydroid_ed25519}"
 BRAIN_PORT="$(cfg BRAIN_PORT deploy/.env)"; BRAIN_PORT="${BRAIN_PORT:-3130}"
 OPENCOMPANY_IMAGE="$(cfg OPENCOMPANY_IMAGE deploy/.env)"
 for required in X_API_KEY X_API_SECRET X_ACCESS_TOKEN X_ACCESS_TOKEN_SECRET X_BOT_USERNAME; do
@@ -186,7 +190,8 @@ rsync -az --delete \
   --exclude 'dist' \
   --exclude 'data' \
   --exclude 'worktrees' \
-  --exclude 'brain' \
+  --include 'brain/sync/***' \
+  --exclude 'brain/*' \
   --exclude 'web/node_modules' \
   --exclude 'web/.next' \
   --exclude 'key.pem' \
@@ -230,24 +235,44 @@ fi
 
 # --- the brain -------------------------------------------------------------
 # The checkout is live state: cloned once, then owned by the containers.
-# Never rsynced, never reset from here. A deploy key that can push is what
+# Never rsynced, never reset from here. The account key that pushes is what
 # brain-sync needs; the clone uses the same key so a missing one fails now.
 say "Checking the brain"
-remote "test -r $BRAIN_DEPLOY_KEY" \
-  || die "no deploy key at $BRAIN_DEPLOY_KEY on the box (BRAIN_DEPLOY_KEY in deploy/.env).
-       Generate one there and add it to teenydroid/brain with write access:
-         ssh-keygen -t ed25519 -N '' -C 'teeny brain-sync' -f $BRAIN_DEPLOY_KEY
-         gh repo deploy-key add $BRAIN_DEPLOY_KEY.pub -R teenydroid/brain --allow-write -t brain-sync"
+# The key is the teenydroid GitHub account's SSH key, minted on the box and
+# never leaving it. brain-sync pushes with it, passed explicitly; the box's
+# own keys, its ~/.ssh/config and its gh login stay as they are, and only
+# the opt-in alias git@github-teenydroid: uses it. Adding the public half to the
+# account is a one-time step for a person, on
+# https://github.com/settings/keys as teenydroid; this prints it until that
+# has happened. brain-sync keeps its commits and retries the push every
+# tick, so an unregistered key is not a failed deploy.
+if ! remote "test -r $BRAIN_SSH_KEY"; then
+  say "Generating the teenydroid SSH key at $BRAIN_SSH_KEY on the box"
+  remote "mkdir -p \$(dirname $BRAIN_SSH_KEY) && ssh-keygen -q -t ed25519 -N '' -C 'teenydroid@robot1' -f $BRAIN_SSH_KEY" \
+    || die "could not generate $BRAIN_SSH_KEY on the box"
+fi
+if remote "ssh -i $BRAIN_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -T git@github.com 2>&1 | grep -q 'successfully authenticated'"; then
+  say "GitHub accepts the key at $BRAIN_SSH_KEY ($(remote "ssh -i $BRAIN_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes -T git@github.com 2>&1 | sed -n 's/^Hi \([^!]*\)!.*/\1/p'"))"
+else
+  warn "GitHub does not know the key at $BRAIN_SSH_KEY yet. Add it to the teenydroid account at https://github.com/settings/keys:
+       $(remote "cat $BRAIN_SSH_KEY.pub")"
+fi
 if remote "test -d $BRAIN_DIR/.git"; then
   say "Brain checkout present at $BRAIN_DIR ($(remote "git -C $BRAIN_DIR rev-parse --short HEAD"))"
 else
   say "Cloning the brain into $BRAIN_DIR"
-  remote "GIT_SSH_COMMAND='ssh -i $BRAIN_DEPLOY_KEY -o IdentitiesOnly=yes -o BatchMode=yes' git clone -q $BRAIN_REMOTE $BRAIN_DIR" \
-    || die "could not clone $BRAIN_REMOTE into $BRAIN_DIR with $BRAIN_DEPLOY_KEY"
+  remote "GIT_SSH_COMMAND='ssh -i $BRAIN_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes' git clone -q $BRAIN_REMOTE $BRAIN_DIR" \
+    || die "could not clone $BRAIN_REMOTE into $BRAIN_DIR with $BRAIN_SSH_KEY"
 fi
+# A registry image is pulled so the box runs what is published; an image that
+# only exists on the box (built there by hand while nobody publishes one) is
+# used as it is. Neither is a die unless there is nothing to run at all.
 say "Pulling $OPENCOMPANY_IMAGE"
-remote "docker pull -q $OPENCOMPANY_IMAGE >/dev/null" \
-  || die "could not pull $OPENCOMPANY_IMAGE; set OPENCOMPANY_IMAGE in deploy/.env to an image the box can reach"
+if ! remote "docker pull -q $OPENCOMPANY_IMAGE >/dev/null 2>&1"; then
+  remote "docker image inspect $OPENCOMPANY_IMAGE >/dev/null 2>&1" \
+    || die "could not pull $OPENCOMPANY_IMAGE and the box has no such image; set OPENCOMPANY_IMAGE in deploy/.env to one it can reach"
+  warn "$OPENCOMPANY_IMAGE could not be pulled; using the copy already on the box"
+fi
 # The definition is data the agents rewrite. Validate what is on the box
 # before it is loaded, so a broken self-edit is this line rather than a
 # crash-looping container.
