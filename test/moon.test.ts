@@ -269,7 +269,9 @@ describe('the caption prompt', () => {
   })
 })
 
-function pipelineOptions(overrides: Partial<MoonPipelineOptions> = {}): MoonPipelineOptions & {
+// Memory and x are always the mocks built here, so a caller cannot swap them
+// for plain ones; that is what lets the return type promise the mock methods.
+function pipelineOptions(overrides: Partial<Omit<MoonPipelineOptions, 'memory' | 'x'>> = {}): MoonPipelineOptions & {
   x: XTools & { uploadMedia: ReturnType<typeof vi.fn>; createPost: ReturnType<typeof vi.fn> }
   memory: Memory & { captureActivity: ReturnType<typeof vi.fn>; recall: ReturnType<typeof vi.fn> }
 } {

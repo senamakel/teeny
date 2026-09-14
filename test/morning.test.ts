@@ -154,7 +154,7 @@ describe('the script stage', () => {
       { persona: 'SOUL\n<skill name="video-script">beats</skill>', botUsername: 'TinyMascot', today: '2026-09-14' },
       {
         pick: { story: 1, headline: 'A model launched', topic: 'ai', angle: 'local-first has no status page', visual: 'a board' },
-        scene: { scene: 'A status board over a stage.', storyCue: 'the board', alt: 'a board' },
+        scene: { concepts: ['a dead status board'], scene: 'A status board over a stage.', storyCue: 'the board', alt: 'a board' },
         seconds: 10,
       },
     )
