@@ -36,11 +36,14 @@ repositories, the published roadmap, and the rule that $TINY is the only token
 it ever promotes. Volatile numbers, price and market cap and burn totals, are
 deliberately absent so they cannot be quoted from memory.
 Every skill under `skills/` is a Markdown document the agent follows on every
-turn; `skills/humanizer/SKILL.md` is the rewrite guide that keeps posts from
-reading like a chatbot.
+turn. There are three: `humanizer` is the rewrite guide that keeps posts from
+reading like a chatbot; `humor` is the joke mechanics, the sarcasm dial and the
+roast recipe; `video-script` is how the morning clip is scripted as a
+ten-second sketch a video model can render.
 
 Both are read from disk at startup and prepended to the agent's system prompt,
-for the task agent and the reply drafter alike. A skill is either
+for the task agent, the reply drafter, and the morning post's pick, script and
+caption stages alike. A skill is either
 `skills/<name>/SKILL.md` or `skills/<name>.md`. Change either file and restart;
 nothing is compiled in.
 
