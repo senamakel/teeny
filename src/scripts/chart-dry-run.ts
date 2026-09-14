@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import { buildChartAgent } from '../agent/chart-wiring.js'
+import { AlgoCritic } from '../critic/algo.js'
 import { loadPersona } from '../agent/soul.js'
 import { XApiClient } from '../clients/x.js'
 import { loadConfig } from '../config.js'
@@ -115,6 +116,11 @@ const agent = buildChartAgent(config, {
   }),
   dryRun,
   ...(dryRun ? { allowPosting: false } : {}),
+  // The critic as the service has it, so a rehearsal shows the ranker's read
+  // of the post text and the rewrite it asked for.
+  ...(config.ALGO_CRITIC
+    ? { critic: new AlgoCritic({ baseUrl: config.LLM_BASE_URL, apiKey: config.LLM_API_KEY, model: config.ALGO_CRITIC_MODEL }) }
+    : {}),
 })
 
 console.log(

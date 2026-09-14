@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { loadPersona, renderPersona } from '../src/agent/soul.js'
 import { systemPrompt, draftPrompt } from '../src/agent/prompt.js'
+import { chartPrompt } from '../src/agent/chart-prompt.js'
 
 function fixture(): string {
   const root = mkdtempSync(join(tmpdir(), 'persona-'))
@@ -105,5 +106,18 @@ describe('the drafter is not weaker than the task agent', () => {
       expect(prompt).toContain('Build people up')
       expect(prompt).toContain('Do not deflate people')
     }
+  })
+})
+
+describe('the critic step in the chart prompt', () => {
+  it('is numbered in before post_chart only when the tool is on the belt', () => {
+    const without = chartPrompt({ botUsername: 'TinyMascot', symbol: 'TINY', dryRun: true })
+    expect(without).not.toContain('x_critique')
+    expect(without).toContain('9. post_chart once')
+    const withCritic = chartPrompt({ botUsername: 'TinyMascot', symbol: 'TINY', dryRun: true, critic: true })
+    expect(withCritic).toContain('9. x_critique on the exact post text')
+    expect(withCritic).toContain('$TINY on the timeframe')
+    expect(withCritic).toContain('10. post_chart once')
+    expect(withCritic).toContain('11. remember a one-line note')
   })
 })

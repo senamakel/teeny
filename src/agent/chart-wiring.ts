@@ -7,6 +7,7 @@ import { captureChartPost, ChartHarness } from '../harness/chart-harness.js'
 import type { Persona } from './soul.js'
 import type { Memory, XTools } from '../types.js'
 import type { SafetyGate } from '../safety/gate.js'
+import type { Critic } from '../critic/algo.js'
 
 /**
  * Builds the chart agent from configuration.
@@ -25,6 +26,8 @@ export function buildChartAgent(
     dryRun: boolean
     allowPosting?: boolean
     safety?: Pick<SafetyGate, 'outbound'>
+    /** The ranker's reader, for the post text before post_chart. */
+    critic?: Critic
   },
 ): ChartHarness {
   const address = config.CHART_TOKEN_ADDRESS
@@ -61,6 +64,7 @@ export function buildChartAgent(
     outputDir: config.CHART_OUTPUT_DIR,
     ...(options.allowPosting === false ? { allowPosting: false } : {}),
     ...(options.safety ? { safety: options.safety } : {}),
+    ...(options.critic ? { critic: options.critic } : {}),
     ...(config.CHART_COMMUNITY_QUERY ? { communityQuery: config.CHART_COMMUNITY_QUERY } : {}),
     onPublished: (post) => captureChartPost(options.memory, config.CHART_TOKEN_SYMBOL, post),
   })
