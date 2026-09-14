@@ -207,8 +207,17 @@ const schema = z.object({
   MOON_COIN_ID: z.string().min(1).default('tiny-humans-ai'),
   MOON_CATEGORY: z.string().min(1).default('ai-meme-coins'),
   MOON_BOARD_NAME: z.string().min(1).default('AI meme coins'),
-  MOON_BOARD_SIZE: z.coerce.number().int().min(5).max(250).default(30),
+  // The whole board is read, paged at 250: the token has to be found on it,
+  // and the yardsticks are the coins above it there.
+  MOON_BOARD_SIZE: z.coerce.number().int().min(5).max(1_000).default(500),
   MOON_RUNGS: z.coerce.number().int().min(1).max(12).default(7),
+  // CoinGecko ids never used as the yardstick, comma separated: coins the
+  // "AI Meme" tag is generous about. Tutorial is a BNB four.meme launch that
+  // carries the tag; it is not what anybody means by an AI meme.
+  MOON_EXCLUDE_IDS: z
+    .string()
+    .default('tutorial')
+    .transform((value) => value.split(',').map((entry) => entry.trim()).filter(Boolean)),
   // The band a yardstick is picked from, as a multiple of the token's own
   // cap. Under the floor it is a neighbour, not a moon; over the ceiling the
   // number stops meaning anything to a reader.

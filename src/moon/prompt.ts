@@ -13,6 +13,7 @@ export interface MoonCaptionInput {
   target: Rung
   ladder: Rung[]
   boardName: string
+  boardSize: number
   /** What the account already posted in this series, from memory, untrusted. */
   history: string
   community: string
@@ -48,9 +49,11 @@ export function moonCaptionPrompt(
       'THE PICTURE (attached; it carries every number, so you do not have to):',
       `${tokenTag} with the market cap of ${targetTag} (${target.coin.name}) would be $${price(target.impliedPriceUsd)}, ` +
         `${multiple(target.multiple)} from $${price(token.priceUsd)} today.`,
-      `${tokenTag} market cap now: ${compactUsd(token.marketCapUsd)}. ${targetTag} market cap now: ${compactUsd(target.coin.marketCapUsd)}` +
-        (target.coin.rank === undefined ? '.' : ` (#${target.coin.rank} on CoinGecko).`),
-      `The board is CoinGecko's ${input.boardName} list. The other rungs on the picture, smallest first: ` +
+      `${tokenTag} market cap now: ${compactUsd(token.marketCapUsd)}` +
+        (token.boardRank === undefined ? '.' : `, #${token.boardRank} of ${input.boardSize} on the board.`) +
+        ` ${targetTag} market cap now: ${compactUsd(target.coin.marketCapUsd)}` +
+        (target.coin.boardRank === undefined ? '.' : `, #${target.coin.boardRank} on the board.`),
+      `The board is CoinGecko's ${input.boardName} list (${input.boardSize} coins); both are on it. The other rungs on the picture, smallest first: ` +
         input.ladder.map((entry) => `$${entry.coin.symbol} ${compactUsd(entry.coin.marketCapUsd)} (${multiple(entry.multiple)})`).join(', ') +
         '.',
       '',

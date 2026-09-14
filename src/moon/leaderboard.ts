@@ -8,7 +8,10 @@ export interface ListedCoin {
   priceUsd: number
   marketCapUsd: number
   circulatingSupply: number
+  /** CoinGecko's overall market cap rank. */
   rank?: number
+  /** Position on the category board, 1-based, set when the coin came from one. */
+  boardRank?: number
   change24hPct?: number
   athUsd?: number
   /** The coin's logo, as CoinGecko serves it. */
@@ -25,6 +28,8 @@ export interface LeaderboardSource {
 }
 
 const BASE = 'https://api.coingecko.com/api/v3'
+/** CoinGecko's largest page. */
+const PAGE = 250
 
 /**
  * The AI meme coin leaderboard, from CoinGecko.
@@ -39,14 +44,27 @@ const BASE = 'https://api.coingecko.com/api/v3'
 export class CoinGeckoLeaderboard implements LeaderboardSource {
   constructor(private readonly options: { baseUrl?: string; timeoutMs?: number; fetch?: typeof fetch } = {}) {}
 
+  /**
+   * The whole category, to `limit`, largest first. CoinGecko pages at 250
+   * and the AI meme board is longer than that, so this walks the pages
+   * until it has enough or a short page says there are no more. The board
+   * position is the row's place in the merged list, which is what the
+   * picture shows -- being #44 on the AI meme board means more than being
+   * #3541 overall.
+   */
   async category(id: string, limit: number): Promise<ListedCoin[]> {
-    const rows = await this.markets(
-      `category=${encodeURIComponent(id)}&order=market_cap_desc&per_page=${Math.min(Math.max(limit, 1), 250)}&page=1`,
-    )
-    return rows.flatMap((row) => {
-      const coin = parseCoin(row)
-      return coin ? [coin] : []
-    })
+    const coins: ListedCoin[] = []
+    for (let page = 1; coins.length < limit; page += 1) {
+      const rows = await this.markets(
+        `category=${encodeURIComponent(id)}&order=market_cap_desc&per_page=${PAGE}&page=${page}`,
+      )
+      for (const row of rows) {
+        const coin = parseCoin(row)
+        if (coin) coins.push({ ...coin, boardRank: coins.length + 1 })
+      }
+      if (rows.length < PAGE) break
+    }
+    return coins.slice(0, limit)
   }
 
   async coin(id: string): Promise<ListedCoin> {

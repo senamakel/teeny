@@ -74,11 +74,14 @@ export function pickTarget(token: ListedCoin, board: ListedCoin[], options: Pick
  * the token's own cap to the biggest coin on the list, so the picture shows
  * where today's target sits among the rest. Picked evenly in log space,
  * since caps on one list span three orders of magnitude, with the target
- * always among them and duplicates folded. Ascending, smallest first.
+ * always among them and duplicates folded. Ascending, smallest first. Only
+ * coins at least `minMultiple` above the token qualify, as for the pick.
  */
-export function ladder(token: ListedCoin, board: ListedCoin[], target: ListedCoin, count = 7): Rung[] {
+export function ladder(token: ListedCoin, board: ListedCoin[], target: ListedCoin, count = 7, minMultiple = 2): Rung[] {
+  // The same floor as the pick: a coin at 1.04x is a neighbour, and a rung
+  // that reads "1.04x" next to the token makes the strip look like a typo.
   const above = board
-    .filter((coin) => coin.id !== token.id && coin.marketCapUsd > token.marketCapUsd)
+    .filter((coin) => coin.id !== token.id && coin.marketCapUsd / token.marketCapUsd >= minMultiple)
     .sort((a, b) => a.marketCapUsd - b.marketCapUsd)
   if (above.length === 0) return [rung(token, target)]
   const chosen = new Map<string, ListedCoin>()

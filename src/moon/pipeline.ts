@@ -32,6 +32,12 @@ export interface MoonPipelineOptions {
   boardSize: number
   /** How many rungs are drawn beside the target. */
   rungs: number
+  /**
+   * CoinGecko ids never used as a yardstick or a rung: coins the category
+   * tag is generous about. They keep their place on the board for the
+   * ranks; they are just never the comparison.
+   */
+  excludeIds?: string[]
   minMultiple?: number
   maxMultiple?: number
   maxEmoji: number
@@ -102,16 +108,24 @@ export class MoonPipeline {
       ),
     ])
 
-    // 2. The board, and our own row.
-    const [token, board] = await Promise.all([
-      options.source.coin(options.coinId),
-      options.source.category(options.category, options.boardSize),
-    ])
-    log('board read', { token: token.symbol, marketCapUsd: token.marketCapUsd, coins: board.length })
+    // 2. The board, with our own row on it. The point of the post is where
+    // we stand among the AI memes, so the token is looked for on the board
+    // first and its position kept; only when the tag has gone missing is
+    // the row fetched on its own, and the day says so.
+    const board = await options.source.category(options.category, options.boardSize)
+    let token = board.find((coin) => coin.id === options.coinId)
+    if (!token) {
+      token = await options.source.coin(options.coinId)
+      problems.push(`$${token.symbol} is not on the ${options.boardName} board (${board.length} coins); compared against it from outside`)
+    }
+    log('board read', { token: token.symbol, boardRank: token.boardRank, marketCapUsd: token.marketCapUsd, coins: board.length })
 
-    // 3. The target: above us, in the band, not one memory says was used.
-    const exclude = usedSymbols(history, board)
-    const target = pickTarget(token, board, {
+    // 3. The target: above us on the board, in the band, not one memory says
+    // was used, and not one the operator struck off.
+    const struck = new Set(options.excludeIds ?? [])
+    const eligible = board.filter((coin) => !struck.has(coin.id) && printable(coin.symbol))
+    const exclude = usedSymbols(history, eligible)
+    const target = pickTarget(token, eligible, {
       exclude,
       ...(options.minMultiple === undefined ? {} : { minMultiple: options.minMultiple }),
       ...(options.maxMultiple === undefined ? {} : { maxMultiple: options.maxMultiple }),
@@ -121,8 +135,8 @@ export class MoonPipeline {
       throw new Error(`nothing on the ${options.boardName} board sits above $${token.symbol}; there is no moon to draw`)
     }
     const headline = rung(token, target)
-    const climb = buildLadder(token, board, target, options.rungs)
-    log('target picked', { target: target.symbol, multiple: headline.multiple, excluded: [...exclude] })
+    const climb = buildLadder(token, eligible, target, options.rungs, options.minMultiple)
+    log('target picked', { target: target.symbol, boardRank: target.boardRank, multiple: headline.multiple, excluded: [...exclude], struck: [...struck] })
 
     // 4. The picture. Logos are a nicety; a missing one is a disc with a letter.
     const [tokenLogo, targetLogo] = await Promise.all([this.logo(token), this.logo(target)])
@@ -131,6 +145,7 @@ export class MoonPipeline {
       target: headline,
       ladder: climb,
       boardName: options.boardName,
+      boardSize: board.length,
       date: today,
       ...(tokenLogo ? { tokenLogo } : {}),
       ...(targetLogo ? { targetLogo } : {}),
@@ -146,7 +161,7 @@ export class MoonPipeline {
     log('picture drawn', { bytes: png.byteLength, path })
 
     // 5. The caption, then the filter, the way the morning post reads it.
-    let caption = await this.caption({ token, target: headline, ladder: climb, history, community, today })
+    let caption = await this.caption({ token, target: headline, ladder: climb, boardSize: board.length, history, community, today })
     let held: string | undefined
     const outgoing = await options.safety?.outbound(caption, { surface: 'moon', kind: 'draft', tool: 'moon_post' })
     if (outgoing) {
@@ -192,6 +207,7 @@ export class MoonPipeline {
     token: ListedCoin
     target: Rung
     ladder: Rung[]
+    boardSize: number
     history: string
     community: string
     today: string
@@ -239,6 +255,7 @@ export class MoonPipeline {
         text: result.caption,
         token: result.token.symbol,
         yardstick: result.target.coin.symbol,
+        ...(result.token.boardRank === undefined ? {} : { boardRank: result.token.boardRank }),
         yardstickName: result.target.coin.name,
         multiple: Math.round(result.target.multiple * 100) / 100,
         impliedPriceUsd: result.target.impliedPriceUsd,
@@ -249,4 +266,15 @@ export class MoonPipeline {
         result.problems.push(`could not remember the post: ${error instanceof Error ? error.message : String(error)}`)
       })
   }
+}
+
+/**
+ * Whether a ticker can be drawn and read. The board carries a coin whose
+ * symbol is a single ideographic space, one that is `q*`, and a few in
+ * Chinese; the font on the picture has no glyphs for some and a caption
+ * cannot say the others. They keep their place on the board and are never
+ * the comparison.
+ */
+export function printable(symbol: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,15}$/.test(symbol)
 }
