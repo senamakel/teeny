@@ -184,3 +184,53 @@ describe('agent capabilities', () => {
     }
   })
 })
+
+/**
+ * Who may generate, decided per turn. The Telegram drafter never; the X
+ * drafter only when the person asked; a calendar item only for its own kind.
+ * Seeing is never taken away.
+ */
+describe('media gating', () => {
+  const store = new MediaStore()
+  const budget = new MediaBudget({ imagesPerDay: 1, videosPerDay: 1 })
+  const full = { store, budget, reader: { describe: vi.fn() }, images: { generate: vi.fn() }, videos: { generate: vi.fn() } }
+  const generators = (media: Parameters<typeof buildTools>[0]['media']) =>
+    buildTools({ ...options(), ...(media ? { media } : {}) })
+      .map((tool) => tool.name)
+      .filter((name) => name.startsWith('generate_') || name === 'look_at_image')
+
+  it('takes the generators away and leaves the eyes', async () => {
+    const { gateMedia } = await import('../src/media/wiring.js')
+    expect(generators(gateMedia(full, {}))).toEqual(['look_at_image'])
+    expect(generators(gateMedia(full, { images: true }))).toEqual(['look_at_image', 'generate_image'])
+    expect(generators(gateMedia(full, { videos: true }))).toEqual(['look_at_image', 'generate_video'])
+    expect(generators(gateMedia(full, { images: true, videos: true }))).toEqual([
+      'look_at_image',
+      'generate_image',
+      'generate_video',
+    ])
+    expect(gateMedia(undefined, { images: true })).toBeUndefined()
+    // The same store and budget on both sides of the gate.
+    expect(gateMedia(full, {})?.store).toBe(store)
+  })
+})
+
+describe('the explicit-ask gate', () => {
+  it('asks the judge, and answers no when the judge cannot be reached', async () => {
+    const { MediaGate } = await import('../src/agent/media-gate.js')
+    const llm = { baseUrl: 'https://example.com/v1', apiKey: 'k', model: 'm' }
+    const judge = { invoke: vi.fn().mockResolvedValue({ image: true, video: false }) }
+    await expect(new MediaGate(llm, judge).asks('@teeny draw me a tiny on the moon')).resolves.toEqual({
+      image: true,
+      video: false,
+    })
+    expect(judge.invoke).toHaveBeenCalledWith([
+      expect.objectContaining({ role: 'system' }),
+      { role: 'user', content: 'POST:\n@teeny draw me a tiny on the moon' },
+    ])
+
+    const down = { invoke: vi.fn().mockRejectedValue(new Error('503')) }
+    await expect(new MediaGate(llm, down).asks('anything')).resolves.toEqual({ image: false, video: false })
+    await expect(new MediaGate(llm, judge).asks('   ')).resolves.toEqual({ image: false, video: false })
+  })
+})

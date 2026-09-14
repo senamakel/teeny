@@ -1,4 +1,4 @@
-import { AlertCircle, BarChart3, MessageCircle, Terminal } from "lucide-react"
+import { AlertCircle, BarChart3, CalendarDays, MessageCircle, Sunrise, Terminal } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
@@ -10,7 +10,12 @@ const TRIGGER_ICON: Record<Trigger, typeof MessageCircle> = {
   mention: MessageCircle,
   chart: BarChart3,
   task: Terminal,
+  morning: Sunrise,
+  calendar: CalendarDays,
 }
+
+/** Triggers that publish rather than answer: the chart, the morning post, a calendar item. */
+const POSTS = new Set<Trigger>(["chart", "morning", "calendar"])
 
 const TONE_STYLE: Record<Tone, string> = {
   friendly: "border-primary/40 text-primary",
@@ -116,7 +121,7 @@ function ReflectionCard({ entry }: { entry: Reflection }) {
           </div>
 
           <div>
-            <Label>{entry.trigger === "chart" || entry.trigger === "morning" ? "Posted" : "Said"}</Label>
+            <Label>{POSTS.has(entry.trigger) ? "Posted" : "Said"}</Label>
             {entry.said ? (
               <blockquote className="border-l-2 border-primary pl-3 text-sm italic">
                 {entry.said}
@@ -172,7 +177,7 @@ function Feed({ entries }: { entries: Reflection[] }) {
 export function Reflections({ feed }: { feed: MindFeed }) {
   const all = feed.reflections
   const replies = all.filter((e) => e.trigger === "mention" && e.outcome !== "skipped" && e.outcome !== "held")
-  const charts = all.filter((e) => e.trigger === "chart" || e.trigger === "morning")
+  const charts = all.filter((e) => POSTS.has(e.trigger))
   const quiet = all.filter((e) => e.outcome === "skipped" || e.outcome === "held" || e.outcome === "failed")
 
   return (

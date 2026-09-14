@@ -1,6 +1,17 @@
 import type { Journal } from '../journal/journal.js'
 import type { MorningResult } from '../morning/pipeline.js'
 
+/**
+ * The calendar item the morning post stands in for.
+ *
+ * calendar.json ships a "gm" that draws Tiny somewhere pleasant at seven;
+ * the morning job is the same slot done the long way, around the news, an
+ * hour later. Both on would say good morning twice before breakfast, which
+ * is the repetitive-publishing pattern, so the service gives the slot to the
+ * morning job and skips the calendar item of this name while it runs.
+ */
+export const MORNING_CALENDAR_SLOT = 'gm'
+
 export interface MorningJobDependencies {
   pipeline: { run(): Promise<MorningResult> }
   logger: { info: (object: unknown, message?: string) => void; error: (object: unknown, message?: string) => void }

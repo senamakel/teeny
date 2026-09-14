@@ -27,7 +27,10 @@ import { TelegramBot } from './telegram/bot.js'
 import { MongoChatTranscript } from './telegram/transcript.js'
 import { buildMedia } from './media/wiring.js'
 import { buildMorningPipeline } from './morning/wiring.js'
-import { MorningJob } from './jobs/morning-job.js'
+import { MorningJob, MORNING_CALENDAR_SLOT } from './jobs/morning-job.js'
+import { ContentAgent } from './agent/content-model.js'
+import { loadCalendar } from './calendar/calendar.js'
+import { CalendarJob } from './jobs/calendar-job.js'
 
 const config = loadConfig()
 const memory = new CortexMemory(
@@ -166,6 +169,10 @@ const runsReplies = role === 'all' || role === 'reply'
 const runsChart = config.CHART_ENABLED && (role === 'all' || role === 'chart')
 // The morning post too: one timer, one process, or it says good morning twice.
 const runsMorning = config.MORNING_ENABLED && (role === 'all' || role === 'morning')
+// The content calendar publishes on its own timers and, with the morning
+// post, is where the account generates media unasked. Opt-in and
+// single-homed, like the chart.
+const runsCalendar = config.CALENDAR_ENABLED && (role === 'all' || role === 'calendar')
 // Telegram lives in the ingest process. It long-polls, and Telegram allows one
 // poller per token, so it rides with the role that already runs in exactly one
 // place rather than getting a container of its own.
@@ -266,6 +273,50 @@ if (runsMorning) {
   })
 }
 
+const calendarItems: string[] = []
+if (runsCalendar) {
+  const calendar = loadCalendar(config.CALENDAR_PATH)
+  // A sending-only client, separate from the bot's poller: sending does not
+  // hold the token the way long polling does, so this may run in a process
+  // that is not the Telegram one.
+  const telegram = config.TELEGRAM_BOT_TOKEN
+    ? new TelegramApiClient({ token: config.TELEGRAM_BOT_TOKEN })
+    : undefined
+  const calendarJob = new CalendarJob({
+    agent: new ContentAgent(agentOptions),
+    memory,
+    x,
+    ...(telegram ? { telegram } : {}),
+    ...(media ? { media: media.store } : {}),
+    logger: app.log,
+    dryRun: config.DRY_RUN,
+    telegramChatIds: config.CALENDAR_TELEGRAM_CHAT_IDS,
+    maxEmoji: config.MAX_EMOJI_PER_POST,
+    journal,
+  })
+  for (const item of calendar.items) {
+    if (!item.enabled) continue
+    // The morning job owns the good-morning slot; see MORNING_CALENDAR_SLOT.
+    if (runsMorning && item.name === MORNING_CALENDAR_SLOT) {
+      app.log.warn(
+        { item: item.name, cron: item.cron },
+        'calendar: skipping the item, the morning job posts the good morning',
+      )
+      continue
+    }
+    calendarItems.push(`${item.name} "${item.cron}"`)
+    cron.schedule(
+      item.cron,
+      () => {
+        void calendarJob
+          .run(item)
+          .catch((error: unknown) => app.log.error({ err: error, item: item.name }, 'calendar job failed'))
+      },
+      calendar.timezone ? { timezone: calendar.timezone } : {},
+    )
+  }
+}
+
 let telegramHandle: string | false = false
 if (runsTelegram && config.TELEGRAM_BOT_TOKEN) {
   const telegram = new TelegramApiClient({ token: config.TELEGRAM_BOT_TOKEN })
@@ -349,6 +400,7 @@ app.log.info(
     morning: runsMorning
       ? `at "${config.MORNING_CRON}", ${media?.videos ? 'video' : 'image'}, ${config.MORNING_NEWS_TOPICS.length} topics`
       : false,
+    calendar: runsCalendar ? calendarItems : false,
   },
   'teeny started',
 )

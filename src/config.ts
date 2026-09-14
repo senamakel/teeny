@@ -58,7 +58,7 @@ const schema = z.object({
   X_SEARCH_MAX_RESULTS: z.coerce.number().int().min(10).max(100).default(10),
   // `all` runs every role in one process. Split them to scale or restart the
   // reply side without pausing ingestion, which is the half with a deadline.
-  SERVICE_ROLE: z.enum(['all', 'ingest', 'reply', 'api', 'chart', 'morning']).default('all'),
+  SERVICE_ROLE: z.enum(['all', 'ingest', 'reply', 'api', 'chart', 'morning', 'calendar']).default('all'),
   INGEST_CRON: z.string().default('*/5 * * * *'),
   // `worker` drains the queue continuously, which is what makes a webhook
   // delivery turn into a reply in seconds rather than by the next tick.
@@ -164,6 +164,21 @@ const schema = z.object({
   // How long a clip is scripted for. Passed to the generator as a hint;
   // Sora rounds it to 4, 8 or 12, and a ladder rung may render its own.
   MORNING_VIDEO_SECONDS: z.coerce.number().int().min(4).max(20).default(12),
+
+  // --- the content calendar ------------------------------------------------
+  // Scheduled posts from a JSON file: a "gm" every morning, a Friday post, a
+  // Sunday clip. This, with the morning post above, is where the account
+  // generates pictures without being asked, so it is off by default, because
+  // it publishes, and single-homed like the chart job. Each item names its
+  // own cron and channels; see calendar.json and src/calendar/calendar.ts.
+  // With MORNING_ENABLED the "gm" item is skipped: the morning job has it.
+  CALENDAR_ENABLED: offByDefault,
+  CALENDAR_PATH: z.string().default('calendar.json'),
+  // Telegram chats an item posts to when it names none of its own.
+  CALENDAR_TELEGRAM_CHAT_IDS: z
+    .string()
+    .default('')
+    .transform((value) => value.split(',').map((entry) => entry.trim()).filter(Boolean)),
 
   // --- telegram ------------------------------------------------------------
   // The same account on Telegram: DMs, and groups it is named in. Set the

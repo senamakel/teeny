@@ -1,0 +1,29 @@
+{
+  "timezone": "UTC",
+  "items": [
+    {
+      "name": "gm",
+      "cron": "0 7 * * *",
+      "channels": ["x", "telegram"],
+      "media": "image",
+      "aspect": "square",
+      "brief": "A good-morning post to the timeline and the holders' group. One line, warm, nothing to sell. Tiny somewhere doing something small and pleasant with the morning: coffee, a sunrise, a stretch, a window. Vary the scene from day to day; memory says what yesterday's was."
+    },
+    {
+      "name": "ship-friday",
+      "cron": "0 16 * * 5",
+      "channels": ["x"],
+      "media": "image",
+      "aspect": "landscape",
+      "brief": "Friday, end of the week: a post about building in the open. Check GitHub activity with web_search if it helps, but do not invent shipped features. Tiny at a workbench or a terminal, satisfied. No exclamation marks."
+    },
+    {
+      "name": "sunday-still",
+      "cron": "0 12 * * 0",
+      "channels": ["telegram"],
+      "media": "video",
+      "aspect": "square",
+      "brief": "A quiet Sunday clip for the group: Tiny doing nothing in particular, a few seconds of calm. One short line of text with it, or none."
+    }
+  ]
+}
