@@ -35,7 +35,12 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
+      # With the submodule: brain/sync is the brain-sync sidecar's build
+      # context, rsynced from here to the box, and a bare checkout leaves it
+      # an empty directory, which the build refuses as a missing context.
       - uses: actions/checkout@v5
+        with:
+          submodules: true
       - name: Install the deploy key
         run: |
           mkdir -p ~/.ssh
