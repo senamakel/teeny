@@ -108,6 +108,28 @@ export class OpenAIVideoGenerator implements VideoGenerator {
   }
 }
 
+/**
+ * The clip length, in every spelling the marketplace's sellers might read.
+ *
+ * Measured on 2026-09-14 against `kling-o3-standard-text-to-video`, every
+ * job served by Venice: `seconds: "10"` alone, `duration: "10"` alone and
+ * `duration: 10` alone each rendered the seller's own three seconds, while
+ * a body carrying all five of these rendered ten. Surplus documents none of
+ * them and the marketplace's credit ran out before the one that mattered
+ * could be singled out, so the whole set goes, exactly as it was sent then.
+ * Narrow it once there is credit to bisect with.
+ */
+function lengthFields(seconds: number): Record<string, unknown> {
+  const text = String(seconds)
+  return {
+    seconds: text,
+    duration: text,
+    video_length: seconds,
+    length: seconds,
+    duration_seconds: seconds,
+  }
+}
+
 const ASPECT: Record<VideoOrientation, string> = {
   landscape: '16:9',
   portrait: '9:16',
@@ -165,9 +187,7 @@ export class LadderVideoGenerator implements VideoGenerator {
         model: this.options.model,
         prompt: input.prompt,
         aspect_ratio: ASPECT[input.orientation ?? 'square'],
-        // The marketplace relays OpenAI's spelling; a rung that ignores it
-        // renders its own default length, which is still a clip.
-        ...(input.seconds ? { seconds: String(input.seconds) } : {}),
+        ...(input.seconds ? lengthFields(input.seconds) : {}),
       }),
       signal: AbortSignal.timeout(60_000),
     })
