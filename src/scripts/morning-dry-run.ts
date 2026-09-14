@@ -7,6 +7,7 @@ import { CortexMemory } from '../memory/cortex.js'
 import { buildMorningPipeline } from '../morning/wiring.js'
 import { renderStories } from '../morning/news.js'
 import { lexicalGate } from '../safety/gate.js'
+import { AlgoCritic } from '../critic/algo.js'
 
 /**
  * Rehearses the good-morning post without publishing.
@@ -62,6 +63,17 @@ const pipeline = buildMorningPipeline(config, {
   // The lexicon and the allowlist, as the service has them; no judge and no
   // hold log, since this is a script and --publish can post for real.
   safety: lexicalGate({ extraAllowedLinks: config.LINK_ALLOWLIST }),
+  // The critic as the service has it, so a rehearsal shows the ranker's read
+  // of the script and the caption and whether either was rewritten on it.
+  ...(config.ALGO_CRITIC
+    ? {
+        critic: new AlgoCritic({
+          baseUrl: config.LLM_BASE_URL,
+          apiKey: config.LLM_API_KEY,
+          model: config.ALGO_CRITIC_MODEL ?? config.LLM_MODEL,
+        }),
+      }
+    : {}),
 })
 
 console.log(
