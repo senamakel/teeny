@@ -4,7 +4,7 @@ import type { Journal } from '../src/journal/journal.js'
 import type { TextModel } from '../src/media/reference.js'
 import { ladder, pickTarget, rung, usedSymbols } from '../src/moon/ladder.js'
 import { CoinGeckoLeaderboard, parseCoin, sniffImage, type LeaderboardSource, type ListedCoin } from '../src/moon/leaderboard.js'
-import { MoonPipeline, type MoonPipelineOptions, type MoonResult } from '../src/moon/pipeline.js'
+import { MoonPipeline, printable, type MoonPipelineOptions, type MoonResult } from '../src/moon/pipeline.js'
 import { moonCaptionPrompt } from '../src/moon/prompt.js'
 import { multiple, renderMoonSvg } from '../src/moon/svg.js'
 import { lexicalGate } from '../src/safety/gate.js'
@@ -24,17 +24,18 @@ function coin(symbol: string, marketCapUsd: number, overrides: Partial<ListedCoi
   }
 }
 
-const tiny = coin('TINY', 500_000, { id: 'tiny-humans-ai', priceUsd: 0.0005, circulatingSupply: 1_000_000_000, change24hPct: 8.3 })
+const tiny = coin('TINY', 500_000, { id: 'tiny-humans-ai', priceUsd: 0.0005, circulatingSupply: 1_000_000_000, change24hPct: 8.3, boardRank: 9 })
 const board = [
-  coin('TIBBIR', 248_000_000, { rank: 150 }),
+  coin('TIBBIR', 248_000_000, { rank: 150, boardRank: 1 }),
   coin('FARTCOIN', 143_000_000),
   coin('TURBO', 63_000_000),
   coin('AIC', 32_000_000),
-  coin('DRB', 18_500_000),
+  coin('DRB', 18_500_000, { boardRank: 5 }),
   coin('CRABAI', 14_700_000),
   coin('LUNA', 4_900_000),
   coin('AIDOGE', 1_950_000),
   coin('SMALL', 600_000),
+  tiny,
   coin('BELOW', 100_000),
 ]
 
@@ -100,6 +101,12 @@ describe('the ladder', () => {
     }
   })
 
+  it('leaves neighbours under the floor off the strip', () => {
+    const target = board[4]!
+    expect(ladder(tiny, board, target, 12).map((entry) => entry.coin.symbol)).not.toContain('SMALL')
+    expect(ladder(tiny, board, target, 12, 1).map((entry) => entry.coin.symbol)).toContain('SMALL')
+  })
+
   it('draws the target alone when nothing else is above', () => {
     const target = coin('ONLY', 5_000_000)
     expect(ladder(tiny, [target, coin('BELOW', 100_000)], target, 7).map((entry) => entry.coin.symbol)).toEqual(['ONLY'])
@@ -112,18 +119,22 @@ describe('the picture', () => {
     target: rung(tiny, board[4]!),
     ladder: ladder(tiny, board, board[4]!, 7),
     boardName: 'AI meme coins',
+    boardSize: 12,
     date: '2026-09-14',
     watermark: '@TinyMascot',
   }
 
   it('says what it is, in the headline and the fine print', () => {
     const svg = renderMoonSvg(input)
-    expect(svg).toContain('$TINY WITH THE MARKET CAP OF')
+    expect(svg).toContain('$TINY WITH THE MARKET CAP OF $DRB')
+    expect(svg).toContain('>VS<')
     expect(svg).toContain('>$DRB<')
     expect(svg).toContain('$0.0185') // 18.5M / 1B
     expect(svg).toContain('>37x<')
+    expect(svg).toContain('#9 of 12 AI meme coins')
+    expect(svg).toContain('#5 of 12 AI meme coins')
     expect(svg).toContain('Arithmetic, not a forecast.')
-    expect(svg).toContain('AI meme coins · CoinGecko · 2026-09-14')
+    expect(svg).toContain('AI meme coins (12 coins) · CoinGecko · 2026-09-14')
     expect(svg).toContain('@TinyMascot')
   })
 
@@ -134,21 +145,24 @@ describe('the picture', () => {
     for (const entry of input.ladder) expect(svg).toContain(`>$${entry.coin.symbol}<`)
   })
 
-  it('embeds a logo as a data URI and falls back to a lettered disc without one', () => {
-    const withLogo = renderMoonSvg({ ...input, targetLogo: { data: PNG, mimeType: 'image/png' } })
-    expect(withLogo).toContain('href="data:image/png;base64,')
+  it('embeds both logos as data URIs and falls back to a lettered disc without one', () => {
+    const withLogos = renderMoonSvg({ ...input, tokenLogo: { data: PNG, mimeType: 'image/png' }, targetLogo: { data: PNG, mimeType: 'image/jpeg' } })
+    expect(withLogos.match(/href="data:image\/png;base64,/g)).toHaveLength(2) // the fighter and the strip
+    expect(withLogos).toContain('href="data:image/jpeg;base64,')
     const without = renderMoonSvg(input)
     expect(without).not.toContain('data:image')
     expect(without).toContain('>D<') // the disc's initial for $DRB
+    expect(without).toContain('>T<') // and for $TINY
   })
 
-  it('keeps rung labels apart when two coins are almost the same size', () => {
-    const near = [coin('A', 10_000_000), coin('B', 10_100_000), coin('C', 10_200_000)]
+  it('keeps rung labels apart along the strip when coins are almost the same size', () => {
+    const near = [coin('A', 10_000_000), coin('B', 10_100_000), coin('C', 10_200_000), coin('D', 10_300_000)]
     const svg = renderMoonSvg({ ...input, ladder: near.map((entry) => rung(tiny, entry)), target: rung(tiny, near[0]!) })
-    const ys = [...svg.matchAll(/<circle cx="700" cy="([\d.]+)" r="(?:6|9)"/g)].map((match) => Number(match[1])).sort((a, b) => a - b)
-    expect(ys).toHaveLength(3)
-    expect(ys[1]! - ys[0]!).toBeGreaterThanOrEqual(46)
-    expect(ys[2]! - ys[1]!).toBeGreaterThanOrEqual(46)
+    const xs = [...svg.matchAll(/<circle cx="([\d.]+)" cy="562" r="(?:5|8)"/g)].map((match) => Number(match[1])).sort((a, b) => a - b)
+    expect(xs).toHaveLength(4)
+    // Alternate lanes, so within a lane the gap is the minimum.
+    expect(xs[2]! - xs[0]!).toBeGreaterThanOrEqual(95.9)
+    expect(xs[3]! - xs[1]!).toBeGreaterThanOrEqual(95.9)
   })
 
   it('escapes a coin name that carries markup', () => {
@@ -178,23 +192,33 @@ describe('the leaderboard client', () => {
     expect(parseCoin({ id: 'x', symbol: 'x', name: 'x', current_price: 1, market_cap: 1, circulating_supply: 0 })).toBeUndefined()
   })
 
-  it('asks for the category by market cap and the coin by id', async () => {
+  it('pages through the category by market cap, numbers the board, and fetches the coin by id', async () => {
     const calls: string[] = []
+    const row = (index: number) => ({ id: `c${index}`, symbol: `c${index}`, name: `C${index}`, current_price: 1, market_cap: 1e9 - index, circulating_supply: 1e6 })
     const doFetch = vi.fn(async (url: string | URL | Request) => {
       calls.push(String(url))
-      const body = String(url).includes('ids=')
+      const text = String(url)
+      const body = text.includes('ids=')
         ? [{ id: 'tiny-humans-ai', symbol: 'tiny', name: 'Tiny', current_price: 0.0005, market_cap: 500_000, circulating_supply: 1e9 }]
-        : [{ id: 'a', symbol: 'a', name: 'A', current_price: 1, market_cap: 5e6, circulating_supply: 5e6 }]
+        : text.includes('page=1')
+          ? Array.from({ length: 250 }, (_, index) => row(index + 1))
+          : [row(251), row(252)]
       return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
     })
     vi.stubGlobal('fetch', doFetch)
     try {
       const client = new CoinGeckoLeaderboard({ baseUrl: 'https://gecko.test/api/v3' })
-      const [own, list] = await Promise.all([client.coin('tiny-humans-ai'), client.category('ai-meme-coins', 30)])
+      const [own, list] = await Promise.all([client.coin('tiny-humans-ai'), client.category('ai-meme-coins', 500)])
       expect(own.symbol).toBe('TINY')
-      expect(list.map((entry) => entry.symbol)).toEqual(['A'])
-      expect(calls.some((url) => url.includes('category=ai-meme-coins&order=market_cap_desc&per_page=30'))).toBe(true)
+      expect(list).toHaveLength(252)
+      expect(list[0]!.boardRank).toBe(1)
+      expect(list[251]!.boardRank).toBe(252)
+      expect(calls.filter((url) => url.includes('category=ai-meme-coins&order=market_cap_desc&per_page=250'))).toHaveLength(2)
       expect(calls.some((url) => url.includes('ids=tiny-humans-ai'))).toBe(true)
+      // A limit inside the first page stops there.
+      calls.length = 0
+      expect(await client.category('ai-meme-coins', 10)).toHaveLength(10)
+      expect(calls).toHaveLength(1)
     } finally {
       vi.unstubAllGlobals()
     }
@@ -225,6 +249,7 @@ describe('the caption prompt', () => {
         target: rung(tiny, board[4]!),
         ladder: ladder(tiny, board, board[4]!, 3),
         boardName: 'AI meme coins',
+        boardSize: 12,
         history: 'Yesterday: $TURBO at 127x',
         community: '',
         maxEmoji: 1,
@@ -235,6 +260,8 @@ describe('the caption prompt', () => {
     expect(system).toContain('@TinyMascot')
     expect(prompt).toContain('$TINY with the market cap of $DRB')
     expect(prompt).toContain('37x')
+    expect(prompt).toContain('#9 of 12 on the board')
+    expect(prompt).toContain('#5 on the board')
     expect(prompt).toContain('not a forecast')
     expect(prompt).toContain("$DRB is somebody else's token")
     expect(prompt).toContain('Yesterday: $TURBO at 127x')
@@ -290,10 +317,12 @@ function pipelineOptions(overrides: Partial<MoonPipelineOptions> = {}): MoonPipe
 }
 
 describe('the pipeline', () => {
-  it('reads the board, picks, draws, captions, posts with the picture, and remembers the yardstick', async () => {
+  it('reads the board, finds itself on it, picks, draws, captions, posts with the picture, and remembers the yardstick', async () => {
     const options = pipelineOptions()
     const result = await new MoonPipeline(options).run()
     expect(result.outcome).toBe('posted')
+    expect(result.token.boardRank).toBe(9)
+    expect(options.source.coin).not.toHaveBeenCalled()
     expect(result.postedId).toBe('post-1')
     expect(result.target.multiple).toBeGreaterThanOrEqual(2)
     expect(result.target.multiple).toBeLessThanOrEqual(100)
@@ -303,9 +332,33 @@ describe('the pipeline', () => {
     expect(options.memory.captureActivity).toHaveBeenCalledWith(
       'moon_post',
       'post-1',
-      expect.objectContaining({ yardstick: result.target.coin.symbol, published: true, text: result.caption }),
+      expect.objectContaining({ yardstick: result.target.coin.symbol, boardRank: 9, published: true, text: result.caption }),
     )
     expect(result.svg).toContain(`>$${result.target.coin.symbol}<`)
+  })
+
+  it('falls back to the coin lookup when the token is not on the board, and says so', async () => {
+    const options = pipelineOptions()
+    ;(options.source.category as ReturnType<typeof vi.fn>).mockResolvedValue(board.filter((entry) => entry.id !== tiny.id))
+    const result = await new MoonPipeline(options).run()
+    expect(options.source.coin).toHaveBeenCalledWith('tiny-humans-ai')
+    expect(result.problems.some((problem) => problem.includes('is not on the AI meme coins board'))).toBe(true)
+    expect(result.outcome).toBe('posted')
+  })
+
+  it('never uses a struck-off coin or an unprintable ticker as the yardstick or a rung, but keeps their board places', async () => {
+    const options = pipelineOptions({ random: () => 0, excludeIds: ['aic'] })
+    ;(options.source.category as ReturnType<typeof vi.fn>).mockResolvedValue([coin('\u3000', 2_000_000, { id: 'blank', boardRank: 0 }), ...board])
+    const result = await new MoonPipeline(options).run()
+    expect(result.target.coin.symbol).toBe('DRB') // AIC would have been first
+    const symbols = result.ladder.map((entry) => entry.coin.symbol)
+    expect(symbols).not.toContain('AIC')
+    expect(symbols).not.toContain('\u3000')
+    expect(result.board.some((entry) => entry.id === 'aic')).toBe(true)
+    expect(printable('e/acc')).toBe(false)
+    expect(printable('q*')).toBe(false)
+    expect(printable('FARTCOIN')).toBe(true)
+    expect(printable('AI16Z')).toBe(true)
   })
 
   it('skips a yardstick memory says was posted lately', async () => {

@@ -722,12 +722,20 @@ rehearsal scripts force past the rota, so a dry run works on any day.
 
 ### The numbers
 
-Two CoinGecko reads per run, both from `/coins/markets`: the token's own row
-by id (`MOON_COIN_ID`, `tiny-humans-ai`) and the category leaderboard
+One CoinGecko read per run, `/coins/markets` for the category leaderboard
 (`MOON_CATEGORY`, `ai-meme-coins` -- the table at
-coingecko.com/en/categories/ai-meme-coins, largest cap first, `MOON_BOARD_SIZE`
-rows). The token is looked up rather than found in the list because it is not
-on the first page of it, and the whole point of the post is where it would be.
+coingecko.com/en/categories/ai-meme-coins), paged at 250 up to
+`MOON_BOARD_SIZE` rows, so the whole board is read. $TINY is on it (#44 of
+~355 at the time of writing) and is found there (`MOON_COIN_ID`,
+`tiny-humans-ai`); the yardsticks are the coins above it on that same board,
+and both positions are on the picture. Only if the tag has gone missing is
+the token's row fetched on its own, and the run says so in its problems.
+
+CoinGecko's "AI Meme" tag is generous: Tutorial, a BNB four.meme launch, wears
+it. `MOON_EXCLUDE_IDS` (default `tutorial`) is the list of ids never used as a
+yardstick or a rung; they keep their place on the board for the numbering. A
+coin whose ticker cannot be drawn or said -- one on the board is a single
+ideographic space, one is `q*`, a few are Chinese -- is skipped the same way.
 
 The arithmetic is in `src/moon/ladder.ts` and is one line: the token's price
 at the yardstick's cap is the yardstick's cap over the token's circulating
@@ -746,13 +754,16 @@ skipped. That is what `moon_post` in memory carries the yardstick's symbol for.
 ### The picture
 
 `src/moon/svg.ts`, rasterised through the same resvg path as the candlestick
-chart, so it needs the same fonts and nothing else. Left, the headline: the
-yardstick with its logo, the implied price, the multiple, and two cards with
-both market caps. Right, the climb: a track from the token's cap at the bottom
-to the moon at the top, on a log scale, with `MOON_RUNGS` (7) coins from the
-board spread along it and today's yardstick lit. The rungs are picked evenly
-in log space, since one board spans three orders of magnitude, and pushed
-apart on the track so two coins a few percent apart do not overprint.
+chart, so it needs the same fonts and nothing else. A versus card: $TINY on
+the left with its logo, the yardstick on the right with its own, each with
+its place on the board and its market cap, and the multiple between them
+under a VS badge. Under that the result, the price $TINY would be at that
+cap beside today's. Along the bottom the climb: a strip from the token's cap
+to the moon, on a log scale, with `MOON_RUNGS` (7) coins from the board along
+it and today's yardstick lit. The rungs are picked evenly in log space, since
+one board spans three orders of magnitude, drawn in two lanes above and below
+the strip, and pushed apart within a lane so two coins a few percent apart do
+not overprint. Nothing under 2x is a rung; a coin at 1.04x is a neighbour.
 
 Logos come from CoinGecko and are embedded in the SVG as data URIs; only PNG
 and JPEG are, because those are what resvg reads, and a coin without one gets

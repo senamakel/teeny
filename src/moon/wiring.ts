@@ -41,6 +41,7 @@ export function buildMoonPipeline(
     boardName: config.MOON_BOARD_NAME,
     boardSize: config.MOON_BOARD_SIZE,
     rungs: config.MOON_RUNGS,
+    excludeIds: config.MOON_EXCLUDE_IDS,
     minMultiple: config.MOON_MIN_MULTIPLE,
     maxMultiple: config.MOON_MAX_MULTIPLE,
     maxEmoji: config.MAX_EMOJI_PER_POST,
