@@ -36,9 +36,9 @@
 #     the stack is started so a broken self-edit fails the deploy, not the
 #     boot. Only brain/sync -- the sidecar's image, pinned by the submodule --
 #     is rsynced, so the sidecar is always built from a reviewed copy.
-#  4. The deploy key brain-sync pushes with is generated on the box and
-#     registered on the brain repository with `gh` from here, so no private
-#     key ever crosses the wire in either direction.
+#  4. The SSH key brain-sync pushes with is the teenydroid account's key,
+#     generated on the box and never leaving it; a person adds the public
+#     half to the account once, and this script says whether GitHub knows it.
 
 set -euo pipefail
 
@@ -128,7 +128,7 @@ for required in MONGO_ROOT_PASSWORD CORTEX_API_KEY LADDER_API_KEY OPENCOMPANY_IM
 done
 BRAIN_DIR="$(cfg BRAIN_DIR deploy/.env)"; BRAIN_DIR="${BRAIN_DIR:-/home/droid/brain}"
 BRAIN_REMOTE="$(cfg BRAIN_REMOTE deploy/.env)"; BRAIN_REMOTE="${BRAIN_REMOTE:-git@github.com:teenydroid/brain.git}"
-BRAIN_DEPLOY_KEY="$(cfg BRAIN_DEPLOY_KEY deploy/.env)"; BRAIN_DEPLOY_KEY="${BRAIN_DEPLOY_KEY:-/home/droid/.ssh/brain_deploy_key}"
+BRAIN_SSH_KEY="$(cfg BRAIN_SSH_KEY deploy/.env)"; BRAIN_SSH_KEY="${BRAIN_SSH_KEY:-/home/droid/.ssh/teenydroid_ed25519}"
 BRAIN_PORT="$(cfg BRAIN_PORT deploy/.env)"; BRAIN_PORT="${BRAIN_PORT:-3130}"
 OPENCOMPANY_IMAGE="$(cfg OPENCOMPANY_IMAGE deploy/.env)"
 for required in X_API_KEY X_API_SECRET X_ACCESS_TOKEN X_ACCESS_TOKEN_SECRET X_BOT_USERNAME; do
@@ -235,46 +235,33 @@ fi
 
 # --- the brain -------------------------------------------------------------
 # The checkout is live state: cloned once, then owned by the containers.
-# Never rsynced, never reset from here. A deploy key that can push is what
+# Never rsynced, never reset from here. The account key that pushes is what
 # brain-sync needs; the clone uses the same key so a missing one fails now.
 say "Checking the brain"
-# The key is minted on the box, where it stays; only the public half comes
-# back here, to be registered as a write deploy key on the brain repository.
-# Idempotent: a key that exists is kept, a title that is registered is not
-# registered twice. Without `gh` locally the public key is printed instead.
-BRAIN_REPO="$(printf '%s' "$BRAIN_REMOTE" | sed -E 's#^(git@github\.com:|https://github\.com/)##; s#\.git$##')"
-if ! remote "test -r $BRAIN_DEPLOY_KEY"; then
-  say "Generating the brain deploy key at $BRAIN_DEPLOY_KEY on the box"
-  remote "mkdir -p \$(dirname $BRAIN_DEPLOY_KEY) && ssh-keygen -q -t ed25519 -N '' -C 'teeny brain-sync' -f $BRAIN_DEPLOY_KEY" \
-    || die "could not generate $BRAIN_DEPLOY_KEY on the box"
+# The key is the teenydroid GitHub account's SSH key, minted on the box and
+# never leaving it: brain-sync pushes with it, and so do git and gh on the
+# box (~/.ssh/config points github.com at it). Adding the public half to the
+# account is a one-time step for a person, on
+# https://github.com/settings/keys as teenydroid; this prints it until that
+# has happened. brain-sync keeps its commits and retries the push every
+# tick, so an unregistered key is not a failed deploy.
+if ! remote "test -r $BRAIN_SSH_KEY"; then
+  say "Generating the teenydroid SSH key at $BRAIN_SSH_KEY on the box"
+  remote "mkdir -p \$(dirname $BRAIN_SSH_KEY) && ssh-keygen -q -t ed25519 -N '' -C 'teenydroid@robot1' -f $BRAIN_SSH_KEY" \
+    || die "could not generate $BRAIN_SSH_KEY on the box"
 fi
-BRAIN_PUBKEY="$(remote "cat $BRAIN_DEPLOY_KEY.pub")"
-# Registering a deploy key needs ADMIN on the repository, which the account
-# `gh` is signed in as may not have (push access is not enough; the API
-# answers 404). A key that cannot be registered from here is not a failed
-# deploy -- brain-sync keeps its commits and retries the push every tick --
-# so this warns with the key rather than dying.
-register_hint="add it on https://github.com/$BRAIN_REPO/settings/keys with write access, as an admin of that repository:
-       $BRAIN_PUBKEY"
-if ! command -v gh >/dev/null 2>&1 || ! gh auth status >/dev/null 2>&1; then
-  warn "gh is not available here; $register_hint"
-elif ! titles="$(gh repo deploy-key list -R "$BRAIN_REPO" --json title -q '.[].title' 2>/dev/null)"; then
-  warn "$(gh api user -q .login 2>/dev/null || echo 'this gh account') cannot manage deploy keys on $BRAIN_REPO (admin needed); $register_hint"
-elif printf '%s\n' "$titles" | grep -qx 'teeny brain-sync'; then
-  say "Deploy key 'teeny brain-sync' is registered on $BRAIN_REPO"
+if remote "ssh -i $BRAIN_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -T git@github.com 2>&1 | grep -q 'successfully authenticated'"; then
+  say "GitHub accepts the key at $BRAIN_SSH_KEY ($(remote "ssh -i $BRAIN_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes -T git@github.com 2>&1 | sed -n 's/^Hi \([^!]*\)!.*/\1/p'"))"
 else
-  say "Registering the deploy key on $BRAIN_REPO (write access)"
-  pubfile="$(mktemp)"; printf '%s\n' "$BRAIN_PUBKEY" > "$pubfile"
-  gh repo deploy-key add "$pubfile" -R "$BRAIN_REPO" --allow-write -t 'teeny brain-sync' \
-    || warn "could not register the deploy key; $register_hint"
-  rm -f "$pubfile"
+  warn "GitHub does not know the key at $BRAIN_SSH_KEY yet. Add it to the teenydroid account at https://github.com/settings/keys:
+       $(remote "cat $BRAIN_SSH_KEY.pub")"
 fi
 if remote "test -d $BRAIN_DIR/.git"; then
   say "Brain checkout present at $BRAIN_DIR ($(remote "git -C $BRAIN_DIR rev-parse --short HEAD"))"
 else
   say "Cloning the brain into $BRAIN_DIR"
-  remote "GIT_SSH_COMMAND='ssh -i $BRAIN_DEPLOY_KEY -o IdentitiesOnly=yes -o BatchMode=yes' git clone -q $BRAIN_REMOTE $BRAIN_DIR" \
-    || die "could not clone $BRAIN_REMOTE into $BRAIN_DIR with $BRAIN_DEPLOY_KEY"
+  remote "GIT_SSH_COMMAND='ssh -i $BRAIN_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes' git clone -q $BRAIN_REMOTE $BRAIN_DIR" \
+    || die "could not clone $BRAIN_REMOTE into $BRAIN_DIR with $BRAIN_SSH_KEY"
 fi
 # A registry image is pulled so the box runs what is published; an image that
 # only exists on the box (built there by hand while nobody publishes one) is

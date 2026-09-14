@@ -132,8 +132,8 @@ services:
       start_period: 30s
 
   # Commits the brain after every run and pushes it to GitHub. Same checkout,
-  # same uid; a write deploy key for teenydroid/brain, generated and uploaded
-  # by deploy.sh, mounted read-only. Both .env files are mounted only so their
+  # same uid; the teenydroid account's SSH key (BRAIN_SSH_KEY, minted on the
+  # box by deploy.sh) mounted read-only. Both .env files are mounted only so their
   # VALUES can be grepped out of every commit -- the second gate behind
   # gitleaks, because the ladder key has no shape a scanner would recognise.
   #
@@ -159,7 +159,7 @@ services:
       HOME: /tmp
     volumes:
       - ${BRAIN_DIR:?set BRAIN_DIR in deploy/.env}:/data
-      - ${BRAIN_DEPLOY_KEY:?set BRAIN_DEPLOY_KEY in deploy/.env}:/run/secrets/brain_key:ro
+      - ${BRAIN_SSH_KEY:?set BRAIN_SSH_KEY in deploy/.env}:/run/secrets/brain_key:ro
       - ./.env:/run/secrets/deploy.env:ro
       - ../.env:/run/secrets/bot.env:ro
     depends_on:

@@ -88,7 +88,8 @@ checkout owner's:
   gates: `gitleaks` over the staged tree, then a grep of the staged diff for
   every value in the two `.env` files, because the ladder key has no shape a
   scanner recognises. A hit unstages and logs `REFUSED`; nothing is
-  committed. `docker exec teeny-brain-sync-1 sync-now` runs a tick at once.
+  committed. It pushes as the teenydroid account (`BRAIN_SSH_KEY`).
+  `docker exec teeny-brain-sync-1 sync-now` runs a tick at once.
 
 ### What is and is not public
 
@@ -122,13 +123,13 @@ docker compose -f compose.prod.yaml start opencompany
 
 ### One-time setup on the box
 
-1. Nothing for the key: `deploy.sh` generates `BRAIN_DEPLOY_KEY` on the box
-   if it is missing and registers its public half on `teenydroid/brain` as a
-   write deploy key titled `teeny brain-sync`, using `gh` from the deploying
-   machine. That needs **admin** on `teenydroid/brain` (push is not enough);
-   without it, or without `gh`, the public key is printed to add by hand at
-   `https://github.com/teenydroid/brain/settings/keys`. The private key never
-   leaves the box.
+1. The teenydroid account's SSH key. `deploy.sh` generates `BRAIN_SSH_KEY`
+   on the box if it is missing and prints the public half until GitHub
+   accepts it; add it to the **teenydroid** account at
+   `https://github.com/settings/keys`. The box's `~/.ssh/config` points
+   `github.com` at the same key, so `git` there pushes as teenydroid too.
+   For `gh` on the box as teenydroid, run `gh auth login` there once (a
+   token, not the key). The private key never leaves the box.
 2. `OPENCOMPANY_IMAGE`, `BRAIN_ADMIN_EMAIL`, `BRAIN_UID`/`BRAIN_GID` in
    `deploy/.env`. There is no OpenCompany image published yet as of
    2026-09-14; the value is whatever tinyhumansai publishes, built with at
