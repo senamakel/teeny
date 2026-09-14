@@ -58,11 +58,13 @@ export function dashboardHtml(): string {
     if (c.surface === 'x') return 'X' + (c.postId ? ' · post ' + c.postId : '') + (c.authorUsername ? ' · @' + c.authorUsername : '') + (c.tool ? ' · ' + c.tool : '');
     if (c.surface === 'telegram') return 'Telegram · chat ' + (c.chatId || '?') + (c.authorName ? ' · ' + c.authorName : c.authorUsername ? ' · @' + c.authorUsername : '');
     if (c.surface === 'chart') return 'chart agent' + (c.tool ? ' · ' + c.tool : '');
+    if (c.surface === 'calendar') return 'calendar' + (c.tool ? ' · ' + c.tool : '');
     return c.surface || '';
   };
   const whatApprovingDoes = (h) => {
     if (h.kind === 'link') return 'approve = allowlist the host(s) from now on';
     if (h.kind === 'message' && h.context && h.context.surface === 'x') return 'approve = answer this mention after all';
+    if (h.kind === 'draft' && h.context && h.context.surface === 'calendar') return 'approve = mark the filter wrong; the item posts again on its next run';
     if (h.kind === 'draft') return 'approve = publish this draft as written';
     return 'approve = mark the filter wrong; nothing is re-sent';
   };

@@ -4,8 +4,10 @@ import { z } from 'zod'
 import { buildTools, createChatModel, producedMediaId, toolSteps, type AgentOptions } from './graph.js'
 import { truncateAtBoundary } from './house-style.js'
 import { findOwnTokenAddresses, ownTokenNote } from './own-token.js'
+import { MediaGate } from './media-gate.js'
 import { draftPrompt } from './prompt.js'
 import { MEDIA_ID_PATTERN } from './tools/media.js'
+import { canGenerate, gateMedia } from '../media/wiring.js'
 import type { LanguageModel, ReplyDraft, XPost } from '../types.js'
 
 const MAX_REPLY_LENGTH = 260
@@ -71,10 +73,14 @@ const responseFormat = z.object({
 export class AgentReplyModel implements LanguageModel {
   private readonly options: AgentOptions
   private readonly maxSteps: number
+  private readonly gate: MediaGate | undefined
 
-  constructor(options: AgentOptions) {
+  constructor(options: AgentOptions, gate?: MediaGate) {
     this.maxSteps = options.maxSteps ?? 12
     this.options = options
+    // Only worth having when there is something to gate.
+    const able = canGenerate(options.media)
+    this.gate = able.images || able.videos ? gate ?? new MediaGate(options.llm) : undefined
   }
 
   /**
@@ -85,11 +91,15 @@ export class AgentReplyModel implements LanguageModel {
    * thread and the own-token note reach the turn without shared mutable state.
    * It costs no network call and the turn that follows costs several.
    */
-  private buildGraph(): ReturnType<typeof createReactAgent> {
+  private buildGraph(asked: { image: boolean; video: boolean }): ReturnType<typeof createReactAgent> {
     const options = this.options
+    // Generation is on the table only when the person asked for it, in so
+    // many words. Otherwise the drafter has eyes and no sketchbook, and the
+    // prompt tells it not to offer one.
+    const media = gateMedia(options.media, { images: asked.image, videos: asked.video })
     return createReactAgent({
       llm: createChatModel(options.llm),
-      tools: buildTools({ ...options, allowPosting: false }),
+      tools: buildTools({ ...options, allowPosting: false, ...(media ? { media } : {}) }),
       prompt: draftPrompt({
         botUsername: options.botUsername,
         dryRun: options.dryRun,
@@ -169,7 +179,8 @@ export class AgentReplyModel implements LanguageModel {
       .filter((line) => line !== '')
       .join('\n')
 
-    const result = await this.buildGraph().invoke(
+    const asked = this.gate ? await this.gate.asks(input.post.text) : { image: false, video: false }
+    const result = await this.buildGraph(asked).invoke(
       { messages: [new HumanMessage(task)] },
       { recursionLimit: this.maxSteps * 2 },
     )

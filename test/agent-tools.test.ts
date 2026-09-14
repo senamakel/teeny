@@ -4,6 +4,7 @@ import { createMemoryTools } from '../src/agent/tools/memory.js'
 import { createXTools } from '../src/agent/tools/x.js'
 import { createMediaTools } from '../src/agent/tools/media.js'
 import { MediaBudget, MediaStore } from '../src/media/store.js'
+import { gateMedia } from '../src/media/wiring.js'
 import { lexicalGate } from '../src/safety/gate.js'
 import type { Memory, XPost, XTools } from '../src/types.js'
 
@@ -242,5 +243,26 @@ describe('content filter on the publishing tools', () => {
     expect(output).toContain('Refused')
     expect(images.generate).not.toHaveBeenCalled()
     expect(budget.remaining('image')).toBe(1)
+  })
+
+  /**
+   * Two gates on one picture, and both hold. Who may generate is decided per
+   * turn by taking the tool away; what may be generated is decided by the
+   * filter inside the tool. A turn that is allowed to draw still cannot draw
+   * that, and a turn that is not allowed has nothing to call.
+   */
+  it('a turn permitted to generate still cannot generate a prohibited picture; one not permitted has no tool', async () => {
+    const images = { generate: vi.fn().mockResolvedValue({ data: new Uint8Array([1]), mimeType: 'image/png' }) }
+    const budget = new MediaBudget({ imagesPerDay: 1, videosPerDay: 0 })
+    const media = { store: new MediaStore(), budget, images }
+
+    const permitted = toolsByName(createMediaTools(gateMedia(media, { images: true })!, { safety: lexicalGate() }))
+    expect(permitted.has('generate_image')).toBe(true)
+    const output = await permitted.get('generate_image')!.invoke({ prompt: 'Tiny naked on a beach' } as never)
+    expect(output).toContain('Refused')
+    expect(images.generate).not.toHaveBeenCalled()
+
+    const withheld = toolsByName(createMediaTools(gateMedia(media, {})!, { safety: lexicalGate() }))
+    expect(withheld.has('generate_image')).toBe(false)
   })
 })
