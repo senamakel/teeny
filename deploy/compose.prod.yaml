@@ -157,8 +157,8 @@ services:
       BRAIN_SYNC_INTERVAL: ${BRAIN_SYNC_INTERVAL:-60}
       BRAIN_REMOTE: ${BRAIN_REMOTE:-git@github.com:teenydroid/brain.git}
       BRAIN_BRANCH: ${BRAIN_BRANCH:-main}
-      GIT_AUTHOR_NAME: teeny brain
-      GIT_AUTHOR_EMAIL: brain@teeny.tinyhumans.ai
+      GIT_AUTHOR_NAME: Teeny
+      GIT_AUTHOR_EMAIL: tiny@tinyhumans.ai
       HOME: /tmp
     volumes:
       - ${BRAIN_DIR:?set BRAIN_DIR in deploy/.env}:/data
