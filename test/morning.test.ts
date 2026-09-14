@@ -53,6 +53,7 @@ describe('the political filter', () => {
 describe('gathering the news', () => {
   it('searches every topic, drops politics, folds duplicates, and survives a failed search', async () => {
     const source: NewsSource = {
+      read: vi.fn().mockResolvedValue(''),
       search: vi
         .fn()
         .mockResolvedValueOnce([
@@ -88,7 +89,10 @@ describe('gathering the news', () => {
         { title: null, url: 'https://example.com/untitled' },
       ],
     })
-    const source = new ExaNewsSource({ searchAndContents } as never)
+    const getContents = vi.fn().mockResolvedValue({ results: [{ url: 'https://www.example.com/a', text: 'The  full\n article.' }] })
+    const source = new ExaNewsSource({ searchAndContents, getContents } as never)
+    await expect(source.read('https://www.example.com/a', { maxCharacters: 500 })).resolves.toBe('The full article.')
+    expect(getContents).toHaveBeenCalledWith(['https://www.example.com/a'], { text: { maxCharacters: 500 } })
     const found = await source.search('ai news', { days: 2, limit: 4 })
     expect(found).toEqual([
       {
@@ -119,11 +123,23 @@ describe('asking for JSON', () => {
       complete: vi
         .fn()
         .mockResolvedValueOnce('{"story": "three"}')
-        .mockResolvedValueOnce('{"story": 3, "headline": "h", "topic": "ai", "angle": "a"}'),
+        .mockResolvedValueOnce('{"story": 3, "headline": "h", "topic": "ai", "angle": "a", "visual": "v"}'),
     }
     await expect(askJson(model, { system: 's', prompt: 'p', schema: pickSchema })).resolves.toMatchObject({ story: 3 })
     const second = (model.complete as ReturnType<typeof vi.fn>).mock.calls[1]?.[0] as { prompt: string }
     expect(second.prompt).toContain('previous answer was rejected (story:')
+
+    // A call that fails outright is tried once more with the same prompt.
+    const flaky: TextModel = {
+      complete: vi
+        .fn()
+        .mockRejectedValueOnce(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))
+        .mockResolvedValueOnce('{"story": 1, "headline": "h", "topic": "ai", "angle": "a", "visual": "v"}'),
+    }
+    await expect(askJson(flaky, { system: 's', prompt: 'p', schema: pickSchema })).resolves.toMatchObject({ story: 1 })
+    const dead: TextModel = { complete: vi.fn().mockRejectedValue(new Error('502')) }
+    await expect(askJson(dead, { system: 's', prompt: 'p', schema: pickSchema })).rejects.toThrow('502')
+    expect(dead.complete).toHaveBeenCalledTimes(2)
 
     const hopeless: TextModel = { complete: vi.fn().mockResolvedValue('nope') }
     await expect(askJson(hopeless, { system: 's', prompt: 'p', schema: pickSchema })).rejects.toThrow(/no JSON object/)
@@ -231,10 +247,10 @@ function stagedModel(overrides: Partial<Record<'pick' | 'scene' | 'script' | 'ca
         return '{"brief": "Tiny in a bucket hat and sunglasses, glowing nodes across the body, polished 3D, warm gold light."}'
       }
       if (prompt.includes('"story": number')) {
-        return overrides.pick ?? '{"story": 1, "headline": "An agent runtime hit 40k stars", "topic": "ai", "angle": "open source wins"}'
+        return overrides.pick ?? '{"story": 1, "headline": "An agent runtime hit 40k stars", "topic": "ai", "angle": "open source wins", "visual": "a star counter ticking past 40k"}'
       }
       if (prompt.includes('"scene": string')) {
-        return overrides.scene ?? '{"scene": "Tiny sits at a sunrise desk, a mug in hand, watching a star counter tick up on a tiny screen.", "alt": "Tiny at a desk at dawn."}'
+        return overrides.scene ?? '{"scene": "Tiny sits at a sunrise desk, a mug in hand, watching a star counter tick up on a tiny screen.", "storyCue": "the counter reading 40k stars", "alt": "Tiny at a desk at dawn."}'
       }
       if (prompt.includes('"script": string')) {
         return (
@@ -276,7 +292,7 @@ function pipeline(overrides: Partial<Omit<MorningPipelineOptions, 'videos'>> & {
   const text = overrides.text ?? stagedModel()
   const { videos: videoOverride, ...rest } = overrides
   const options: MorningPipelineOptions = {
-    news: { search: vi.fn().mockResolvedValue(STORIES) },
+    news: { search: vi.fn().mockResolvedValue(STORIES), read: vi.fn().mockResolvedValue('The runtime crossed 40,000 stars on Saturday.') },
     text,
     images,
     ...('videos' in overrides ? (videoOverride ? { videos: videoOverride } : {}) : { videos }),
@@ -350,6 +366,9 @@ describe('the morning pipeline', () => {
     const { run, text } = pipeline()
     await run()
     const calls = (text.complete as ReturnType<typeof vi.fn>).mock.calls as Array<[{ system: string; prompt: string }]>
+    const scene = calls.find(([call]) => call.prompt.includes('"storyCue": string'))![0]
+    expect(scene.prompt).toContain('The runtime crossed 40,000 stars on Saturday.')
+    expect(scene.prompt).toContain('a star counter ticking past 40k')
     const pick = calls.find(([call]) => call.prompt.includes('"story": number'))![0]
     expect(pick.prompt).toContain('[1] An open-source agent runtime crossed 40k stars')
     expect(pick.prompt).toContain('yesterday: a post about robots')
@@ -449,14 +468,14 @@ describe('the morning pipeline', () => {
 
   it('carries on with the headline when the model names a story that is not on the list, or none at all', async () => {
     const { run } = pipeline({
-      text: stagedModel({ pick: '{"story": 7, "headline": "made up", "topic": "tech", "angle": "a"}' }),
+      text: stagedModel({ pick: '{"story": 7, "headline": "made up", "topic": "tech", "angle": "a", "visual": "v"}' }),
     })
     const result = await run()
     expect(result.story).toBeUndefined()
     expect(result.problems[0]).toMatch(/chose story 7 of 2/)
 
     const { run: quiet } = pipeline({
-      text: stagedModel({ pick: '{"story": 0, "headline": "OpenHuman", "topic": "ai", "angle": "ours", "fallback": "the runtime"}' }),
+      text: stagedModel({ pick: '{"story": 0, "headline": "OpenHuman", "topic": "ai", "angle": "ours", "visual": "v", "fallback": "the runtime"}' }),
     })
     const fallback = await quiet()
     expect(fallback.story).toBeUndefined()
@@ -568,7 +587,7 @@ describe('the morning pipeline', () => {
     // A scene the lexicon refuses: nothing is drawn, so nothing is posted.
     const { run, x, images, videos } = pipeline({
       safety: lexicalGate({ holds }),
-      text: stagedModel({ scene: '{"scene": "Tiny cleaning a shotgun at dawn.", "alt": "Tiny at dawn."}' }),
+      text: stagedModel({ scene: '{"scene": "Tiny cleaning a shotgun at dawn.", "storyCue": "a shotgun", "alt": "Tiny at dawn."}' }),
     })
     const result = await run()
     expect(images.generate).not.toHaveBeenCalled()
@@ -622,9 +641,9 @@ describe('the morning job', () => {
     return {
       stories: STORIES,
       droppedAsPolitical: 1,
-      pick: { story: 1, headline: 'h', topic: 'ai', angle: 'a' },
+      pick: { story: 1, headline: 'h', topic: 'ai', angle: 'a', visual: 'v' },
       story: STORIES[0]!,
-      scene: { scene: 's', alt: 'alt' },
+      scene: { scene: 's', storyCue: 'c', alt: 'alt' },
       caption: 'gm',
       attached: 'video',
       outcome: 'posted',
