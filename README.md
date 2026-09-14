@@ -864,6 +864,49 @@ The reasoning comes from the drafter itself. Its structured output carries
 `thinking` and `declined` alongside the reply, and neither changes what gets
 posted; they are the record of how it got there.
 
+## The inference ledger, and the token counter
+
+Under the journal sits the ledger: one row per model call, whatever made it.
+A ReAct turn is several rows, one per step. Each row carries what the model
+was shown short of the system prompt (the task, then the tail of the tool
+trail), the reasoning if the provider returned it as text, what came back
+(text, or the tool calls it asked for), the token count split into input,
+cached, reasoning and output, the provider's response id, and two digests: a
+sha256 of the exact request and response, system prompt included, and a
+sha256 of the system prompt alone. The prompt itself is never stored and
+never served; the digests are what let a reader check that a row is a real
+call under the same prompt as every other row without seeing it.
+
+Every `ChatOpenAI` the process builds goes through `createChatModel`, which
+attaches the hook (`src/ledger/callbacks.ts`) when the llm options carry a
+`ledger`, so the reply drafter, the chat drafter, the task and calendar
+agents, the chart agent, the safety judge, the media gate and the critic all
+write rows without knowing it. The three plain-`fetch` clients -- the simple
+reply model, the morning and moon text model, the vision reader -- are handed
+the ledger directly and record from the wire's `usage` block. Each row names
+its source (`reply`, `chat`, `chart`, `morning`, `judge`, `vision`...) and
+its lane: `mascot` for all of those, `brain` for the OpenCompany agents.
+
+The brain's spend comes from its own checkout. `BRAIN_DATA_DIR` (the
+submodule locally; `BRAIN_DIR` mounted read-only into the bot on the box) is
+read every `BRAIN_USAGE_CRON` for `companies/<slug>/usage.jsonl`, the host's
+metered samples, and each sample becomes a brain row keyed by its agent
+(`src/ledger/brain.ts`). Sample ids are derived from the line, so a re-read
+after a restart offers the same rows again and the ledger keeps one of each.
+
+Rows go to the `inferences` collection; the totals -- calls and tokens per
+lane and per source -- are one document beside it, updated with `$inc` on
+every insert, so the counter on the page is one read whatever the row count
+and keeps counting after old rows are gone. `GET /ledger` serves the rows,
+redacted, with the totals; `GET /mind` carries the totals too. Writing is
+best-effort on the same terms as the journal.
+
+`GET /brain` serves the same checkout's definition and record for the page:
+the roster from `company/<slug>/agents/*.toml`, the workflows from
+`workflows/*.toml`, the latest runs from `runs.jsonl` and their steps from
+`run-steps.jsonl`. Only the tail of each file is read, and only what the
+brain's own `.gitignore` already publishes.
+
 ## The content filter
 
 The account does not talk about sex, violence, weapons, drugs, hate,

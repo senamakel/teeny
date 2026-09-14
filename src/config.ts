@@ -105,6 +105,15 @@ const schema = z.object({
   MONGO_URI: z.string().min(1).default('mongodb://mongo:27017'),
   MONGO_DATABASE: z.string().min(1).default('teeny'),
   MENTIONS_COLLECTION: z.string().min(1).default('mentions'),
+  // --- the brain, read-only ---
+  // The brain's checkout (README.md, "The brain"): the definition under
+  // company/<slug>/, the host's record under companies/<slug>/. The bot reads
+  // it to fold the agents' token spend into the ledger and to serve the
+  // roster and the latest runs at /brain. Locally that is the submodule; on
+  // the box it is BRAIN_DIR mounted read-only. Blank it to serve neither.
+  BRAIN_DATA_DIR: blankable(z.string().min(1)).default('brain'),
+  BRAIN_COMPANY: z.string().min(1).default('teeny'),
+  BRAIN_USAGE_CRON: z.string().default('* * * * *'),
   // --- the content calendar's cadence ---
   // The least time between two of the account's own posts, whichever job
   // writes them; a job whose slot comes sooner skips it. The tolerance is

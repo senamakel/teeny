@@ -43,6 +43,8 @@ import { MongoPostLedger } from './cadence/ledger.js'
 import { MongoPeople } from './cadence/people.js'
 import { ReplyBudget } from './cadence/budget.js'
 import { HeatJob } from './cadence/heat.js'
+import { MongoLedger } from './ledger/ledger.js'
+import { BrainReader } from './ledger/brain.js'
 
 const config = loadConfig()
 const memory = new CortexMemory(
@@ -126,12 +128,30 @@ const marketAccess = config.CHART_TOKEN_ADDRESS
   : undefined
 
 /**
+ * The inference ledger: one row per model call, every surface, and the
+ * running token count the page's counter reads. Every model the process
+ * builds is told about it through its llm options, and the raw-fetch
+ * clients (the simple reply model, the morning text model, the vision
+ * reader) are handed it directly. Same Mongo as the journal.
+ */
+const inferences = new MongoLedger({ uri: config.MONGO_URI, database: config.MONGO_DATABASE })
+const llm = {
+  baseUrl: config.LLM_BASE_URL,
+  apiKey: config.LLM_API_KEY,
+  model: config.LLM_MODEL,
+  ledger: inferences,
+}
+
+/**
  * One media access for the whole process: the reply drafter, the chat
  * drafter and the task agent draw on the same daily budget and leave their
  * files in the same store, which is what lets a job attach what a turn made.
  */
 // The logger does not exist yet; the closure runs only after `app` does.
-const media = buildMedia(config, { log: (event, detail) => app.log.info(detail ?? {}, event) })
+const media = buildMedia(config, {
+  log: (event, detail) => app.log.info(detail ?? {}, event),
+  ledger: inferences,
+})
 
 /**
  * One content filter for the whole process. Every surface gets the same one:
@@ -154,6 +174,7 @@ const safety = new SafetyGate({
           baseUrl: config.LLM_BASE_URL,
           apiKey: config.LLM_API_KEY,
           model: config.SAFETY_JUDGE_MODEL ?? config.LLM_MODEL,
+          ledger: inferences,
         }),
       }
     : {}),
@@ -178,6 +199,7 @@ const critic = config.ALGO_CRITIC
       baseUrl: config.LLM_BASE_URL,
       apiKey: config.LLM_API_KEY,
       model: config.ALGO_CRITIC_MODEL,
+      ledger: inferences,
     })
   : undefined
 
@@ -192,11 +214,7 @@ const agentOptions: AgentOptions = {
   maxEmoji: config.MAX_EMOJI_PER_POST,
   botUsername,
   dryRun: config.DRY_RUN,
-  llm: {
-    baseUrl: config.LLM_BASE_URL,
-    apiKey: config.LLM_API_KEY,
-    model: config.LLM_MODEL,
-  },
+  llm,
   maxSteps: config.AGENT_MAX_STEPS,
   ...(config.EXA_API_KEY ? { exaApiKey: config.EXA_API_KEY } : {}),
   ...(gifs ? { gifs } : {}),
@@ -207,12 +225,7 @@ const useAgent = config.AGENT_MODE === 'langgraph'
 const model =
   useAgent
     ? new AgentReplyModel(agentOptions)
-    : new OpenAICompatibleModel({
-        baseUrl: config.LLM_BASE_URL,
-        apiKey: config.LLM_API_KEY,
-        model: config.LLM_MODEL,
-        botUsername,
-      })
+    : new OpenAICompatibleModel({ ...llm, botUsername })
 const queue = new MongoMentionQueue({
   uri: config.MONGO_URI,
   database: config.MONGO_DATABASE,
@@ -281,9 +294,18 @@ const forwarder = config.WEBHOOK_FORWARD_URL
       },
     })
   : undefined
+/**
+ * The brain's checkout, if there is one at the path: the agents' spend is
+ * folded into the ledger on a timer, and the roster and runs are served.
+ */
+const brain = config.BRAIN_DATA_DIR
+  ? new BrainReader({ dir: config.BRAIN_DATA_DIR, slug: config.BRAIN_COMPANY })
+  : undefined
 const app = buildServer({
   memory,
   consumerSecret: config.X_API_SECRET,
+  ledger: inferences,
+  ...(brain ? { brain } : {}),
   ...(forwarder ? { forwarder } : {}),
   people,
   logger: { level: config.LOG_LEVEL },
@@ -306,6 +328,20 @@ media?.reference?.warm()
 
 const role = config.SERVICE_ROLE
 const runsIngest = role === 'all' || role === 'ingest'
+// The brain's spend is folded by whichever process serves the page's feed,
+// which is the ingest role: one folder, or the same sample is offered twice
+// (harmless, the ledger keeps one) by two processes for nothing.
+if (brain && runsIngest) {
+  const fold = async (): Promise<void> => {
+    if (!(await brain.exists())) return
+    const offered = await brain.foldUsage(inferences)
+    if (offered) app.log.debug({ offered }, 'brain usage folded')
+  }
+  void fold().catch((error: unknown) => app.log.warn({ err: error }, 'brain usage fold failed'))
+  cron.schedule(config.BRAIN_USAGE_CRON, () => {
+    void fold().catch((error: unknown) => app.log.warn({ err: error }, 'brain usage fold failed'))
+  })
+}
 const runsReplies = role === 'all' || role === 'reply'
 // The chart agent publishes on its own timer. It is opt-in and single-homed:
 // two containers on the same schedule would post the same chart twice.
@@ -414,6 +450,7 @@ if (runsChart) {
       dryRun: config.DRY_RUN,
       safety,
       ...(critic ? { critic } : {}),
+      ledger: inferences,
     }),
     symbol: config.CHART_TOKEN_SYMBOL,
     timeframe: config.CHART_TIMEFRAME,
@@ -440,6 +477,7 @@ if (runsMorning) {
       logger: app.log,
       safety,
       ...(critic ? { critic } : {}),
+      ledger: inferences,
     }),
     logger: app.log,
     journal,
@@ -462,6 +500,7 @@ if (runsMoon) {
       dryRun: config.DRY_RUN,
       logger: app.log,
       safety,
+      ledger: inferences,
     }),
     logger: app.log,
     journal,
