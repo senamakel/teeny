@@ -7,6 +7,7 @@ import { dashboardHtml } from './safety/dashboard.js'
 import type { SafetyGate } from './safety/gate.js'
 import type { Hold, HoldLog, HoldStatus } from './safety/holds.js'
 import { reviewHold } from './safety/review.js'
+import { renderCritique, type Critic } from './critic/algo.js'
 import type { Agent, Memory } from './types.js'
 import {
   captureWebhookActivity,
@@ -56,6 +57,13 @@ const decisionSchema = z.object({
   note: z.string().max(500).optional(),
 })
 
+const critiqueRequestSchema = z.object({
+  kind: z.enum(['post', 'quote', 'reply', 'caption', 'script', 'thread', 'other']).default('post'),
+  text: z.string().min(1).max(8_000),
+  media: z.string().max(600).optional(),
+  context: z.string().max(2_000).optional(),
+})
+
 export function buildServer(options: {
   memory: Memory
   consumerSecret: string
@@ -86,6 +94,8 @@ export function buildServer(options: {
     /** Publishes an approved draft. Absent, approving a draft only records it. */
     release?: (hold: Hold) => Promise<string>
   }
+  /** The ranker's reader, served at POST /critique behind the same token as the task endpoint. */
+  critic?: Critic
 }): FastifyInstance {
   const app = Fastify({ logger: options.logger ?? false })
 
@@ -247,6 +257,35 @@ export function buildServer(options: {
       return hold
     } catch (error) {
       request.log.error({ err: error, holdId: id }, 'could not act on a hold decision')
+      return reply.code(502).send({ error: error instanceof Error ? error.message : String(error) })
+    }
+  })
+
+  /**
+   * Feedback on anything about to be published -- a post, a caption, a clip
+   * script, a thread -- from the reader that knows the ranker's weights. The
+   * text is the operator's and nothing is published, so it is not put
+   * through the content filter; the critic's own brief treats it as data.
+   */
+  app.post('/critique', async (request, reply) => {
+    if (!options.critic) {
+      return reply.code(503).send({ error: 'the critic is not configured' })
+    }
+    if (!authorised(request, reply)) return reply
+    const parsed = critiqueRequestSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'text is required', details: parsed.error.issues })
+    }
+    try {
+      const { kind, text, media, context } = parsed.data
+      const critique = await options.critic.critique({
+        kind,
+        text,
+        ...(media ? { media } : {}),
+        ...(context ? { context } : {}),
+      })
+      return reply.code(200).send({ ...critique, rendered: renderCritique(critique) })
+    } catch (error) {
       return reply.code(502).send({ error: error instanceof Error ? error.message : String(error) })
     }
   })
