@@ -72,7 +72,7 @@ const schema = z.object({
   X_SEARCH_MAX_RESULTS: z.coerce.number().int().min(10).max(100).default(10),
   // `all` runs every role in one process. Split them to scale or restart the
   // reply side without pausing ingestion, which is the half with a deadline.
-  SERVICE_ROLE: z.enum(['all', 'ingest', 'reply', 'api', 'chart', 'calendar']).default('all'),
+  SERVICE_ROLE: z.enum(['all', 'ingest', 'reply', 'api', 'chart', 'morning', 'calendar']).default('all'),
   INGEST_CRON: z.string().default('*/5 * * * *'),
   // `worker` drains the queue continuously, which is what makes a webhook
   // delivery turn into a reply in seconds rather than by the next tick.
@@ -158,12 +158,36 @@ const schema = z.object({
         }),
     ),
 
+  // --- the morning post ----------------------------------------------------
+  // A good-morning post every day: the news read, one non-political story
+  // chosen, Tiny drawn inside it from one of the official pictures, a short
+  // clip filmed from that, and the lot captioned and posted. Off by default,
+  // because it publishes and because it spends an image and a video a day.
+  // Needs EXA_API_KEY and IMAGE_GEN_ENABLED; VIDEO_GEN_ENABLED makes it a clip.
+  MORNING_ENABLED: offByDefault,
+  // 08:00 UTC: morning in Europe, the small hours in New York, evening in
+  // Asia. A daily post lands or it does not; there is no catch-up.
+  MORNING_CRON: z.string().default('0 8 * * *'),
+  // What is searched for, comma separated. Each is one Exa query over the
+  // news index, bounded to MORNING_NEWS_DAYS. Politics is filtered out of
+  // the results before the model sees them, whatever the query.
+  MORNING_NEWS_TOPICS: z
+    .string()
+    .default('artificial intelligence news,crypto and web3 news,technology trends')
+    .transform((value) => value.split(',').map((entry) => entry.trim()).filter(Boolean)),
+  MORNING_NEWS_DAYS: z.coerce.number().int().min(1).max(7).default(2),
+  MORNING_STORIES_PER_TOPIC: z.coerce.number().int().min(1).max(20).default(8),
+  // How long a clip is scripted for. Passed to the generator as a hint;
+  // Sora rounds it to 4, 8 or 12, and a ladder rung may render its own.
+  MORNING_VIDEO_SECONDS: z.coerce.number().int().min(4).max(20).default(12),
+
   // --- the content calendar ------------------------------------------------
   // Scheduled posts from a JSON file: a "gm" every morning, a Friday post, a
-  // Sunday clip. This is where the account generates pictures without being
-  // asked, so it is off by default, because it publishes, and single-homed
-  // like the chart job. Each item names its own cron and channels; see
-  // calendar.json and src/calendar/calendar.ts.
+  // Sunday clip. This, with the morning post above, is where the account
+  // generates pictures without being asked, so it is off by default, because
+  // it publishes, and single-homed like the chart job. Each item names its
+  // own cron and channels; see calendar.json and src/calendar/calendar.ts.
+  // With MORNING_ENABLED the "gm" item is skipped: the morning job has it.
   CALENDAR_ENABLED: offByDefault,
   CALENDAR_PATH: z.string().default('calendar.json'),
   // Telegram chats an item posts to when it names none of its own.

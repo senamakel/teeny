@@ -26,6 +26,8 @@ import { ChatHarness } from './harness/chat-harness.js'
 import { TelegramBot } from './telegram/bot.js'
 import { MongoChatTranscript } from './telegram/transcript.js'
 import { buildMedia } from './media/wiring.js'
+import { buildMorningPipeline } from './morning/wiring.js'
+import { MorningJob, MORNING_CALENDAR_SLOT } from './jobs/morning-job.js'
 import { SafetyGate } from './safety/gate.js'
 import { MongoHoldLog, type Hold } from './safety/holds.js'
 import { ModelJudge } from './safety/judge.js'
@@ -205,6 +207,11 @@ async function release(hold: Hold): Promise<string> {
   if (where.surface === 'calendar') {
     return `recorded; the "${where.tool ?? 'calendar'}" item posts again on its next run`
   }
+  // Nor is the morning post: the caption was written for a picture and a
+  // clip that are not kept past the run, and tomorrow's runs on its own.
+  if (where.surface === 'morning') {
+    return 'recorded; the morning post runs again tomorrow'
+  }
   return 'recorded; nothing here can publish it'
 }
 // Every role writes to it and the ingest role serves it, so it lives in the
@@ -236,8 +243,11 @@ const runsReplies = role === 'all' || role === 'reply'
 // The chart agent publishes on its own timer. It is opt-in and single-homed:
 // two containers on the same schedule would post the same chart twice.
 const runsChart = config.CHART_ENABLED && (role === 'all' || role === 'chart')
-// The content calendar publishes on its own timers and is the one place the
-// account generates media unasked. Opt-in and single-homed, like the chart.
+// The morning post too: one timer, one process, or it says good morning twice.
+const runsMorning = config.MORNING_ENABLED && (role === 'all' || role === 'morning')
+// The content calendar publishes on its own timers and, with the morning
+// post, is where the account generates media unasked. Opt-in and
+// single-homed, like the chart.
 const runsCalendar = config.CALENDAR_ENABLED && (role === 'all' || role === 'calendar')
 // Telegram lives in the ingest process. It long-polls, and Telegram allows one
 // poller per token, so it rides with the role that already runs in exactly one
@@ -321,6 +331,28 @@ if (runsChart) {
   })
 }
 
+if (runsMorning) {
+  const morningJob = new MorningJob({
+    pipeline: buildMorningPipeline(config, {
+      memory,
+      x,
+      media,
+      persona,
+      botUsername,
+      dryRun: config.DRY_RUN,
+      logger: app.log,
+      safety,
+    }),
+    logger: app.log,
+    journal,
+  })
+  cron.schedule(config.MORNING_CRON, () => {
+    void morningJob
+      .run()
+      .catch((error: unknown) => app.log.error({ err: error }, 'morning job failed'))
+  })
+}
+
 const calendarItems: string[] = []
 if (runsCalendar) {
   const calendar = loadCalendar(config.CALENDAR_PATH)
@@ -345,6 +377,14 @@ if (runsCalendar) {
   })
   for (const item of calendar.items) {
     if (!item.enabled) continue
+    // The morning job owns the good-morning slot; see MORNING_CALENDAR_SLOT.
+    if (runsMorning && item.name === MORNING_CALENDAR_SLOT) {
+      app.log.warn(
+        { item: item.name, cron: item.cron },
+        'calendar: skipping the item, the morning job posts the good morning',
+      )
+      continue
+    }
     calendarItems.push(`${item.name} "${item.cron}"`)
     cron.schedule(
       item.cron,
@@ -444,6 +484,9 @@ app.log.info(
       : false,
     chart: runsChart
       ? `${config.CHART_TOKEN_SYMBOL} ${config.CHART_TIMEFRAME} at "${config.CHART_CRON}" via ${config.CHART_RENDERER}`
+      : false,
+    morning: runsMorning
+      ? `at "${config.MORNING_CRON}", ${media?.videos ? 'video' : 'image'}, ${config.MORNING_NEWS_TOPICS.length} topics`
       : false,
     calendar: runsCalendar ? calendarItems : false,
   },

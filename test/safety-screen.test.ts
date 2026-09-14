@@ -56,6 +56,21 @@ describe('screenText', () => {
     expect(screenText('kill   yourself', 'inbound')?.category).toBe('self-harm')
   })
 
+  it('does not read a doubled vowel as the single one, so a shot is not a shoot', () => {
+    for (const text of [
+      'a shot of espresso, then a long shot at the moon',
+      '0-4s: static shot, Tiny sips from the mug. 4-10s: one continuous shot as the counter ticks.',
+      'bob took a screenshot',
+    ]) {
+      expect(screenText(text, 'inbound'), text).toBeUndefined()
+      expect(screenText(text, 'outbound'), text).toBeUndefined()
+    }
+    expect(screenText('shoot him', 'inbound')?.term).toBe('shoot')
+    expect(screenText('sh00t him', 'inbound')?.term).toBe('shoot')
+    expect(screenText('shooooot him', 'inbound')?.term).toBe('shoot')
+    expect(screenText('he was shot dead', 'inbound')?.term).toBe('shot dead')
+  })
+
   it('does not match inside another word', () => {
     expect(screenText('assassin classic bass', 'inbound')).toBeUndefined()
     expect(screenText('a method, an oxymoron, some analysis', 'inbound')).toBeUndefined()

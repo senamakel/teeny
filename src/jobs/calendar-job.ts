@@ -45,10 +45,11 @@ export interface CalendarJobDependencies {
 /**
  * The content calendar, run: one item at a time, on its cron.
  *
- * This is the one place the account generates media without being asked: the
- * item says whether it carries a picture, and the drafter has the tool for
- * exactly that. The bargain is kept the other way too -- an item that
- * promised a picture and did not get one is held, not published bare, since a
+ * This is where the account generates media without being asked (the morning
+ * post, a fixed pipeline rather than a drafter, is the other): the item says
+ * whether it carries a picture, and the drafter has the tool for exactly
+ * that. The bargain is kept the other way too -- an item that promised a
+ * picture and did not get one is held, not published bare, since a
  * "gm" with the image missing reads as a broken bot to everybody who has seen
  * the ones with it.
  *

@@ -1,3 +1,4 @@
+import { fitImageForX } from '../media/fit.js'
 import { Client, OAuth1 } from '@xdevplatform/xdk'
 import type {
   MentionWindow,
@@ -251,7 +252,9 @@ export class XApiClient implements XClient, XTools {
    * is transcoded after FINALIZE, so the id is only attachable once processing
    * reports `succeeded`; attaching it earlier fails the post.
    */
-  async uploadMedia(media: XMedia): Promise<{ mediaId: string }> {
+  async uploadMedia(uploaded: XMedia): Promise<{ mediaId: string }> {
+    // A generated still can be far over the 5 MB image limit; see fit.ts.
+    const media = await fitImageForX(uploaded)
     const initialized = await this.writeClient.media.initializeUpload({
       mediaType: media.mimeType,
       // By category, not by MIME type: X puts a still image, an animation and

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { loadCalendar, parseCalendar } from '../src/calendar/calendar.js'
+import { MORNING_CALENDAR_SLOT } from '../src/jobs/morning-job.js'
 
 const gm = {
   name: 'gm',
@@ -37,5 +38,14 @@ describe('the content calendar', () => {
     const calendar = loadCalendar('calendar.json')
     expect(calendar.items.map((item) => item.name)).toContain('gm')
     expect(calendar.items.every((item) => item.brief.length > 20)).toBe(true)
+  })
+
+  it('names the good-morning item the morning job stands in for', () => {
+    // The service skips this item while the morning job runs; renaming it in
+    // calendar.json would quietly bring back the second good morning.
+    const calendar = loadCalendar('calendar.json')
+    const slot = calendar.items.find((item) => item.name === MORNING_CALENDAR_SLOT)
+    expect(slot).toBeDefined()
+    expect(slot?.brief).toMatch(/good-morning/)
   })
 })

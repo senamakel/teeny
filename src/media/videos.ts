@@ -12,6 +12,8 @@ interface ErrorBody {
   error?: { message?: string }
 }
 
+const SORA_SECONDS = [4, 8, 12]
+
 /**
  * Video generation through an OpenAI-shaped `/videos` endpoint (Sora, or
  * anything that speaks the same three routes): create a job, poll it, then
@@ -43,11 +45,17 @@ export class OpenAIVideoGenerator implements VideoGenerator {
     return { authorization: `Bearer ${this.options.apiKey}` }
   }
 
-  async generate(input: { prompt: string; orientation?: VideoOrientation }): Promise<GeneratedVideo> {
+  async generate(input: {
+    prompt: string
+    orientation?: VideoOrientation
+    seconds?: number
+  }): Promise<GeneratedVideo> {
     const doFetch = this.options.fetch ?? fetch
     const sleep =
       this.options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
-    const seconds = this.options.seconds ?? 4
+    // Sora takes 4, 8 or 12 and nothing else; an ask in between rounds up.
+    const wanted = input.seconds ?? this.options.seconds ?? 4
+    const seconds = SORA_SECONDS.find((step) => step >= wanted) ?? 12
     const created = await doFetch(`${this.base}/videos`, {
       method: 'POST',
       headers: { ...this.headers, 'content-type': 'application/json' },
@@ -142,7 +150,11 @@ export class LadderVideoGenerator implements VideoGenerator {
     return { authorization: `Bearer ${this.options.apiKey}` }
   }
 
-  async generate(input: { prompt: string; orientation?: VideoOrientation }): Promise<GeneratedVideo> {
+  async generate(input: {
+    prompt: string
+    orientation?: VideoOrientation
+    seconds?: number
+  }): Promise<GeneratedVideo> {
     const doFetch = this.options.fetch ?? fetch
     const sleep =
       this.options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
@@ -153,6 +165,9 @@ export class LadderVideoGenerator implements VideoGenerator {
         model: this.options.model,
         prompt: input.prompt,
         aspect_ratio: ASPECT[input.orientation ?? 'square'],
+        // The marketplace relays OpenAI's spelling; a rung that ignores it
+        // renders its own default length, which is still a clip.
+        ...(input.seconds ? { seconds: String(input.seconds) } : {}),
       }),
       signal: AbortSignal.timeout(60_000),
     })

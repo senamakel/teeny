@@ -115,8 +115,17 @@ export class OpenAITextModel implements TextModel {
  * missing sheet rather than a failed generation; the tool says so and the
  * prompt goes out without it.
  */
+/** One of the reference pictures, and what the vision ladder saw in it. */
+export interface ReferenceSeed {
+  /** The path or URL the picture was read from. */
+  url: string
+  /** The illustrator's description of that one picture: pose, scene, palette, mood. */
+  look: string
+}
+
 export class ReferenceSheet {
   private pending: Promise<string | undefined> | undefined
+  private looks: Record<string, string> = {}
 
   constructor(
     private readonly options: {
@@ -148,12 +157,32 @@ export class ReferenceSheet {
     void this.get()
   }
 
+  /**
+   * One reference picture, chosen at random, with its own description.
+   *
+   * The sheet is what is constant across the artwork; a seed is one picture
+   * in particular -- the pose, the setting, the palette of that one -- and
+   * a generation that starts from a seed comes out looking like a sibling of
+   * a published picture rather than a generic rendering of the sheet. The
+   * image ladder takes no picture as input, so the seed reaches it the same
+   * way the sheet does: as words. Undefined until the sheet has been built,
+   * or when no picture could be described.
+   */
+  async seed(random: () => number = Math.random): Promise<ReferenceSeed | undefined> {
+    await this.get()
+    const entries = Object.entries(this.looks).filter(([, look]) => look.trim())
+    if (entries.length === 0) return undefined
+    const [url, look] = entries[Math.min(entries.length - 1, Math.floor(random() * entries.length))]!
+    return { url, look }
+  }
+
   private async build(): Promise<string | undefined> {
     const urls = [...new Set(this.options.urls)]
     if (urls.length === 0) return undefined
 
     const cached = this.readCache()
     if (cached && sameUrls(cached.urls, urls)) {
+      this.looks = cached.looks ?? {}
       this.options.log?.('reference sheet loaded from cache', { urls: urls.length })
       return cached.sheet
     }
@@ -173,6 +202,7 @@ export class ReferenceSheet {
     )
     const described = Object.values(looks)
     if (described.length === 0) throw new Error('none of the reference images could be described')
+    this.looks = looks
 
     const sheet = await this.options.text.complete({
       system: 'You write terse, concrete visual briefs for image models.',
@@ -225,4 +255,38 @@ function sameUrls(a: string[], b: string[]): boolean {
 export function withReference(sheet: string | undefined, prompt: string): string {
   if (!sheet) return prompt
   return `${sheet}\n\nScene: ${prompt}`
+}
+
+/**
+ * The generation prompt with the sheet and one seed picture in front of the
+ * scene: what Tiny always looks like, then the particular picture today's
+ * generation should look like a sibling of, then the scene.
+ */
+export function withSeed(
+  sheet: string | undefined,
+  seed: ReferenceSeed | undefined,
+  prompt: string,
+  options: { maxLength?: number } = {},
+): string {
+  if (!seed) return fit(withReference(sheet, prompt), options.maxLength)
+  const parts = [
+    ...(sheet ? [sheet] : []),
+    `Style reference, one of Tiny's official pictures (match its rendering, palette and mood, not its scene): ${seed.look}`,
+    `Scene: ${prompt}`,
+  ]
+  const composed = parts.join('\n\n')
+  // Over the limit, the seed is the part to lose: the sheet is what makes it
+  // Tiny and the scene is what makes it today.
+  if (options.maxLength && composed.length > options.maxLength) {
+    return fit(withReference(sheet, prompt), options.maxLength)
+  }
+  return composed
+}
+
+/** Under the limit, cut at a sentence when one is near enough. */
+function fit(prompt: string, maxLength: number | undefined): string {
+  if (!maxLength || prompt.length <= maxLength) return prompt
+  const head = prompt.slice(0, maxLength)
+  const stop = head.lastIndexOf('. ')
+  return stop > maxLength * 0.7 ? head.slice(0, stop + 1) : head
 }

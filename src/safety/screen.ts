@@ -55,7 +55,14 @@ function termPattern(term: string, options: { looseGaps?: boolean } = {}): RegEx
     }
     // Consecutive identical letters in the term collapse to one repeating
     // class, so "kill" reads k+i+l+ and still matches "kil" and "killll".
-    if (char === previous && /[a-z]/.test(char)) continue
+    // A doubled vowel is the exception: it is a different word from the
+    // single one (shot/shoot, bob/boob), so the term keeps asking for two.
+    // "a shot of espresso" and a film script's "one continuous shot" are
+    // not "shoot"; "sh00t" still is, because the leet reading has two.
+    if (char === previous && /[a-z]/.test(char)) {
+      if (/[aeiou]/.test(char) && body.endsWith(`${char}+`)) body = `${body.slice(0, -1)}{2,}`
+      continue
+    }
     body += /[a-z]/.test(char) ? `${char}+` : escapeRegExp(char)
     previous = char
   }

@@ -44,7 +44,12 @@ export interface GeneratedVideo {
 }
 
 export interface VideoGenerator {
-  generate(input: { prompt: string; orientation?: VideoOrientation }): Promise<GeneratedVideo>
+  generate(input: {
+    prompt: string
+    orientation?: VideoOrientation
+    /** Wanted clip length. A hint: a generator that cannot set one ignores it. */
+    seconds?: number
+  }): Promise<GeneratedVideo>
 }
 
 /**

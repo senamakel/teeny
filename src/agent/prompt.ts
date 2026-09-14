@@ -319,9 +319,9 @@ export function chatPrompt(options: PromptOptions & { channelHandle: string }): 
 /**
  * A scheduled post. No one asked for it, so there is no post to answer and
  * no person to address: the brief says what it is for, memory says what was
- * posted before, and the job publishes it. This is the one place a picture
- * is expected rather than tolerated -- the calendar says which posts carry
- * one, and the tool for it is present only on those.
+ * posted before, and the job publishes it. Here a picture is expected rather
+ * than tolerated -- the calendar says which posts carry one, and the tool
+ * for it is present only on those.
  */
 export function contentPrompt(options: PromptOptions & { channels: string[] }): string {
   const onX = options.channels.includes('x')
