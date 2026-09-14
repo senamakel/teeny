@@ -64,9 +64,11 @@ const schema = z.object({
   // and hands back the arithmetic and the fixes. Offered to the agents as
   // x_critique, run by the morning pipeline on its script and caption, and
   // served at POST /critique. Advisory, never a hold. On by default, on the
-  // chat model unless pointed elsewhere.
+  // ladder's fast rung: a read is a dozen numbers and three lines, and the
+  // reasoning rung took a minute over it, which a caption can wait for and an
+  // agent turn cannot.
   ALGO_CRITIC: booleanFromString,
-  ALGO_CRITIC_MODEL: blankable(z.string().min(1)),
+  ALGO_CRITIC_MODEL: z.preprocess((value) => (value === '' ? undefined : value), z.string().min(1).default('flash')),
   // Hosts the account may link to beyond the built-in list, comma separated,
   // as `host`, `host/path-prefix`, or `host/` for the bare host only.
   LINK_ALLOWLIST: z

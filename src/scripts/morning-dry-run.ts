@@ -70,7 +70,7 @@ const pipeline = buildMorningPipeline(config, {
         critic: new AlgoCritic({
           baseUrl: config.LLM_BASE_URL,
           apiKey: config.LLM_API_KEY,
-          model: config.ALGO_CRITIC_MODEL ?? config.LLM_MODEL,
+          model: config.ALGO_CRITIC_MODEL,
         }),
       }
     : {}),

@@ -176,3 +176,13 @@ describe('content filter config', () => {
     ).toEqual(['dexscreener.com/solana', 'solscan.io'])
   })
 })
+
+describe('the critic config', () => {
+  it('is on by default, on the fast rung, and a blank model spells the default', () => {
+    const config = loadConfig({ ...REQUIRED, ALGO_CRITIC_MODEL: '' } as unknown as NodeJS.ProcessEnv)
+    expect(config.ALGO_CRITIC).toBe(true)
+    expect(config.ALGO_CRITIC_MODEL).toBe('flash')
+    expect(loadConfig({ ...REQUIRED, ALGO_CRITIC_MODEL: 'reasoning' } as unknown as NodeJS.ProcessEnv).ALGO_CRITIC_MODEL).toBe('reasoning')
+    expect(loadConfig({ ...REQUIRED, ALGO_CRITIC: 'false' } as unknown as NodeJS.ProcessEnv).ALGO_CRITIC).toBe(false)
+  })
+})
