@@ -406,6 +406,7 @@ if (runsReplies) {
       autoPerPost: config.REPLY_AUTO_PER_POST,
       smartPerPost: config.REPLY_SMART_PER_POST,
       gapMs,
+      botUsername,
     }),
     people,
     likeMentions: config.REPLY_LIKE_MENTIONS,

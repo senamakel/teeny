@@ -1,4 +1,5 @@
 import { MongoClient, type Collection } from 'mongodb'
+import type { Lane } from '../cadence/budget.js'
 import type { XPost } from '../types.js'
 
 export type MentionStatus = 'pending' | 'replied' | 'failed' | 'skipped'
@@ -16,7 +17,7 @@ export interface QueuedMention {
   /** Set when an operator approved a held mention; the inbound content check is waived. */
   filterApproved?: boolean
   /** Which reply budget the answer came out of, and for `auto`, the own post it sits under. */
-  lane?: 'auto' | 'smart'
+  lane?: Lane
   ownPostId?: string
   /** When the account liked the post; a like costs nothing and is given to every mention. */
   likedAt?: string
@@ -29,14 +30,14 @@ export interface MentionQueue {
   takePending(limit: number): Promise<QueuedMention[]>
   markReplied(
     postId: string,
-    reply: { id?: string; text: string; lane?: 'auto' | 'smart'; ownPostId?: string },
+    reply: { id?: string; text: string; lane?: Lane; ownPostId?: string },
   ): Promise<void>
   markFailed(postId: string, error: string): Promise<void>
   /** Set aside without an answer: over budget, or not worth one. Not a failure. */
   markSkipped(postId: string, reason: string): Promise<void>
   markLiked(postId: string): Promise<void>
   /** How many replies went out of a lane; under one own post, or since a time. */
-  countReplied(filter: { lane: 'auto' | 'smart'; ownPostId?: string; since?: string }): Promise<number>
+  countReplied(filter: { lane: Lane; ownPostId?: string; since?: string }): Promise<number>
   /**
    * Puts a held mention back to be answered, with the inbound content check
    * waived. Resolves false when there is no such mention.
@@ -115,7 +116,7 @@ export class MongoMentionQueue implements MentionQueue {
 
   async markReplied(
     postId: string,
-    reply: { id?: string; text: string; lane?: 'auto' | 'smart'; ownPostId?: string },
+    reply: { id?: string; text: string; lane?: Lane; ownPostId?: string },
   ): Promise<void> {
     await this.ready()
     await this.mentions.updateOne(
@@ -147,7 +148,7 @@ export class MongoMentionQueue implements MentionQueue {
     await this.mentions.updateOne({ postId }, { $set: { likedAt: new Date().toISOString() } })
   }
 
-  async countReplied(filter: { lane: 'auto' | 'smart'; ownPostId?: string; since?: string }): Promise<number> {
+  async countReplied(filter: { lane: Lane; ownPostId?: string; since?: string }): Promise<number> {
     await this.ready()
     return this.mentions.countDocuments({
       status: 'replied',

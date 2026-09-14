@@ -1,4 +1,4 @@
-import type { XPost } from '../types.js'
+import { mentionsDeliberately, type XPost } from '../types.js'
 import type { OwnPost, PostLedger } from './ledger.js'
 
 /**
@@ -10,8 +10,16 @@ import type { OwnPost, PostLedger } from './ledger.js'
  * They are capped separately because they do different jobs: the first
  * keeps a thread alive under a post that is being seen, the second puts the
  * account in front of people who have not seen it.
+ *
+ * `called` is somebody typing the handle on purpose, out in the world:
+ * "hey @bot, what do you make of this". That is a person asking the account
+ * a question to its face, and a question asked to your face is answered
+ * whether or not the day's budget is spent. It has no cap. A reply under
+ * one of the account's own posts is never `called`, however many times the
+ * handle appears in it: that is a comment on the account's post, and it
+ * stays in the auto lane with the rest of the thread.
  */
-export type Lane = 'auto' | 'smart'
+export type Lane = 'auto' | 'smart' | 'called'
 
 export interface Assessment {
   lane: Lane
@@ -33,6 +41,8 @@ export interface ReplyBudgetOptions {
   smartPerPost: number
   /** One slot of the cadence, to count how many a hot post's hold took. */
   gapMs: number
+  /** The account's handle, to tell a deliberate mention from an inherited one. */
+  botUsername?: string
   /** How long an own post keeps attracting replies worth answering. */
   threadWindowMs?: number
   now?: () => number
@@ -43,6 +53,8 @@ export interface ReplyBudgetOptions {
  * sixty replies. The held slots of a hot post are not lost, they move: the
  * post the timeline is being kept quiet for gets each held slot's auto and
  * smart allowance added to its own thread, which is where the attention is.
+ * A post that names the account on purpose is outside all of this and is
+ * always answered.
  */
 export class ReplyBudget {
   constructor(private readonly options: ReplyBudgetOptions) {}
@@ -57,6 +69,14 @@ export class ReplyBudget {
       const used = await this.options.queue.countReplied({ lane: 'auto', ownPostId: under.postId })
       const cap = this.options.autoPerPost + heldSlots(under, this.options.gapMs) * (this.options.autoPerPost + this.options.smartPerPost)
       return { lane: 'auto', ownPostId: under.postId, allowed: used < cap, used, cap }
+    }
+
+    // Somebody typed the handle. Not a reply in the account's own thread,
+    // that was handled above; a post out in the world that called the
+    // account in by name. Uncapped: `used` is for the record, not the rule.
+    if (this.options.botUsername && mentionsDeliberately(post, this.options.botUsername)) {
+      const used = await this.options.queue.countReplied({ lane: 'called', since: new Date(now - 24 * 3_600_000).toISOString() })
+      return { lane: 'called', allowed: true, used, cap: Number.POSITIVE_INFINITY }
     }
 
     const dayAgo = new Date(now - 24 * 3_600_000).toISOString()

@@ -1202,6 +1202,18 @@ post's worth at least. Three posts a day is sixty replies. A hot post's held
 slots are not lost, they move: each adds both allowances to the hot post's
 own thread, which is where the attention is.
 
+A third lane, `called`, has no cap. It is somebody typing the handle on
+purpose out in the world -- "hey @teenydroid, what do you make of this" -- and
+a question asked to the account's face is answered whether or not the day's
+budget is spent. What counts as typing it on purpose is `mentionsDeliberately`:
+the handle appears after the run of handles X puts at the front of a reply
+automatically, and the post is not a retweet. A comment under one of the
+account's own posts is never `called`, however many times it names the
+account; that is a reply to the account's post and it stays in the auto lane
+with the rest of the thread. A quote, or a reply in somebody else's thread
+where the handle was only carried along, is the reply guy's business and is
+budgeted as `smart`.
+
 A mention over its lane's cap is liked, set aside (`status: skipped`,
 `error: budget: ...`) and never answered; it is not a failure and not retried.
 Every mention the job takes is liked first, budget or no budget
