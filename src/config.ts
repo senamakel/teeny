@@ -181,6 +181,17 @@ const schema = z.object({
   // Sora rounds it to 4, 8 or 12, and a ladder rung may render its own.
   MORNING_VIDEO_SECONDS: z.coerce.number().int().min(4).max(20).default(10),
 
+  // --- the posting rota ----------------------------------------------------
+  // The moon chart and the candlestick chart take turns rather than both
+  // posting every day: slot 0 the moon, slot 1 the chart, and with a
+  // three-day rota the third day is quiet. Days are counted in UTC from the
+  // anchor, which is slot 0. Each job keeps its daily cron and skips the
+  // days that are not its turn; a slot past the rota's length never posts.
+  POST_ROTA_DAYS: z.coerce.number().int().min(1).max(14).default(3),
+  POST_ROTA_ANCHOR: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).default('2026-09-14'),
+  MOON_ROTA_SLOT: z.coerce.number().int().min(0).default(0),
+  CHART_ROTA_SLOT: z.coerce.number().int().min(0).default(1),
+
   // --- the moon chart ------------------------------------------------------
   // "$TINY with the market cap of X", once a day: the token's row and the AI
   // meme coin leaderboard read from CoinGecko, one coin above it picked as the

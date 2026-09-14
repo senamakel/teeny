@@ -1,4 +1,5 @@
 import type { Journal } from '../journal/journal.js'
+import { isTurn, type Rota } from './cycle.js'
 import type { MoonResult } from '../moon/pipeline.js'
 import { multiple } from '../moon/svg.js'
 
@@ -9,6 +10,8 @@ export interface MoonJobDependencies {
   minIntervalMs?: number
   now?: () => number
   journal?: Journal
+  /** The posting rota and this job's slot in it. Absent, it posts every day the cron fires. */
+  rota?: { rota: Rota; slot: number }
 }
 
 /**
@@ -27,6 +30,11 @@ export class MoonJob {
   /** Returns the result, or undefined when it declined to run, which is not an error. */
   async run(options: { force?: boolean } = {}): Promise<MoonResult | undefined> {
     const now = (this.dependencies.now ?? Date.now)()
+    const { rota } = this.dependencies
+    if (!options.force && rota && !isTurn(rota.rota, rota.slot, now)) {
+      this.dependencies.logger.info({ slot: rota.slot, rota: rota.rota }, 'moon job: skipping, not its day on the rota')
+      return undefined
+    }
     const minimum = this.dependencies.minIntervalMs ?? 20 * 60 * 60 * 1_000
     if (!options.force && this.lastRunAt > 0 && now - this.lastRunAt < minimum) {
       this.dependencies.logger.info({ sinceLastRunMs: now - this.lastRunAt, minimum }, 'moon job: skipping, it already ran recently')

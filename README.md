@@ -533,7 +533,8 @@ already paid for that lesson once. The chart is the attachment.
 The job refuses to run twice inside 20 hours even if the cron fires again — a
 container that restarts near the cron minute would otherwise post the same chart
 an hour later, which is exactly the repetitive-publishing shape that got this
-account throttled.
+account throttled. It also only posts on its day of [the rota](#the-rota) it
+shares with the moon chart: every third day by default, the day after the moon.
 
 ## The morning post
 
@@ -637,6 +638,19 @@ npm run moon-dry-run -- --publish # actually posts, if DRY_RUN=false
 
 The picture is written to `MOON_OUTPUT_DIR` (`data/moon`) either way.
 
+### The rota
+
+The moon chart and [the chart agent](#the-chart-agent) take turns rather
+than both posting every day: on a three-day rota, day one is the moon, day
+two the chart, day three quiet. Cron cannot say "every third day" -- a step
+in the day-of-month field restarts at every month and lands two posts back
+to back on the 31st and the 1st -- so each job keeps its daily cron and asks
+`src/jobs/cycle.ts` whether today is its slot, counted in UTC days from
+`POST_ROTA_ANCHOR` (slot 0). `POST_ROTA_DAYS` is the length, `MOON_ROTA_SLOT`
+(0) and `CHART_ROTA_SLOT` (1) the turns; a slot past the length never posts,
+which is how one of them is switched off without touching its cron. The
+rehearsal scripts force past the rota, so a dry run works on any day.
+
 ### The numbers
 
 Two CoinGecko reads per run, both from `/coins/markets`: the token's own row
@@ -699,7 +713,8 @@ Memory on both sides, as the chart and the morning have it: what the series
 already said is recalled so a joke is not told twice, and what went out is
 written back as a `moon_post` with the yardstick, the multiple and the
 implied price. The turn is journaled with `trigger: moon` for the mind page.
-The job refuses to run twice inside 20 hours, like the others.
+The job refuses to run twice inside 20 hours, like the others, and only posts
+on its day of the rota.
 
 ## The journal, and the mind page
 

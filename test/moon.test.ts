@@ -412,3 +412,55 @@ describe('the job', () => {
     expect(journal.record).toHaveBeenCalledWith(expect.objectContaining({ trigger: 'moon', outcome: 'failed', outcomeNote: 'gecko down' }))
   })
 })
+
+describe('the rota', () => {
+  const rota = { days: 3, anchor: '2026-09-14' }
+  const day = (date: string, hour = 20): number => Date.UTC(...(date.split('-').map(Number) as [number, number, number]).map((v, i) => (i === 1 ? v - 1 : v)) as [number, number, number], hour)
+
+  it('counts slots from the anchor and wraps across a month end', async () => {
+    const { rotaSlot, isTurn } = await import('../src/jobs/cycle.js')
+    expect(rotaSlot(rota, day('2026-09-14'))).toBe(0)
+    expect(rotaSlot(rota, day('2026-09-15'))).toBe(1)
+    expect(rotaSlot(rota, day('2026-09-16'))).toBe(2)
+    expect(rotaSlot(rota, day('2026-09-17'))).toBe(0)
+    expect(rotaSlot(rota, day('2026-09-30'))).toBe(1)
+    expect(rotaSlot(rota, day('2026-10-01'))).toBe(2)
+    expect(rotaSlot(rota, day('2026-10-02'))).toBe(0)
+    // Before the anchor still lands on a real slot.
+    expect(rotaSlot(rota, day('2026-09-13'))).toBe(2)
+    expect(isTurn(rota, 1, day('2026-09-15'))).toBe(true)
+    expect(isTurn(rota, 5, day('2026-09-15'))).toBe(false)
+    expect(() => rotaSlot({ days: 3, anchor: 'yesterday' }, 0)).toThrow(/ISO date/)
+  })
+
+  it('keeps the moon to its day and the chart to the next, with the third quiet', async () => {
+    const { ChartJob } = await import('../src/jobs/chart-job.js')
+    const moonPipeline = { run: vi.fn().mockResolvedValue(undefined as unknown as MoonResult) }
+    const chartAgent = { run: vi.fn().mockResolvedValue({ output: '', steps: [] }) }
+    let now = day('2026-09-14')
+    const logger = { info: vi.fn(), error: vi.fn() }
+    const moon = new MoonJob({ pipeline: moonPipeline, logger, now: () => now, rota: { rota, slot: 0 } })
+    const chart = new ChartJob({ agent: chartAgent, symbol: 'TINY', timeframe: '1h', logger, now: () => now, rota: { rota, slot: 1 } })
+    moonPipeline.run.mockImplementation(async () => ({ outcome: 'dry-run', target: { coin: { symbol: 'X' }, multiple: 2 }, problems: [] }) as unknown as MoonResult)
+
+    await moon.run()
+    await chart.run()
+    expect(moonPipeline.run).toHaveBeenCalledTimes(1)
+    expect(chartAgent.run).not.toHaveBeenCalled()
+
+    now = day('2026-09-15')
+    await moon.run()
+    await chart.run()
+    expect(moonPipeline.run).toHaveBeenCalledTimes(1)
+    expect(chartAgent.run).toHaveBeenCalledTimes(1)
+
+    now = day('2026-09-16')
+    await moon.run()
+    await chart.run()
+    expect(moonPipeline.run).toHaveBeenCalledTimes(1)
+    expect(chartAgent.run).toHaveBeenCalledTimes(1)
+
+    // A forced run (the rehearsal scripts) ignores the rota.
+    expect(await chart.run({ force: true })).toBe(true)
+  })
+})

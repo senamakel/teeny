@@ -250,6 +250,7 @@ const runsReplies = role === 'all' || role === 'reply'
 // two containers on the same schedule would post the same chart twice.
 const runsChart = config.CHART_ENABLED && (role === 'all' || role === 'chart')
 // The morning post too: one timer, one process, or it says good morning twice.
+const rota = { days: config.POST_ROTA_DAYS, anchor: config.POST_ROTA_ANCHOR }
 const runsMorning = config.MORNING_ENABLED && (role === 'all' || role === 'morning')
 // And the moon chart, for the same reason.
 const runsMoon = config.MOON_ENABLED && (role === 'all' || role === 'moon')
@@ -333,6 +334,7 @@ if (runsChart) {
     logger: app.log,
     dryRun: config.DRY_RUN,
     journal,
+    rota: { rota, slot: config.CHART_ROTA_SLOT },
   })
   cron.schedule(config.CHART_CRON, () => {
     void chartJob.run().catch((error: unknown) => app.log.error({ err: error }, 'chart job failed'))
@@ -374,6 +376,7 @@ if (runsMoon) {
     }),
     logger: app.log,
     journal,
+    rota: { rota, slot: config.MOON_ROTA_SLOT },
   })
   cron.schedule(config.MOON_CRON, () => {
     void moonJob.run().catch((error: unknown) => app.log.error({ err: error }, 'moon job failed'))
@@ -510,12 +513,13 @@ app.log.info(
       ? `@${telegramHandle}${config.TELEGRAM_DRY_RUN ? ' (dry run)' : ''}`
       : false,
     chart: runsChart
-      ? `${config.CHART_TOKEN_SYMBOL} ${config.CHART_TIMEFRAME} at "${config.CHART_CRON}" via ${config.CHART_RENDERER}`
+      ? `${config.CHART_TOKEN_SYMBOL} ${config.CHART_TIMEFRAME} at "${config.CHART_CRON}" via ${config.CHART_RENDERER}, rota slot ${config.CHART_ROTA_SLOT}`
       : false,
     morning: runsMorning
       ? `at "${config.MORNING_CRON}", ${media?.videos ? 'video' : 'image'}, ${config.MORNING_NEWS_TOPICS.length} topics`
       : false,
-    moon: runsMoon ? `${config.MOON_COIN_ID} against ${config.MOON_CATEGORY} at "${config.MOON_CRON}"` : false,
+    moon: runsMoon ? `${config.MOON_COIN_ID} against ${config.MOON_CATEGORY} at "${config.MOON_CRON}", rota slot ${config.MOON_ROTA_SLOT}` : false,
+    rota: runsChart || runsMoon ? `${config.POST_ROTA_DAYS} days from ${config.POST_ROTA_ANCHOR}` : false,
     calendar: runsCalendar ? calendarItems : false,
   },
   'teeny started',

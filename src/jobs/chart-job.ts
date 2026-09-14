@@ -1,4 +1,5 @@
 import type { Journal } from '../journal/journal.js'
+import { isTurn, type Rota } from './cycle.js'
 import type { Agent } from '../types.js'
 
 export interface ChartJobDependencies {
@@ -11,6 +12,8 @@ export interface ChartJobDependencies {
   now?: () => number
   /** Whether post_chart actually publishes; the journal says which. */
   dryRun?: boolean
+  /** The posting rota and this job's slot in it. Absent, it posts every day the cron fires. */
+  rota?: { rota: Rota; slot: number }
   journal?: Journal
 }
 
@@ -31,6 +34,11 @@ export class ChartJob {
   /** Returns false when it declined to run, which is not an error. */
   async run(options: { force?: boolean } = {}): Promise<boolean> {
     const now = (this.dependencies.now ?? Date.now)()
+    const { rota } = this.dependencies
+    if (!options.force && rota && !isTurn(rota.rota, rota.slot, now)) {
+      this.dependencies.logger.info({ slot: rota.slot, rota: rota.rota }, 'chart job: skipping, not its day on the rota')
+      return false
+    }
     const minimum = this.dependencies.minIntervalMs ?? 20 * 60 * 60 * 1_000
     if (!options.force && this.lastRunAt > 0 && now - this.lastRunAt < minimum) {
       this.dependencies.logger.info(
