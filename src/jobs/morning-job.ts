@@ -94,6 +94,7 @@ export class MorningJob {
           `story: ${result.pick.headline}`,
           `angle: ${result.pick.angle}`,
           ...(result.seed ? [`seed: ${result.seed.url}`] : []),
+          ...result.scene.concepts.map((concept, index) => `concept ${index + 1}: ${concept}`),
           `scene: ${result.scene.scene}`,
           `cue: ${result.scene.storyCue}`,
           ...(result.script ? [`script: ${result.script.script}`] : []),

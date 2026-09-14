@@ -192,7 +192,7 @@ export class MorningPipeline {
       ...scenePrompt({ pick, article, seedLook: seed?.look }),
       schema: sceneSchema,
     })
-    log('scene written', { seed: seed?.url, words: scene.scene.split(/\s+/).length, cue: scene.storyCue })
+    log('scene written', { seed: seed?.url, concepts: scene.concepts, cue: scene.storyCue })
 
     // Drawn, then looked at: an image rung is not bound to the sheet, and one
     // served a purple robot in rehearsal. A picture that fails the look is
@@ -227,7 +227,7 @@ export class MorningPipeline {
     }
 
     // 5. The script, then the clip. The script is written even when there
-    // is nothing to film it with: it is what the caption describes, and a
+    // is nothing to film it with: it is what the journal records, and a
     // rehearsal without a video key still shows what would have been asked.
     let script: Script | undefined
     let video: StoredMedia | undefined
@@ -277,15 +277,10 @@ export class MorningPipeline {
       }
     }
 
-    // 6. The caption, written knowing what is attached.
+    // 6. The caption. It knows something is attached only so it does not
+    // narrate it: the clip is the joke, the words are the good morning.
     const attached: MorningResult['attached'] = video ? 'video' : image ? 'image' : 'none'
-    let caption = await this.caption(context, {
-      pick,
-      attached,
-      ...(script ? { videoSummary: script.summary } : {}),
-      imageAlt: scene.alt,
-      community,
-    })
+    let caption = await this.caption(context, { pick, attached, community })
 
     // The gate, outbound, as the calendar job reads it: the styled caption
     // is what would be posted, so that is what is checked, and what comes
@@ -357,8 +352,6 @@ export class MorningPipeline {
     input: {
       pick: Pick
       attached: MorningResult['attached']
-      videoSummary?: string
-      imageAlt: string
       community: string
     },
   ): Promise<string> {
@@ -399,9 +392,13 @@ export class MorningPipeline {
     try {
       const answer = await reader.describe({ data: image.data, mimeType: image.mimeType }, checkQuestion(sheet))
       const parsed = checkSchema.safeParse(extractJson(answer))
-      if (parsed.success) return parsed.data
-      // Not JSON: read the first word, and fail closed on anything unclear.
-      return { ok: /^\s*(yes|true)/i.test(answer), reason: answer.slice(0, 200) }
+      if (parsed.success) return { ok: parsed.data.ok, reason: parsed.data.reason.slice(0, 300) }
+      // Not parseable JSON -- a verdict with an unescaped quote in its reason,
+      // or one cut off mid-sentence -- still carries its verdict in the first
+      // few characters; then a plain yes or no; fail closed past that.
+      const verdict = /"ok"\s*:\s*(true|false)/i.exec(answer)
+      const ok = verdict ? verdict[1]!.toLowerCase() === 'true' : /^\s*(yes|true)/i.test(answer)
+      return { ok, reason: answer.slice(0, 300) }
     } catch (error) {
       return { ok: true, reason: `could not check: ${messageOf(error)}` }
     }

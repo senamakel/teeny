@@ -575,27 +575,32 @@ everything it made to `MEDIA_OUTPUT_DIR` so it can be looked at.
    chosen at random. The image ladder takes no picture as input, so the seed
    reaches it as words: the vision ladder's description of that one picture,
    boiled down by the model to what is particular about it (pose, palette,
-   mood), placed between the character sheet and the scene. The model writes
-   the scene — Tiny doing one clear thing that connects to the story, in a
-   morning — and the picture is generated square, once the scene has passed
+   mood), placed between the character sheet and the scene. The model then
+   pitches three concepts — each a visual gag or metaphor built from the
+   actual things in the article, with Tiny cast in a role, the obvious ones
+   banned — picks the funniest that still says what the story is, and writes
+   it as the scene (the concepts go to the journal). The picture is generated
+   square, once the scene has passed
    [the content filter](#the-content-filter) as a prompt, the way the
    `generate_image` tool reads it. Then the vision ladder
    **looks at the result**: an image rung is not bound to the sheet, and in
    rehearsal one served a purple robot. A picture that fails the look is drawn
    once more; the second is kept either way and the problem noted.
-5. **Script and film.** A `MORNING_VIDEO_SECONDS` shot script written from the
-   scene — two to four beats with timings, one location, ending on a morning
-   gesture — plus a one-line summary of what a viewer sees. The script passes
+5. **Script and film.** A `MORNING_VIDEO_SECONDS` (10) script set in the
+   picture's world, written as a sketch: four or five timed beats, setup (the
+   news event happening), turn (Tiny's angle, with something a little wrong
+   or a little too right), payoff and morning gesture in one. Plus a one-line
+   summary for the journal. The script passes
    the filter as a prompt too; refused, the picture goes alone. The clip is
    generated from the sheet, the seed and the script, tried twice with a pause
    between, because the marketplace answers "no provider could accept this job"
    often enough that a single miss would make most mornings a picture. A
    verbatim retry gets the same failed job back, so the second attempt carries
    a different prompt.
-6. **Caption.** Written knowing what is attached: a good morning, the story in
-   a line or two (as what was reported, not as fact checked; no people, no
-   numbers not given, never a price), and a line about what Tiny does in the
-   clip so the words and the video read as one thing. Under 280 characters,
+6. **Caption.** A good morning and the story in a line or two, with a bit of
+   wit (as what was reported, not as fact checked; no people, no numbers not
+   given, never a price). It does not describe the clip: the clip is the joke
+   and the words are the greeting. Under 280 characters,
    the emoji cap, no URLs, then through the house style like any other post,
    then through the content filter like any other draft: a link it cuts stays
    cut, and a caption it holds is a missing morning, journaled as `held` and
