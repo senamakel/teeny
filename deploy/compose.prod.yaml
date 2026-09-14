@@ -146,6 +146,9 @@ services:
     image: teeny-brain-sync:current
     build:
       context: ../brain/sync
+      args:
+        SYNC_UID: ${BRAIN_UID:-1000}
+        SYNC_GID: ${BRAIN_GID:-1000}
     restart: unless-stopped
     init: true
     user: "${BRAIN_UID:-1000}:${BRAIN_GID:-1000}"
