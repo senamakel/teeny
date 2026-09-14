@@ -32,7 +32,7 @@ COPY --from=builder /app/calendar.json ./calendar.json
 
 # The reply job keeps its cursor on disk, and the chart agent writes each PNG it
 # renders next to it, so the path is a volume in compose.
-RUN mkdir -p /app/data/charts && addgroup --system --gid 1001 nodejs \
+RUN mkdir -p /app/data/charts /app/data/moon && addgroup --system --gid 1001 nodejs \
   && adduser --system --uid 1001 bot && chown -R bot:nodejs /app/data
 USER bot
 

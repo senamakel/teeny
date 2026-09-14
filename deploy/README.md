@@ -32,7 +32,7 @@ that has the `.env` files.
 
 | Container          | What it does                              | Host port         |
 | ------------------ | ----------------------------------------- | ----------------- |
-| `teeny-bot-1`      | the agent: X ingest, the webhook, `/agent/run`, replies, the daily chart, Telegram | `127.0.0.1:3110`  |
+| `teeny-bot-1`      | the agent: X ingest, the webhook, `/agent/run`, replies, the daily chart, the moon chart, Telegram | `127.0.0.1:3110`  |
 | `teeny-web-1`      | the landing page, teeny.enamakel.com       | `127.0.0.1:3120`  |
 | `cortex`           | long-term memory, **not this stack's**: the shared CortexDB, joined to `teeny_default` as `cortexdb` | `127.0.0.1:3141` |
 | `teeny-mongo-1`    | the mention queue                          | `127.0.0.1:27020` |

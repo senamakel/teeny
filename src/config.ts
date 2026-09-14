@@ -72,7 +72,7 @@ const schema = z.object({
   X_SEARCH_MAX_RESULTS: z.coerce.number().int().min(10).max(100).default(10),
   // `all` runs every role in one process. Split them to scale or restart the
   // reply side without pausing ingestion, which is the half with a deadline.
-  SERVICE_ROLE: z.enum(['all', 'ingest', 'reply', 'api', 'chart', 'morning', 'calendar']).default('all'),
+  SERVICE_ROLE: z.enum(['all', 'ingest', 'reply', 'api', 'chart', 'morning', 'moon', 'calendar']).default('all'),
   INGEST_CRON: z.string().default('*/5 * * * *'),
   // `worker` drains the queue continuously, which is what makes a webhook
   // delivery turn into a reply in seconds rather than by the next tick.
@@ -180,6 +180,41 @@ const schema = z.object({
   // How long a clip is scripted for. Passed to the generator as a hint;
   // Sora rounds it to 4, 8 or 12, and a ladder rung may render its own.
   MORNING_VIDEO_SECONDS: z.coerce.number().int().min(4).max(20).default(10),
+
+  // --- the posting rota ----------------------------------------------------
+  // The moon chart and the candlestick chart take turns rather than both
+  // posting every day: slot 0 the moon, slot 1 the chart, and with a
+  // three-day rota the third day is quiet. Days are counted in UTC from the
+  // anchor, which is slot 0. Each job keeps its daily cron and skips the
+  // days that are not its turn; a slot past the rota's length never posts.
+  POST_ROTA_DAYS: z.coerce.number().int().min(1).max(14).default(3),
+  POST_ROTA_ANCHOR: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).default('2026-09-14'),
+  MOON_ROTA_SLOT: z.coerce.number().int().min(0).default(0),
+  CHART_ROTA_SLOT: z.coerce.number().int().min(0).default(1),
+
+  // --- the moon chart ------------------------------------------------------
+  // "$TINY with the market cap of X", once a day: the token's row and the AI
+  // meme coin leaderboard read from CoinGecko, one coin above it picked as the
+  // yardstick, the implied price drawn as a picture, two lines under it. Off
+  // by default, because it publishes; single-homed like the chart.
+  MOON_ENABLED: offByDefault,
+  // 20:00 UTC: afternoon in New York, evening in Europe, when the timeline
+  // that shares this kind of post is awake. The chart posts at 15:00 and the
+  // morning at 08:00, so the three are spread across the day.
+  MOON_CRON: z.string().default('0 20 * * *'),
+  // The account's own token, by CoinGecko id, and the category the yardsticks
+  // come from: coingecko.com/en/categories/<MOON_CATEGORY>.
+  MOON_COIN_ID: z.string().min(1).default('tiny-humans-ai'),
+  MOON_CATEGORY: z.string().min(1).default('ai-meme-coins'),
+  MOON_BOARD_NAME: z.string().min(1).default('AI meme coins'),
+  MOON_BOARD_SIZE: z.coerce.number().int().min(5).max(250).default(30),
+  MOON_RUNGS: z.coerce.number().int().min(1).max(12).default(7),
+  // The band a yardstick is picked from, as a multiple of the token's own
+  // cap. Under the floor it is a neighbour, not a moon; over the ceiling the
+  // number stops meaning anything to a reader.
+  MOON_MIN_MULTIPLE: z.coerce.number().min(1).default(2),
+  MOON_MAX_MULTIPLE: z.coerce.number().min(1).default(2_000),
+  MOON_OUTPUT_DIR: z.string().default('data/moon'),
 
   // --- the content calendar ------------------------------------------------
   // Scheduled posts from a JSON file: a "gm" every morning, a Friday post, a

@@ -24,7 +24,8 @@
     "chart-dry-run": "tsx src/scripts/chart-dry-run.ts",
     "telegram-dry-run": "tsx src/scripts/telegram-dry-run.ts",
     "morning-dry-run": "tsx src/scripts/morning-dry-run.ts",
-    "calendar-dry-run": "tsx src/scripts/calendar-dry-run.ts"
+    "calendar-dry-run": "tsx src/scripts/calendar-dry-run.ts",
+    "moon-dry-run": "tsx src/scripts/moon-dry-run.ts"
   },
   "dependencies": {
     "@langchain/core": "^1.2.9",
