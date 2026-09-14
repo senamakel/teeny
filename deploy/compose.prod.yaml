@@ -132,14 +132,20 @@ services:
       start_period: 30s
 
   # Commits the brain after every run and pushes it to GitHub. Same checkout,
-  # same uid; a write deploy key for teenydroid/brain mounted read-only. Both
-  # .env files are mounted only so their VALUES can be grepped out of every
-  # commit -- the second gate behind gitleaks, because the ladder key has no
-  # shape a scanner would recognise. See deploy/brain-sync/sync.sh.
+  # same uid; a write deploy key for teenydroid/brain, generated and uploaded
+  # by deploy.sh, mounted read-only. Both .env files are mounted only so their
+  # VALUES can be grepped out of every commit -- the second gate behind
+  # gitleaks, because the ladder key has no shape a scanner would recognise.
+  #
+  # The image is defined in the brain repository (brain/sync) and built from
+  # the submodule pinned in THIS repository -- not from the live checkout at
+  # BRAIN_DIR, which the agents can write to. A change to the sync loop or its
+  # gates therefore lands through a reviewed gitlink bump, never from inside
+  # the running brain.
   brain-sync:
     image: teeny-brain-sync:current
     build:
-      context: ./brain-sync
+      context: ../brain/sync
     restart: unless-stopped
     init: true
     user: "${BRAIN_UID:-1000}:${BRAIN_GID:-1000}"

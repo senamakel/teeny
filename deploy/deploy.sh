@@ -34,7 +34,11 @@
 #     once, outside the rsynced tree, and never synced or deleted from here;
 #     the OpenCompany image is pulled, and the definition is checked before
 #     the stack is started so a broken self-edit fails the deploy, not the
-#     boot.
+#     boot. Only brain/sync -- the sidecar's image, pinned by the submodule --
+#     is rsynced, so the sidecar is always built from a reviewed copy.
+#  4. The deploy key brain-sync pushes with is generated on the box and
+#     registered on the brain repository with `gh` from here, so no private
+#     key ever crosses the wire in either direction.
 
 set -euo pipefail
 
@@ -186,7 +190,8 @@ rsync -az --delete \
   --exclude 'dist' \
   --exclude 'data' \
   --exclude 'worktrees' \
-  --exclude 'brain' \
+  --include 'brain/sync/***' \
+  --exclude 'brain/*' \
   --exclude 'web/node_modules' \
   --exclude 'web/.next' \
   --exclude 'key.pem' \
@@ -233,11 +238,37 @@ fi
 # Never rsynced, never reset from here. A deploy key that can push is what
 # brain-sync needs; the clone uses the same key so a missing one fails now.
 say "Checking the brain"
-remote "test -r $BRAIN_DEPLOY_KEY" \
-  || die "no deploy key at $BRAIN_DEPLOY_KEY on the box (BRAIN_DEPLOY_KEY in deploy/.env).
-       Generate one there and add it to teenydroid/brain with write access:
-         ssh-keygen -t ed25519 -N '' -C 'teeny brain-sync' -f $BRAIN_DEPLOY_KEY
-         gh repo deploy-key add $BRAIN_DEPLOY_KEY.pub -R teenydroid/brain --allow-write -t brain-sync"
+# The key is minted on the box, where it stays; only the public half comes
+# back here, to be registered as a write deploy key on the brain repository.
+# Idempotent: a key that exists is kept, a title that is registered is not
+# registered twice. Without `gh` locally the public key is printed instead.
+BRAIN_REPO="$(printf '%s' "$BRAIN_REMOTE" | sed -E 's#^(git@github\.com:|https://github\.com/)##; s#\.git$##')"
+if ! remote "test -r $BRAIN_DEPLOY_KEY"; then
+  say "Generating the brain deploy key at $BRAIN_DEPLOY_KEY on the box"
+  remote "mkdir -p \$(dirname $BRAIN_DEPLOY_KEY) && ssh-keygen -q -t ed25519 -N '' -C 'teeny brain-sync' -f $BRAIN_DEPLOY_KEY" \
+    || die "could not generate $BRAIN_DEPLOY_KEY on the box"
+fi
+BRAIN_PUBKEY="$(remote "cat $BRAIN_DEPLOY_KEY.pub")"
+# Registering a deploy key needs ADMIN on the repository, which the account
+# `gh` is signed in as may not have (push access is not enough; the API
+# answers 404). A key that cannot be registered from here is not a failed
+# deploy -- brain-sync keeps its commits and retries the push every tick --
+# so this warns with the key rather than dying.
+register_hint="add it on https://github.com/$BRAIN_REPO/settings/keys with write access, as an admin of that repository:
+       $BRAIN_PUBKEY"
+if ! command -v gh >/dev/null 2>&1 || ! gh auth status >/dev/null 2>&1; then
+  warn "gh is not available here; $register_hint"
+elif ! titles="$(gh repo deploy-key list -R "$BRAIN_REPO" --json title -q '.[].title' 2>/dev/null)"; then
+  warn "$(gh api user -q .login 2>/dev/null || echo 'this gh account') cannot manage deploy keys on $BRAIN_REPO (admin needed); $register_hint"
+elif printf '%s\n' "$titles" | grep -qx 'teeny brain-sync'; then
+  say "Deploy key 'teeny brain-sync' is registered on $BRAIN_REPO"
+else
+  say "Registering the deploy key on $BRAIN_REPO (write access)"
+  pubfile="$(mktemp)"; printf '%s\n' "$BRAIN_PUBKEY" > "$pubfile"
+  gh repo deploy-key add "$pubfile" -R "$BRAIN_REPO" --allow-write -t 'teeny brain-sync' \
+    || warn "could not register the deploy key; $register_hint"
+  rm -f "$pubfile"
+fi
 if remote "test -d $BRAIN_DIR/.git"; then
   say "Brain checkout present at $BRAIN_DIR ($(remote "git -C $BRAIN_DIR rev-parse --short HEAD"))"
 else
