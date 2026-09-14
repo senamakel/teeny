@@ -13,6 +13,12 @@ mascot, as an X account. It:
 - persists a small local cursor to prevent duplicate replies;
 - defaults to dry-run mode so no post is published accidentally.
 
+> **The brain.** Teeny's goals, tasks, skills and roster live in a separate
+> public repository, [`teenydroid/brain`](https://github.com/teenydroid/brain),
+> checked out here as the `brain/` submodule and run on the box as an
+> [OpenCompany](https://github.com/tinyhumansai/opencompany) company that
+> revises itself and commits every run. See `deploy/README.md`, "The brain".
+
 ## Setup
 
 Requirements: Node.js 20+, an X developer app with read/write access, a CortexDB

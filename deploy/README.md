@@ -39,6 +39,8 @@ that has the `.env` files.
 | `cortex`           | long-term memory, **not this stack's**: the shared CortexDB, joined to `teeny_default` as `cortexdb` | `127.0.0.1:3141` |
 | `teeny-mongo-1`    | the mention queue                          | `127.0.0.1:27020` |
 | `ladder`           | the model endpoint, owned by no project    | `127.0.0.1:6969`  |
+| `teeny-opencompany-1` | the brain: the OpenCompany host + console over the public brain checkout | `127.0.0.1:3130` |
+| `teeny-brain-sync-1`  | commits the brain after every run and pushes it to GitHub | — |
 
 The agent is one container. It used to be three -- ingest, reply and chart
 over the same image -- on the argument that retrieval has a deadline (X's
@@ -58,6 +60,99 @@ in the box's `.env` (set on 2026-09-14) schedules the good-morning post at
 so that ladder has to be on a router that counts Surplus's prepaid credit as
 balance (llm-ladder-router #21) and have credit to spend; `ladder-up --pull`
 after a router release.
+
+## The brain
+
+Teeny's brain is an [OpenCompany](https://github.com/tinyhumansai/opencompany)
+company -- agents, skills, workflows, ledgers, notes -- whose whole state is
+the public repository `git@github.com:teenydroid/brain.git`, checked out in
+this repo as the `brain/` submodule and, on the box, as a live working tree at
+`BRAIN_DIR` (`/home/droid/brain`). That checkout **is** the host's data root:
+the definition under `company/teeny/`, the shared skills under `skills/`, and
+the runtime record under `companies/teeny/`. The agents revise the definition
+themselves, and `brain-sync` commits and pushes whatever changed every
+`BRAIN_SYNC_INTERVAL` seconds, so every run is on GitHub within a minute.
+
+Two containers, both running as the box user so the files they write are the
+checkout owner's:
+
+- `opencompany` runs the host from `OPENCOMPANY_IMAGE` -- pulled, never built
+  here -- with `deploy/opencompany/entrypoint.sh` in place of the image's own.
+  Inference goes to the ladder like everything else on the box
+  (`OPENCOMPANY_INFERENCE_URL` / `OPENCOMPANY_INFERENCE_KEY`, from the
+  environment, never from the checkout). The console is served by the host at
+  `/` on loopback only.
+- `brain-sync` (`deploy/brain-sync/`) pulls, stages, gates and pushes. The
+  gates: `gitleaks` over the staged tree, then a grep of the staged diff for
+  every value in the two `.env` files, because the ladder key has no shape a
+  scanner recognises. A hit unstages and logs `REFUSED`; nothing is
+  committed. `docker exec teeny-brain-sync-1 sync-now` runs a tick at once.
+
+### What is and is not public
+
+`brain/.gitignore` denies everything and re-includes the record by name:
+the definition, the skills, and under `companies/teeny/` the event log,
+journal, runs, board, ledgers, facts, notes and memory. Never tracked:
+`secrets/`, `keys/`, `users.json`, session and login-code hashes, the host's
+`config.toml`, `instance-id`, `.lock`, the MCP registry (`mcp/`), the agent
+journal (`openhuman/`), the agent sandboxes (`harness/`), `tmp/`, `logs/`.
+The allowlist is the rule; the sync gates are the backstop.
+
+### Reaching the console
+
+```sh
+ssh -L 3130:127.0.0.1:3130 droid@174.138.35.76   # then http://localhost:3130
+```
+
+Sign-in is email mode with `BRAIN_ADMIN_EMAIL` as the standing admin grant
+(`OPENCOMPANY_ADMIN_EMAIL`). There is no mail transport, so the first
+password is minted offline. It takes the data-root lock, so the host has to
+be stopped for the one command:
+
+```sh
+ssh droid@174.138.35.76
+cd ~/teeny/deploy
+docker compose -f compose.prod.yaml stop opencompany
+docker compose -f compose.prod.yaml run --rm --no-deps --entrypoint opencompany opencompany \
+  issue-password --company teeny --email "$BRAIN_ADMIN_EMAIL" --home /data   # password on stdin
+docker compose -f compose.prod.yaml start opencompany
+```
+
+### One-time setup on the box
+
+1. A write deploy key for `teenydroid/brain`, at `BRAIN_DEPLOY_KEY`:
+   ```sh
+   ssh-keygen -t ed25519 -N '' -C 'teeny brain-sync' -f ~/.ssh/brain_deploy_key
+   gh repo deploy-key add ~/.ssh/brain_deploy_key.pub -R teenydroid/brain --allow-write -t brain-sync
+   ```
+2. `OPENCOMPANY_IMAGE`, `BRAIN_ADMIN_EMAIL`, `BRAIN_UID`/`BRAIN_GID` in
+   `deploy/.env`. There is no OpenCompany image published yet as of
+   2026-09-14; the value is whatever tinyhumansai publishes, built with at
+   least the `openhuman mcp` features.
+3. `./deploy/deploy.sh` clones the brain into `BRAIN_DIR` on the first run,
+   pulls the image, validates the definition with `opencompany check`, and
+   gates the release on `/healthz` answering on `127.0.0.1:3130`.
+
+### How the brain reloads itself
+
+A running host never re-reads `company.toml`. The contract is a file:
+anything that wants the edited definition loaded touches
+`/data/.reload-requested` and stops. The entrypoint sees it, restarts the
+server, and the new definition is live in seconds. The `curator` agent does
+this after every self-edit; `brain-sync` does it after pulling a change to
+`company/` or `skills/` from GitHub, so editing the definition on the web is
+the same as the brain editing itself. No docker socket is mounted anywhere.
+
+### Before changing it
+
+- **`BRAIN_DIR` is live state.** It is excluded from the rsync and never
+  reset by the deploy. To move it, stop both containers, move the directory,
+  change `BRAIN_DIR`, deploy.
+- **The `.gitignore` in the brain is the security boundary.** Re-including a
+  path there publishes it. `secrets/` and `keys/` hold plaintext.
+- **`opencompany check` runs before every deploy** against what is on the
+  box, which is what the agents last wrote -- not what is in the submodule.
+  A failing check is fixed in the brain repo (or reverted there), not here.
 
 ## The landing page
 

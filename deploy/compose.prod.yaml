@@ -84,6 +84,82 @@ services:
       retries: 5
       start_period: 15s
 
+  # Teeny's brain: the OpenCompany host over the public brain checkout. The
+  # checkout at BRAIN_DIR IS the host's data root -- definition, ledgers,
+  # notes and runtime record in one git working tree -- and it lives outside
+  # the rsynced source tree because deploy.sh's --delete would wipe live
+  # state. It is cloned once by deploy.sh and owned by brain-sync after that.
+  #
+  # Inference goes to the same ladder as everything else on this box, injected
+  # from the environment; nothing in the checkout holds a credential. The
+  # console is served by the host at / and published on loopback only: reach
+  # it over `ssh -L 3130:127.0.0.1:3130`. Sign-in is email mode with the
+  # first password minted offline (deploy/README.md, "The brain").
+  #
+  # The entrypoint is ours, not the image's: it restarts the server when
+  # /data/.reload-requested appears, which is how the curator agent (and
+  # brain-sync, after a pull) get an edited definition loaded without a
+  # docker socket anywhere. The image is pulled, never built here.
+  opencompany:
+    image: ${OPENCOMPANY_IMAGE:?set OPENCOMPANY_IMAGE in deploy/.env}
+    restart: unless-stopped
+    init: true
+    # The box user, so files the host writes are the checkout owner's and
+    # brain-sync can commit them.
+    user: "${BRAIN_UID:-1000}:${BRAIN_GID:-1000}"
+    entrypoint: ["/bin/sh", "/opt/brain/entrypoint.sh"]
+    environment:
+      OPENCOMPANY_DATA_DIR: /data
+      OPENCOMPANY_BIND: 0.0.0.0:8080
+      OPENCOMPANY_CONSOLE_DIR: /app/console
+      OPENCOMPANY_DEPLOYMENT: self-hosted
+      OPENCOMPANY_INFERENCE_URL: ${LADDER_URL:-http://ladder:6969/v1}
+      OPENCOMPANY_INFERENCE_KEY: ${LADDER_API_KEY:?set LADDER_API_KEY in deploy/.env}
+      # The standing admin grant; the public manifest names nobody.
+      OPENCOMPANY_ADMIN_EMAIL: ${BRAIN_ADMIN_EMAIL:?set BRAIN_ADMIN_EMAIL in deploy/.env}
+      # A non-passwd uid has no home; git, ssh and the runtime all want one.
+      HOME: /tmp
+    volumes:
+      - ${BRAIN_DIR:?set BRAIN_DIR in deploy/.env}:/data
+      - ./opencompany/entrypoint.sh:/opt/brain/entrypoint.sh:ro
+    ports:
+      - "127.0.0.1:${BRAIN_PORT:-3130}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Commits the brain after every run and pushes it to GitHub. Same checkout,
+  # same uid; a write deploy key for teenydroid/brain mounted read-only. Both
+  # .env files are mounted only so their VALUES can be grepped out of every
+  # commit -- the second gate behind gitleaks, because the ladder key has no
+  # shape a scanner would recognise. See deploy/brain-sync/sync.sh.
+  brain-sync:
+    image: teeny-brain-sync:current
+    build:
+      context: ./brain-sync
+    restart: unless-stopped
+    init: true
+    user: "${BRAIN_UID:-1000}:${BRAIN_GID:-1000}"
+    environment:
+      BRAIN_DIR: /data
+      BRAIN_SYNC_INTERVAL: ${BRAIN_SYNC_INTERVAL:-60}
+      BRAIN_REMOTE: ${BRAIN_REMOTE:-git@github.com:teenydroid/brain.git}
+      BRAIN_BRANCH: ${BRAIN_BRANCH:-main}
+      GIT_AUTHOR_NAME: teeny brain
+      GIT_AUTHOR_EMAIL: brain@teeny.tinyhumans.ai
+      HOME: /tmp
+    volumes:
+      - ${BRAIN_DIR:?set BRAIN_DIR in deploy/.env}:/data
+      - ${BRAIN_DEPLOY_KEY:?set BRAIN_DEPLOY_KEY in deploy/.env}:/run/secrets/brain_key:ro
+      - ./.env:/run/secrets/deploy.env:ro
+      - ../.env:/run/secrets/bot.env:ro
+    depends_on:
+      opencompany:
+        condition: service_started
+
   # Long-term memory. Every model call it makes goes to the same ladder the
   # agent uses, so there is one egress path and one set of provider keys on the
   # box rather than a second copy living inside a database.

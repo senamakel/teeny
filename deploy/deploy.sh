@@ -29,6 +29,12 @@
 #     lives on another box.
 #  2. .env files are excluded from the rsync and copied explicitly, so a
 #     missing local file can never wipe a working one on the box.
+#  3. The brain checkout (BRAIN_DIR) is a live git working tree the
+#     OpenCompany host writes into and brain-sync commits from. It is cloned
+#     once, outside the rsynced tree, and never synced or deleted from here;
+#     the OpenCompany image is pulled, and the definition is checked before
+#     the stack is started so a broken self-edit fails the deploy, not the
+#     boot.
 
 set -euo pipefail
 
@@ -113,9 +119,14 @@ else
   [ -f .env ] || die ".env is missing. Copy .env.example and fill it in (the X and agent credentials)."
 fi
 
-for required in MONGO_ROOT_PASSWORD CORTEX_API_KEY LADDER_API_KEY; do
+for required in MONGO_ROOT_PASSWORD CORTEX_API_KEY LADDER_API_KEY OPENCOMPANY_IMAGE BRAIN_ADMIN_EMAIL; do
   [ -n "$(cfg "$required" deploy/.env)" ] || die "$required is empty in deploy/.env"
 done
+BRAIN_DIR="$(cfg BRAIN_DIR deploy/.env)"; BRAIN_DIR="${BRAIN_DIR:-/home/droid/brain}"
+BRAIN_REMOTE="$(cfg BRAIN_REMOTE deploy/.env)"; BRAIN_REMOTE="${BRAIN_REMOTE:-git@github.com:teenydroid/brain.git}"
+BRAIN_DEPLOY_KEY="$(cfg BRAIN_DEPLOY_KEY deploy/.env)"; BRAIN_DEPLOY_KEY="${BRAIN_DEPLOY_KEY:-/home/droid/.ssh/brain_deploy_key}"
+BRAIN_PORT="$(cfg BRAIN_PORT deploy/.env)"; BRAIN_PORT="${BRAIN_PORT:-3130}"
+OPENCOMPANY_IMAGE="$(cfg OPENCOMPANY_IMAGE deploy/.env)"
 for required in X_API_KEY X_API_SECRET X_ACCESS_TOKEN X_ACCESS_TOKEN_SECRET X_BOT_USERNAME; do
   [ -n "$(cfg "$required" .env)" ] || die "$required is empty in .env; the agent cannot post without it"
 done
@@ -175,6 +186,7 @@ rsync -az --delete \
   --exclude 'dist' \
   --exclude 'data' \
   --exclude 'worktrees' \
+  --exclude 'brain' \
   --exclude 'web/node_modules' \
   --exclude 'web/.next' \
   --exclude 'key.pem' \
@@ -216,6 +228,32 @@ else
   say "Reached the ladder at $LADDER_URL"
 fi
 
+# --- the brain -------------------------------------------------------------
+# The checkout is live state: cloned once, then owned by the containers.
+# Never rsynced, never reset from here. A deploy key that can push is what
+# brain-sync needs; the clone uses the same key so a missing one fails now.
+say "Checking the brain"
+remote "test -r $BRAIN_DEPLOY_KEY" \
+  || die "no deploy key at $BRAIN_DEPLOY_KEY on the box (BRAIN_DEPLOY_KEY in deploy/.env).
+       Generate one there and add it to teenydroid/brain with write access:
+         ssh-keygen -t ed25519 -N '' -C 'teeny brain-sync' -f $BRAIN_DEPLOY_KEY
+         gh repo deploy-key add $BRAIN_DEPLOY_KEY.pub -R teenydroid/brain --allow-write -t brain-sync"
+if remote "test -d $BRAIN_DIR/.git"; then
+  say "Brain checkout present at $BRAIN_DIR ($(remote "git -C $BRAIN_DIR rev-parse --short HEAD"))"
+else
+  say "Cloning the brain into $BRAIN_DIR"
+  remote "GIT_SSH_COMMAND='ssh -i $BRAIN_DEPLOY_KEY -o IdentitiesOnly=yes -o BatchMode=yes' git clone -q $BRAIN_REMOTE $BRAIN_DIR" \
+    || die "could not clone $BRAIN_REMOTE into $BRAIN_DIR with $BRAIN_DEPLOY_KEY"
+fi
+say "Pulling $OPENCOMPANY_IMAGE"
+remote "docker pull -q $OPENCOMPANY_IMAGE >/dev/null" \
+  || die "could not pull $OPENCOMPANY_IMAGE; set OPENCOMPANY_IMAGE in deploy/.env to an image the box can reach"
+# The definition is data the agents rewrite. Validate what is on the box
+# before it is loaded, so a broken self-edit is this line rather than a
+# crash-looping container.
+remote "docker run --rm -v $BRAIN_DIR:/data:ro --entrypoint opencompany $OPENCOMPANY_IMAGE check /data/company/teeny" \
+  || die "the brain's definition at $BRAIN_DIR/company/teeny does not validate; fix it (or revert it in git) before deploying"
+
 # --- build -----------------------------------------------------------------
 say "Building the image on the box ($GIT_SHA)"
 remote "$COMPOSE build" || die "image build failed"
@@ -248,6 +286,23 @@ for attempt in $(seq 1 60); do
       say "The landing page answers on 127.0.0.1:$WEB_PORT"
     else
       warn "the landing page is not answering on 127.0.0.1:$WEB_PORT; check: $COMPOSE logs web"
+    fi
+    # The brain is gated, like the agent: a definition that fails to load is
+    # the failure this deploy most needs to notice.
+    say "Waiting for the brain to answer"
+    brain_up=0
+    for brain_attempt in $(seq 1 90); do
+      if remote "curl -fsS --max-time 3 -o /dev/null http://127.0.0.1:$BRAIN_PORT/healthz"; then
+        say "The brain answers on 127.0.0.1:$BRAIN_PORT after ${brain_attempt}s (ssh -L $BRAIN_PORT:127.0.0.1:$BRAIN_PORT $DEPLOY_HOST)"
+        brain_up=1
+        break
+      fi
+      sleep 1
+    done
+    if [ "$brain_up" -eq 0 ]; then
+      printf '\n\033[1;31mThe brain never answered. Recent logs:\033[0m\n' >&2
+      remote "$COMPOSE logs --tail 60 opencompany" >&2 || true
+      die "the brain did not come up on 127.0.0.1:$BRAIN_PORT; the agent is running, the brain is not"
     fi
     say "Deployed $GIT_SHA. Logs: ./deploy/deploy.sh --logs   Undo: ./deploy/deploy.sh --rollback"
     exit 0
