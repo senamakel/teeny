@@ -1,6 +1,6 @@
 import type { FastifyBaseLogger } from 'fastify'
 import { describe, expect, it, vi } from 'vitest'
-import { heldSlots, ownPostOf, ReplyBudget } from '../src/cadence/budget.js'
+import { heldSlots, ownPostOf, ReplyBudget, type Lane } from '../src/cadence/budget.js'
 import { Cadence, CadenceHeld, paced } from '../src/cadence/cadence.js'
 import { baselineOf, HeatJob, velocityOf } from '../src/cadence/heat.js'
 import { InMemoryPostLedger } from '../src/cadence/ledger.js'
@@ -148,10 +148,10 @@ describe('the heat job', () => {
 })
 
 describe('the reply budget', () => {
-  function subject(replied: Array<{ lane: 'auto' | 'smart'; ownPostId?: string; at: string }>, now = T0 + 2 * HOUR) {
+  function subject(replied: Array<{ lane: Lane; ownPostId?: string; at: string }>, now = T0 + 2 * HOUR) {
     const ledger = new InMemoryPostLedger()
     const queue = {
-      countReplied: vi.fn(async (filter: { lane: 'auto' | 'smart'; ownPostId?: string; since?: string }) =>
+      countReplied: vi.fn(async (filter: { lane: Lane; ownPostId?: string; since?: string }) =>
         replied.filter(
           (entry) =>
             entry.lane === filter.lane &&
@@ -160,7 +160,7 @@ describe('the reply budget', () => {
         ).length,
       ),
     }
-    const budget = new ReplyBudget({ ledger, queue, autoPerPost: 10, smartPerPost: 10, gapMs: 8 * HOUR, now: () => now })
+    const budget = new ReplyBudget({ ledger, queue, autoPerPost: 10, smartPerPost: 10, gapMs: 8 * HOUR, botUsername: 'bot', now: () => now })
     return { ledger, budget }
   }
 
@@ -201,11 +201,42 @@ describe('the reply budget', () => {
   it('caps the smart lane per own post published in the last day, one post’s worth at least', async () => {
     const used = Array.from({ length: 10 }, () => ({ lane: 'smart' as const, at: iso(T0 + HOUR) }))
     const { ledger, budget } = subject(used)
-    expect(await budget.assess({ id: 'a', text: '@bot hey' }, BOT)).toEqual({ lane: 'smart', allowed: false, used: 10, cap: 10 })
+    // A quote, or a reply in somebody else's thread where the handle was
+    // carried along rather than typed: the reply guy's lane.
+    const quote = { id: 'a', text: 'lol look at this' }
+    expect(await budget.assess(quote, BOT)).toEqual({ lane: 'smart', allowed: false, used: 10, cap: 10 })
     await ledger.record({ postId: '1', kind: 'morning', postedAt: iso(T0) })
     await ledger.record({ postId: '2', kind: 'chart', postedAt: iso(T0 + HOUR) })
     await ledger.record({ postId: '0', kind: 'moon', postedAt: iso(T0 - 30 * HOUR) })
-    expect(await budget.assess({ id: 'a', text: '@bot hey' }, BOT)).toEqual({ lane: 'smart', allowed: true, used: 10, cap: 20 })
+    expect(await budget.assess(quote, BOT)).toEqual({ lane: 'smart', allowed: true, used: 10, cap: 20 })
+  })
+
+  it('always answers a post that typed the handle on purpose, whatever the day’s budget says', async () => {
+    const spent = [
+      ...Array.from({ length: 10 }, () => ({ lane: 'smart' as const, at: iso(T0 + HOUR) })),
+      ...Array.from({ length: 40 }, () => ({ lane: 'called' as const, at: iso(T0 + HOUR) })),
+    ]
+    const { budget } = subject(spent)
+    expect(await budget.assess({ id: 'a', text: 'hey @bot what do you make of this' }, BOT)).toEqual({
+      lane: 'called', allowed: true, used: 40, cap: Number.POSITIVE_INFINITY,
+    })
+    // Deep in somebody else's thread, still called in by name.
+    expect(await budget.assess({ id: 'b', text: '@someone @other come on @bot settle this', conversationId: 'theirs', inReplyToUserId: 'someone' }, BOT)).toMatchObject({
+      lane: 'called', allowed: true,
+    })
+    // The handle carried along by X at the front of a reply is not a call.
+    expect(await budget.assess({ id: 'c', text: '@someone @bot rhyming is a bold choice', conversationId: 'theirs', inReplyToUserId: 'someone' }, BOT)).toMatchObject({
+      lane: 'smart', allowed: false,
+    })
+  })
+
+  it('keeps a comment under the account’s own post in the auto lane even when it names the account', async () => {
+    const used = Array.from({ length: 10 }, () => ({ lane: 'auto' as const, ownPostId: '1', at: iso(T0 + HOUR) }))
+    const { ledger, budget } = subject(used)
+    await ledger.record({ postId: '1', kind: 'morning', postedAt: iso(T0) })
+    expect(await budget.assess({ id: 'a', text: '@bot hey @bot are you awake', conversationId: '1', inReplyToUserId: BOT }, BOT)).toEqual({
+      lane: 'auto', ownPostId: '1', allowed: false, used: 10, cap: 10,
+    })
   })
 })
 
