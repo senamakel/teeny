@@ -33,6 +33,7 @@ import { MoonJob } from './jobs/moon-job.js'
 import { SafetyGate } from './safety/gate.js'
 import { MongoHoldLog, type Hold } from './safety/holds.js'
 import { ModelJudge } from './safety/judge.js'
+import { AlgoCritic } from './critic/algo.js'
 import { ContentAgent } from './agent/content-model.js'
 import { loadCalendar } from './calendar/calendar.js'
 import { CalendarJob } from './jobs/calendar-job.js'
@@ -142,11 +143,25 @@ const safety = new SafetyGate({
   },
 })
 
+/**
+ * The ranker's reader, one for the process: the agents get it as a tool,
+ * the morning pipeline reads its script and caption with it, and the API
+ * serves it so anything else can ask.
+ */
+const critic = config.ALGO_CRITIC
+  ? new AlgoCritic({
+      baseUrl: config.LLM_BASE_URL,
+      apiKey: config.LLM_API_KEY,
+      model: config.ALGO_CRITIC_MODEL ?? config.LLM_MODEL,
+    })
+  : undefined
+
 const agentOptions: AgentOptions = {
   memory,
   x,
   persona,
   safety,
+  ...(critic ? { critic } : {}),
   ...(marketAccess ? { market: marketAccess } : {}),
   ...(media ? { media } : {}),
   maxEmoji: config.MAX_EMOJI_PER_POST,
@@ -238,6 +253,7 @@ const app = buildServer({
   },
   safety,
   review: { holds, release },
+  ...(critic ? { critic } : {}),
 })
 // The character sheet takes a dozen model calls to build the first time.
 // Started now so the first "draw me a Tiny" of the day does not pay for it.
@@ -352,6 +368,7 @@ if (runsMorning) {
       dryRun: config.DRY_RUN,
       logger: app.log,
       safety,
+      ...(critic ? { critic } : {}),
     }),
     logger: app.log,
     journal,
@@ -493,6 +510,7 @@ app.log.info(
       : 'lexicon + links (no judge)',
     allowedLinks: config.LINK_ALLOWLIST.length,
     review: config.AGENT_API_TOKEN ? '/safety' : 'no AGENT_API_TOKEN, review page off',
+    critic: critic ? `x_critique + /critique on ${config.ALGO_CRITIC_MODEL ?? config.LLM_MODEL}` : 'off',
     giphy: gifs ? config.GIPHY_CHANNEL : false,
     vision: media?.reader ? config.VISION_MODEL : false,
     referenceSheet: media?.reference ? config.TINY_REFERENCE_IMAGES.length : false,

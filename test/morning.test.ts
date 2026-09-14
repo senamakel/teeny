@@ -13,6 +13,7 @@ import type { HoldLog } from '../src/safety/holds.js'
 import { LadderVideoGenerator, OpenAIVideoGenerator } from '../src/media/videos.js'
 import { ExaNewsSource, gatherNews, isPolitical, renderStories, type NewsSource, type Story } from '../src/morning/news.js'
 import { MorningPipeline, type MorningPipelineOptions, type MorningResult } from '../src/morning/pipeline.js'
+import type { Critic, Critique } from '../src/critic/algo.js'
 import { askJson, extractJson, pickSchema, scriptPrompt } from '../src/morning/stages.js'
 import type { Memory, XMedia, XTools } from '../src/types.js'
 
@@ -666,6 +667,82 @@ describe('the morning pipeline', () => {
     const { run, x } = pipeline()
     await expect(run()).resolves.toMatchObject({ outcome: 'posted' })
     expect(x.createPost).toHaveBeenCalled()
+  })
+
+  describe('with the ranker\'s reader', () => {
+    const read = (verdict: 'worthy' | 'flat', fixes: string[] = []): Critique => ({
+      verdict,
+      score: verdict === 'worthy' ? 3 : 0.2,
+      upside: verdict === 'worthy' ? 3 : 0.2,
+      cost: 0,
+      predicted: { reply: 0, quote: 0, repost: 0, like: 0, shareViaCopyLink: 0, shareViaDm: 0, share: 0, followAuthor: 0, notInterested: 0, muteAuthor: 0, blockAuthor: 0, report: 0 },
+      communityReply: 0,
+      firstReply: verdict === 'worthy' ? 'mine is a for-loop' : '',
+      disagreement: '',
+      shareReason: '',
+      riskReason: '',
+      fixes,
+      summary: verdict,
+    })
+    const reader = (...reads: Array<Critique | Error>): Critic => {
+      const queue = [...reads]
+      return {
+        critique: vi.fn().mockImplementation(async () => {
+          const next = queue.shift()
+          if (next instanceof Error) throw next
+          if (!next) throw new Error('asked once too often')
+          return next
+        }),
+      }
+    }
+
+    it('shows it the script and the caption, rewrites each once on a flat read with the fixes in the prompt, and records the last read', async () => {
+      const critic = reader(read('flat', ['let the machine sulk']), read('worthy'), read('flat', ['end on the question']), read('worthy'))
+      const { run, text, x } = pipeline({ critic })
+      const result = await run()
+      expect(result.outcome).toBe('posted')
+      expect(x.createPost).toHaveBeenCalledTimes(1)
+      expect(result.critiques).toEqual({ script: read('worthy'), caption: read('worthy') })
+
+      const asked = (critic.critique as ReturnType<typeof vi.fn>).mock.calls.map(([input]) => input as { kind: string; media?: string; context?: string })
+      expect(asked.map((input) => input.kind)).toEqual(['script', 'script', 'caption', 'caption'])
+      expect(asked[0]!.context).toContain('An agent runtime hit 40k stars')
+      expect(asked[2]!.media).toBe('Tiny sips coffee at sunrise, then raises the mug to say gm')
+
+      const calls = (text.complete as ReturnType<typeof vi.fn>).mock.calls as Array<[{ system: string; prompt: string }]>
+      const scripts = calls.filter(([call]) => call.prompt.includes('"script": string'))
+      expect(scripts).toHaveLength(2)
+      expect(scripts[1]![0].prompt).toContain('Your first draft:')
+      expect(scripts[1]![0].prompt).toContain('1. let the machine sulk')
+      expect(scripts[1]![0].system).toBe(scripts[0]![0].system)
+      const captions = calls.filter(([call]) => call.prompt.includes('"text": string'))
+      expect(captions).toHaveLength(2)
+      expect(captions[1]![0].prompt).toContain('1. end on the question')
+      expect(captions[1]![0].prompt).toContain('Verdict: FLAT')
+    })
+
+    it('leaves a worthy draft alone', async () => {
+      const critic = reader(read('worthy'), read('worthy'))
+      const { run, text } = pipeline({ critic })
+      const result = await run()
+      expect(critic.critique).toHaveBeenCalledTimes(2)
+      expect(result.critiques?.caption?.verdict).toBe('worthy')
+      const calls = (text.complete as ReturnType<typeof vi.fn>).mock.calls as Array<[{ prompt: string }]>
+      expect(calls.filter(([call]) => call.prompt.includes('"text": string'))).toHaveLength(1)
+    })
+
+    it('fails open: a critic that is down is a line in the problems and the first draft goes out', async () => {
+      const critic = reader(new Error('502'), new Error('502'))
+      const { run, x } = pipeline({ critic })
+      const result = await run()
+      expect(result.outcome).toBe('posted')
+      expect(x.createPost).toHaveBeenCalledTimes(1)
+      expect(result.critiques).toBeUndefined()
+      expect(result.problems).toEqual(expect.arrayContaining([
+        'the critic could not read the script: 502',
+        'the critic could not read the caption: 502',
+      ]))
+    })
   })
 })
 
