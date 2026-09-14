@@ -91,6 +91,8 @@ const schema = z.object({
   MONGO_URI: z.string().min(1).default('mongodb://mongo:27017'),
   MONGO_DATABASE: z.string().min(1).default('teeny'),
   MENTIONS_COLLECTION: z.string().min(1).default('mentions'),
+  // Where the content filter keeps what it held, for review at /safety.
+  HOLDS_COLLECTION: z.string().min(1).default('holds'),
   // How much of the thread is fetched before drafting. Zero disables it, and
   // the reply then sees only the post that mentioned the account. Every post
   // retrieved is billed and X's floor on a search is ten, so this is the most

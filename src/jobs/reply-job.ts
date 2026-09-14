@@ -223,7 +223,18 @@ export class ReplyJob {
           // The gate, inbound: a post about something the account does not
           // touch is not answered, not remembered, and not shown to the
           // drafter. The journal gets the category and never the text.
-          const incoming = await this.dependencies.safety?.inbound(post.text)
+          const context = {
+            surface: 'x' as const,
+            postId: post.id,
+            ...(post.conversationId ? { conversationId: post.conversationId } : {}),
+            ...(post.authorUsername ? { authorUsername: post.authorUsername } : {}),
+          }
+          // A mention an operator approved from the review page comes back
+          // through the queue with the inbound check waived. The outbound
+          // check is not: the approval was of the question, not the answer.
+          const incoming = item.filterApproved
+            ? undefined
+            : await this.dependencies.safety?.inbound(post.text, context)
           if (incoming && !incoming.ok) {
             await this.dependencies.queue.markFailed(post.id, `held: ${incoming.category}`)
             this.dependencies.logger.info(
@@ -257,7 +268,7 @@ export class ReplyJob {
           // so that is what is checked, and what comes back (links cut) is
           // what goes out. A held draft is a mention answered by nobody, which
           // is the right outcome for a draft the account should not have written.
-          const outgoing = await this.dependencies.safety?.outbound(styled.text)
+          const outgoing = await this.dependencies.safety?.outbound(styled.text, context)
           if (outgoing) {
             if (outgoing.fixes.length > 0) {
               this.dependencies.logger.warn(

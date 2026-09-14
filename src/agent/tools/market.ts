@@ -409,7 +409,12 @@ export function createMarketTools(options: MarketToolOptions): StructuredToolInt
         return `Refused: no chart with id ${chartId}. Call render_chart and use the id it returns.`
       }
       const { text } = applyHouseStyle(drafted, { maxEmoji, maxLength: MAX_POST_LENGTH })
-      const refused = await refuseUnsafe(text, options.safety)
+      const refused = await refuseUnsafe(text, options.safety, {
+        surface: 'chart',
+        kind: 'draft',
+        tool: 'post_chart',
+        ...(replyToPostId ? { postId: replyToPostId } : {}),
+      })
       if (refused) return refused
 
       if (options.dryRun) {

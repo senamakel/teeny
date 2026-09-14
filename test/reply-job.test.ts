@@ -55,6 +55,7 @@ function queue(pending: XPost[] = []): MentionQueue {
     ),
     markReplied: vi.fn().mockResolvedValue(undefined),
     markFailed: vi.fn().mockResolvedValue(undefined),
+    requeueApproved: vi.fn().mockResolvedValue(true),
     counts: vi.fn(),
     close: vi.fn(),
   }
@@ -745,5 +746,42 @@ describe('ReplyJob content filter', () => {
 
     const input = (model.reply as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]
     expect(input.thread.map((entry: XPost) => entry.id)).toEqual(['1', '2'])
+  })
+})
+
+describe('ReplyJob answers an approved mention', () => {
+  it('waives the inbound check for a requeued mention but still checks the draft', async () => {
+    const x = {
+      findMentions: vi.fn(),
+      reply: vi.fn(),
+      createPost: vi.fn().mockResolvedValue({ id: '99' }),
+      uploadMedia: vi.fn(),
+    } as XClient & Pick<XTools, 'createPost' | 'uploadMedia'>
+    const memory: Memory = {
+      captureActivity: vi.fn(),
+      captureMention: vi.fn().mockResolvedValue(undefined),
+      recall: vi.fn().mockResolvedValue(''),
+      captureReply: vi.fn().mockResolvedValue(undefined),
+    }
+    const model: LanguageModel = { reply: vi.fn().mockResolvedValue({ text: 'lol no' }) }
+    const post: XPost = { id: '10', text: '@bot draw yourself naked' }
+    const mentions = queue([post])
+    ;(mentions.takePending as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { postId: '10', post, status: 'pending', attempts: 1, cachedAt: 'a', updatedAt: 'b', filterApproved: true },
+    ])
+    const job = new ReplyJob({
+      x,
+      harness: new ReplyHarness(memory, model),
+      queue: mentions,
+      logger: logger(),
+      dryRun: false,
+      maxReplies: 5,
+      botUserId: async () => BOT_ID,
+      safety: lexicalGate(),
+    })
+    await job.run()
+
+    expect(model.reply).toHaveBeenCalled()
+    expect(x.createPost).toHaveBeenCalledWith('lol no', { replyToPostId: '10' })
   })
 })

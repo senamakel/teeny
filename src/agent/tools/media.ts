@@ -27,9 +27,9 @@ export function createMediaTools(
 ): StructuredToolInterface[] {
   const tools: StructuredToolInterface[] = []
 
-  const refuse = async (prompt: string): Promise<string | undefined> => {
+  const refuse = async (prompt: string, tool: string): Promise<string | undefined> => {
     if (!options.safety) return undefined
-    const result = await options.safety.outbound(prompt)
+    const result = await options.safety.outbound(prompt, { surface: 'x', kind: 'prompt', tool })
     if (result.decision.ok) return undefined
     return (
       `Refused: this account does not make pictures of that (${result.decision.category}). ` +
@@ -98,7 +98,7 @@ export function createMediaTools(
     tools.push(
       tool(
         async ({ prompt, aspect, featuresTiny: withTiny }) => {
-          const refused = await refuse(prompt)
+          const refused = await refuse(prompt, 'generate_image')
           if (refused) return refused
           if (!media.budget.take('image')) {
             return (
@@ -145,7 +145,7 @@ export function createMediaTools(
     tools.push(
       tool(
         async ({ prompt, orientation, featuresTiny: withTiny }) => {
-          const refused = await refuse(prompt)
+          const refused = await refuse(prompt, 'generate_video')
           if (refused) return refused
           if (!media.budget.take('video')) {
             return (

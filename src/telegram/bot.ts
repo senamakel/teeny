@@ -319,7 +319,15 @@ export class TelegramBot {
     // nothing kept. In a group that reads as the account not having seen it,
     // which is exactly right.
     const { safety } = this.options
-    const incoming = await safety?.inbound(message.text)
+    const context = {
+      surface: 'telegram' as const,
+      chatId: message.chatId,
+      messageId: message.id,
+      ...(thread ? { messageThreadId: String(thread) } : {}),
+      ...(message.authorUsername ? { authorUsername: message.authorUsername } : {}),
+      ...(message.authorName ? { authorName: message.authorName } : {}),
+    }
+    const incoming = await safety?.inbound(message.text, context)
     if (incoming && !incoming.ok) {
       logger.info(
         { chatId: message.chatId, category: incoming.category, by: incoming.by, reason: incoming.reason },
@@ -352,7 +360,7 @@ export class TelegramBot {
     // takes its reaction and its media with it; the account does not react
     // warmly to a message it was about to answer badly.
     if (styled && safety) {
-      const outgoing = await safety.outbound(styled.text)
+      const outgoing = await safety.outbound(styled.text, context)
       if (outgoing.fixes.length > 0) {
         logger.warn({ chatId: message.chatId, fixes: outgoing.fixes }, 'the content filter edited a telegram draft')
       }

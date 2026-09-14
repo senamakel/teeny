@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { applyHouseStyle, countEmoji } from '../house-style.js'
 import type { MediaStore } from '../../media/store.js'
 import type { SafetyGate } from '../../safety/gate.js'
+import type { HoldContext } from '../../safety/holds.js'
 import { MEDIA_ID_PATTERN } from './media.js'
 import type { GifSource, XPost, XTools } from '../../types.js'
 
@@ -39,9 +40,10 @@ function renderPosts(posts: XPost[]): string {
 export async function refuseUnsafe(
   text: string,
   safety: Pick<SafetyGate, 'outbound'> | undefined,
+  context: HoldContext,
 ): Promise<string | undefined> {
   if (!safety) return undefined
-  const result = await safety.outbound(text)
+  const result = await safety.outbound(text, context)
   if (!result.decision.ok) {
     return (
       `Refused: this account does not publish that (${result.decision.category}). ` +
@@ -142,7 +144,12 @@ export function createXTools(
       // The emoji cap is refused above so the model learns from it; the rest is
       // corrected silently, because rejecting a draft over a dash wastes a turn.
       const { text } = applyHouseStyle(drafted, { maxEmoji, maxLength: MAX_POST_LENGTH })
-      const refused = await refuseUnsafe(text, options.safety)
+      const refused = await refuseUnsafe(text, options.safety, {
+        surface: 'x',
+        kind: 'draft',
+        tool: 'x_post',
+        ...(replyToPostId ? { postId: replyToPostId } : {}),
+      })
       if (refused) return refused
       if (gifId && !options.gifs) {
         return 'Refused: no GIF source is configured, so gifId cannot be attached.'

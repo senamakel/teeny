@@ -78,6 +78,7 @@ describe('activity deliveries become queued mentions', () => {
       takePending: vi.fn(),
       markReplied: vi.fn(),
       markFailed: vi.fn(),
+      requeueApproved: vi.fn(),
       counts: vi.fn(),
       close: vi.fn(),
     }
@@ -217,6 +218,7 @@ describe('retweets', () => {
       takePending: vi.fn(),
       markReplied: vi.fn(),
       markFailed: vi.fn(),
+      requeueApproved: vi.fn(),
       counts: vi.fn(),
       close: vi.fn(),
     }
