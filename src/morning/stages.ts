@@ -310,14 +310,19 @@ export function scenePrompt(
 }
 
 export function scriptPrompt(
+  context: StageContext,
   input: { pick: Pick; scene: Scene; seconds: number },
 ): { system: string; prompt: string } {
   return {
     system: [
-      'You write short comic scripts for a text-to-video model that is filming Tiny, a',
-      "small yellow robot mascot. Tiny's look is added to the prompt by the caller; you",
-      'describe what happens, in order, with timings, the camera, and the setting. A',
-      'clip of yours has a setup, a turn, and a payoff, like a good ten-second sketch.',
+      context.persona,
+      '',
+      'You are writing the short comic script for a text-to-video model that is filming',
+      "you, Tiny, for today's good-morning post. Your look is added to the prompt by the",
+      'caller; you describe what happens, in order, with timings, the camera, and the',
+      'setting. A clip of yours has a setup, a turn, and a payoff, like a good ten-second',
+      'sketch. The script is read by a video model, not a person: no dialogue, no',
+      'captions, and the voice rules above apply to the summary, not to the beats.',
     ].join('\n'),
     prompt: [
       `Today's story: ${input.pick.headline}`,

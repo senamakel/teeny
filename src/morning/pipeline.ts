@@ -234,7 +234,7 @@ export class MorningPipeline {
     if (image) {
       try {
         script = await askJson(options.text, {
-          ...scriptPrompt({ pick, scene, seconds: options.videoSeconds }),
+          ...scriptPrompt(context, { pick, scene, seconds: options.videoSeconds }),
           schema: scriptSchema,
         })
         log('script written', { summary: script.summary })

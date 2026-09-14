@@ -13,7 +13,7 @@ import type { HoldLog } from '../src/safety/holds.js'
 import { LadderVideoGenerator, OpenAIVideoGenerator } from '../src/media/videos.js'
 import { ExaNewsSource, gatherNews, isPolitical, renderStories, type NewsSource, type Story } from '../src/morning/news.js'
 import { MorningPipeline, type MorningPipelineOptions, type MorningResult } from '../src/morning/pipeline.js'
-import { askJson, extractJson, pickSchema } from '../src/morning/stages.js'
+import { askJson, extractJson, pickSchema, scriptPrompt } from '../src/morning/stages.js'
 import type { Memory, XMedia, XTools } from '../src/types.js'
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0])
@@ -144,6 +144,23 @@ describe('asking for JSON', () => {
     const hopeless: TextModel = { complete: vi.fn().mockResolvedValue('nope') }
     await expect(askJson(hopeless, { system: 's', prompt: 'p', schema: pickSchema })).rejects.toThrow(/no JSON object/)
     expect(hopeless.complete).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('the script stage', () => {
+  it('writes the script as Tiny, with the persona and its skills in front of it', () => {
+    const { system, prompt } = scriptPrompt(
+      { persona: 'SOUL\n<skill name="video-script">beats</skill>', botUsername: 'TinyMascot', today: '2026-09-14' },
+      {
+        pick: { story: 1, headline: 'A model launched', topic: 'ai', angle: 'local-first has no status page', visual: 'a board' },
+        scene: { scene: 'A status board over a stage.', storyCue: 'the board', alt: 'a board' },
+        seconds: 10,
+      },
+    )
+    expect(system).toMatch(/^SOUL\n<skill name="video-script">beats<\/skill>\n/)
+    expect(system).toContain('filming')
+    expect(prompt).toContain('10-second script')
+    expect(prompt).toContain('local-first has no status page')
   })
 })
 
