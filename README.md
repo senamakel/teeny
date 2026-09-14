@@ -599,8 +599,9 @@ everything it made to `MEDIA_OUTPUT_DIR` so it can be looked at.
    a different prompt.
 6. **Caption.** A good morning and the story in a line or two, with a bit of
    wit (as what was reported, not as fact checked; no people, no numbers not
-   given, never a price). It does not describe the clip: the clip is the joke
-   and the words are the greeting. Under 280 characters,
+   given, never a price), and the `$TINY` cashtag worked in where it reads
+   naturally, once. It does not describe the clip: the clip is the joke and
+   the words are the greeting. Under 280 characters,
    the emoji cap, no URLs, then through the house style like any other post,
    then through the content filter like any other draft: a link it cuts stays
    cut, and a caption it holds is a missing morning, journaled as `held` and

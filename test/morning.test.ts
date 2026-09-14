@@ -379,6 +379,7 @@ describe('the morning pipeline', () => {
     // The clip is not narrated: the caption is told one is attached, and to leave it be.
     expect(caption.prompt).not.toContain('Tiny sips coffee at sunrise')
     expect(caption.prompt).toContain('Do NOT describe it')
+    expect(caption.prompt).toContain('$TINY cashtag')
   })
 
   it('looks at the picture, redraws once when it is not Tiny, and keeps the second either way', async () => {
