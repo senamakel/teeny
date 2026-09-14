@@ -239,8 +239,9 @@ fi
 # brain-sync needs; the clone uses the same key so a missing one fails now.
 say "Checking the brain"
 # The key is the teenydroid GitHub account's SSH key, minted on the box and
-# never leaving it: brain-sync pushes with it, and so do git and gh on the
-# box (~/.ssh/config points github.com at it). Adding the public half to the
+# never leaving it. brain-sync pushes with it, passed explicitly; the box's
+# own keys, its ~/.ssh/config and its gh login stay as they are, and only
+# the opt-in alias git@github-teenydroid: uses it. Adding the public half to the
 # account is a one-time step for a person, on
 # https://github.com/settings/keys as teenydroid; this prints it until that
 # has happened. brain-sync keeps its commits and retries the push every

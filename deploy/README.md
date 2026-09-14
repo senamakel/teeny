@@ -126,10 +126,11 @@ docker compose -f compose.prod.yaml start opencompany
 1. The teenydroid account's SSH key. `deploy.sh` generates `BRAIN_SSH_KEY`
    on the box if it is missing and prints the public half until GitHub
    accepts it; add it to the **teenydroid** account at
-   `https://github.com/settings/keys`. The box's `~/.ssh/config` points
-   `github.com` at the same key, so `git` there pushes as teenydroid too.
-   For `gh` on the box as teenydroid, run `gh auth login` there once (a
-   token, not the key). The private key never leaves the box.
+   `https://github.com/settings/keys`. Nothing else on the box changes: the
+   sidecar and `deploy.sh` pass the key explicitly, `github.com` in
+   `~/.ssh/config` keeps using `droid`'s own key and account, and only the
+   opt-in alias `git@github-teenydroid:` uses the teenydroid key. `gh` on
+   the box stays signed in as it was. The private key never leaves the box.
 2. `OPENCOMPANY_IMAGE`, `BRAIN_ADMIN_EMAIL`, `BRAIN_UID`/`BRAIN_GID` in
    `deploy/.env`. There is no OpenCompany image published yet as of
    2026-09-14; the value is whatever tinyhumansai publishes, built with at
