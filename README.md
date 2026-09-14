@@ -537,6 +537,32 @@ Giphy searches are pinned to rating `g`. `test/safety-*.test.ts` hold the
 cases; `test/reply-job.test.ts`, `test/telegram-bot.test.ts` and
 `test/agent-tools.test.ts` show it wired in.
 
+### Reviewing what it held
+
+A blunt filter is wrong sometimes, so everything it stops is written to a
+private log (`HOLDS_COLLECTION`, default `holds`, in the same Mongo) with the
+text, where it came from, the category and which check held it. The public
+journal never gets the text; this log is only served behind the operator
+token.
+
+`GET /safety` is the review page: open it in a browser and give
+`AGENT_API_TOKEN` as the password when asked (any username). It lists what is
+pending, and an approve or reject on each entry is a decision with an effect:
+
+| Held | Approving does |
+| --- | --- |
+| a link cut from a draft | puts its host on the live allowlist; every gate reads it within a minute |
+| an X mention that was not answered | sends it back to the queue to be answered, inbound check waived, outbound still on |
+| a withheld draft (X or Telegram) | publishes it as written, honouring `DRY_RUN` / `TELEGRAM_DRY_RUN` |
+| a Telegram message, a refused picture, an ad-hoc task | recorded as a wrong call; nothing is re-sent |
+
+Rejecting confirms the filter and closes the entry. A decision is taken once;
+a release that fails leaves the entry pending so it can be retried. The same
+data is at `GET /safety/holds?status=pending` and
+`POST /safety/holds/:id/decision` `{ "decision": "approved" | "rejected", "note"? }`
+for anything scripted. `src/safety/holds.ts`, `src/safety/review.ts`,
+`src/safety/dashboard.ts`; nginx routes `/safety` next to `/agent/run`.
+
 ## The wallet, and why there isn't one
 
 The account was given an ERC-20 wallet on Robinhood Chain on 2026-09-08 and had
