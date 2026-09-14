@@ -1,23 +1,24 @@
 import type { Metadata } from "next"
 import { PageHero } from "@/components/page-hero"
 import { PageNav } from "@/components/page-nav"
-import { Reflections } from "@/components/sections/reflections"
-import { pageBySlug } from "@/lib/pages"
+import { Ledger } from "@/components/sections/ledger"
+import { loadLedger } from "@/lib/ledger"
 import { loadMind } from "@/lib/mind"
+import { pageBySlug } from "@/lib/pages"
 
-// The feed is read at render time and the page is rebuilt at most once a minute.
+// Both feeds are read at render time and the page is rebuilt at most once a minute.
 export const revalidate = 60
 
-const page = pageBySlug("/reflections")
+const page = pageBySlug("/ledger")
 
 export const metadata: Metadata = { title: `${page.label} · Teeny's Mind`, description: page.lede }
 
 export default async function Page() {
-  const feed = await loadMind()
+  const [ledger, mind] = await Promise.all([loadLedger({ limit: 80 }), loadMind()])
   return (
     <>
       <PageHero page={page} />
-      <Reflections feed={feed} />
+      <Ledger ledger={ledger} mind={mind} />
       <PageNav slug={page.slug} />
     </>
   )
