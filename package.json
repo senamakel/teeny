@@ -22,7 +22,8 @@
     "unsay": "tsx src/scripts/unsay.ts",
     "requeue-unpaid": "tsx src/scripts/requeue-unpaid.ts",
     "chart-dry-run": "tsx src/scripts/chart-dry-run.ts",
-    "telegram-dry-run": "tsx src/scripts/telegram-dry-run.ts"
+    "telegram-dry-run": "tsx src/scripts/telegram-dry-run.ts",
+    "calendar-dry-run": "tsx src/scripts/calendar-dry-run.ts"
   },
   "dependencies": {
     "@langchain/core": "^1.2.9",

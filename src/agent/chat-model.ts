@@ -6,6 +6,7 @@ import { truncateAtBoundary } from './house-style.js'
 import { findOwnTokenAddresses, ownTokenNote } from './own-token.js'
 import { chatPrompt } from './prompt.js'
 import { MEDIA_ID_PATTERN } from './tools/media.js'
+import { gateMedia } from '../media/wiring.js'
 import type { ChatMessage, ChatModel, ChatReply, ChatTurn } from '../types.js'
 
 /**
@@ -88,9 +89,13 @@ export class AgentChatModel implements ChatModel {
 
   private buildGraph(): ReturnType<typeof createReactAgent> {
     const options = this.options
+    // Eyes, no sketchbook. On Telegram pictures arrive on the calendar's
+    // schedule, never on request: a group can ask a bot to draw all day, and
+    // every one of those is a bill and a post the operator did not plan.
+    const media = gateMedia(options.media, {})
     return createReactAgent({
       llm: createChatModel(options.llm),
-      tools: buildTools({ ...options, allowPosting: false }),
+      tools: buildTools({ ...options, allowPosting: false, ...(media ? { media } : {}) }),
       prompt: chatPrompt({
         botUsername: options.botUsername,
         channelHandle: options.channelHandle,

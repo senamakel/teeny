@@ -1,4 +1,4 @@
-import { AlertCircle, BarChart3, MessageCircle, Terminal } from "lucide-react"
+import { AlertCircle, BarChart3, CalendarDays, MessageCircle, Terminal } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
@@ -10,6 +10,7 @@ const TRIGGER_ICON: Record<Trigger, typeof MessageCircle> = {
   mention: MessageCircle,
   chart: BarChart3,
   task: Terminal,
+  calendar: CalendarDays,
 }
 
 const TONE_STYLE: Record<Tone, string> = {
