@@ -13,16 +13,6 @@ export interface XPost {
   metrics?: XPostMetrics
 }
 
-/** X's public counters on a post. Bookmarks and impressions are there when X gives them. */
-export interface XPostMetrics {
-  likes: number
-  replies: number
-  reposts: number
-  quotes: number
-  bookmarks?: number
-  impressions?: number
-}
-
 /**
  * One attachment on a post. `url` is set for a photo; a video or an animated
  * GIF only exposes a preview frame, which is still enough to look at.
@@ -250,6 +240,12 @@ export interface XTools {
   postMetrics(ids: string[]): Promise<XPostMetrics[]>
 }
 
+/**
+ * X's public counters on a post, keyed by the post. Read on the account's own
+ * posts by the cadence job, and carried on every post a search returns, so
+ * the morning's picker can see how much of a conversation a post already is.
+ * Impressions are zero where X does not show them (other accounts' posts).
+ */
 export interface XPostMetrics {
   id: string
   impressions: number
@@ -257,6 +253,7 @@ export interface XPostMetrics {
   replies: number
   reposts: number
   quotes: number
+  bookmarks?: number
 }
 
 export interface AgentRunResult {
