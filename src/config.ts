@@ -59,6 +59,14 @@ const schema = z.object({
   // off switch a busy operator forgets to flip back.
   SAFETY_JUDGE: booleanFromString,
   SAFETY_JUDGE_MODEL: blankable(z.string().min(1)),
+  // --- the ranker's reader ---------------------------------------------------
+  // A separate model call that reads a draft the way X's For You ranker would
+  // and hands back the arithmetic and the fixes. Offered to the agents as
+  // x_critique, run by the morning pipeline on its script and caption, and
+  // served at POST /critique. Advisory, never a hold. On by default, on the
+  // chat model unless pointed elsewhere.
+  ALGO_CRITIC: booleanFromString,
+  ALGO_CRITIC_MODEL: blankable(z.string().min(1)),
   // Hosts the account may link to beyond the built-in list, comma separated,
   // as `host`, `host/path-prefix`, or `host/` for the bare host only.
   LINK_ALLOWLIST: z
