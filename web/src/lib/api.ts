@@ -12,8 +12,8 @@ export function apiUrl(path: string): string | undefined {
 
 /**
  * One fetch against the bot: a short timeout and no throwing, because
- * anything short of a good answer falls back to the samples, which the page
- * labels as such, so a bot that is down never takes the page with it.
+ * anything short of a good answer reads as unavailable, which the page
+ * says plainly, so a bot that is down never takes the page with it.
  */
 export async function readApi<T>(
   path: string,

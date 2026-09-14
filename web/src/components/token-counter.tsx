@@ -1,16 +1,26 @@
 'use client'
 
 import { useEffect, useRef, useState } from "react"
-import { LANES, LANE_META, compactTokens, formatTokens, type Lane, type Totals } from "@/lib/ledger"
+import {
+  LANE_META,
+  LANES,
+  compactTokens,
+  countingSince,
+  formatTokens,
+  grandTotal,
+  lastCall,
+  type Lane,
+  type Totals,
+} from "@/lib/ledger"
 import { useReducedMotion } from "@/lib/motion"
 import { cn } from "@/lib/utils"
 
 /**
- * The counter: every token both minds have ever burned, one number per mind
- * and one for the pair. It polls the bot's totals through /api/pulse and
- * rolls each figure from where it was to where it is now, so a row landing
- * in the ledger shows up here within half a minute as the number moving.
- * The figures are never extrapolated: between polls they hold still.
+ * The counter: every token Teeny has ever burned, as one figure. It polls the
+ * bot's totals through /api/pulse and rolls the figure from where it was to
+ * where it is now, so a row landing in the ledger shows up here within half
+ * a minute as the number moving. The figure is never extrapolated: between
+ * polls it holds still, and it starts from the first call the ledger saw.
  */
 
 const POLL_MS = 20_000
@@ -64,42 +74,24 @@ function ago(iso: string | undefined, now: number): string {
   return `${Math.floor(h / 24)}d ago`
 }
 
-function LaneCard({ lane, totals, now }: { lane: Lane; totals: Totals; now: number }) {
-  const meta = LANE_META[lane]
-  const t = totals.lanes[lane]
-  const accent = lane === "brain" ? "text-sky-400" : "text-primary"
-  const border = lane === "brain" ? "hover:border-sky-400/40" : "hover:border-primary/40"
-  return (
-    <div className={cn("flex flex-col gap-3 rounded-2xl border bg-card/70 p-5 backdrop-blur transition-colors sm:p-6", border)}>
-      <div className="flex items-baseline justify-between gap-3">
-        <p className="flex items-baseline gap-2">
-          <span className={cn("text-2xl font-semibold tracking-tight", accent)}>{meta.name}</span>
-          <span className="text-sm text-muted-foreground">{meta.who}</span>
-        </p>
-        <span className="font-mono text-xs text-muted-foreground">{ago(t.last, now)}</span>
-      </div>
-      <Digits value={t.tokens.total} className="text-3xl sm:text-4xl lg:text-[2.6rem] lg:leading-none" />
-      <p className="text-xs text-muted-foreground">tokens · {formatTokens(t.calls)} calls</p>
-      <dl className="grid grid-cols-3 gap-2 border-t pt-3 font-mono text-[11px] text-muted-foreground">
-        <div>
-          <dt>in</dt>
-          <dd className="text-foreground/80">{compactTokens(t.tokens.input)}</dd>
-        </div>
-        <div>
-          <dt>thinking</dt>
-          <dd className="text-foreground/80">{compactTokens(t.tokens.reasoning)}</dd>
-        </div>
-        <div>
-          <dt>out</dt>
-          <dd className="text-foreground/80">{compactTokens(t.tokens.output - t.tokens.reasoning)}</dd>
-        </div>
-      </dl>
-      <p className="text-xs leading-relaxed text-muted-foreground">{meta.blurb}</p>
-    </div>
-  )
+function since(iso: string | undefined): string {
+  if (!iso) return ""
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 16).replace("T", " ") + " UTC"
 }
 
-export function TokenCounter({ initial, source }: { initial: Totals; source: "live" | "sample" }) {
+/** Every source with a call, biggest first, so the figure has a shape. */
+function bySource(totals: Totals): Array<{ key: string; lane: Lane; source: string; tokens: number; calls: number }> {
+  return Object.entries(totals.sources)
+    .map(([key, t]) => {
+      const [lane, ...rest] = key.split("/")
+      return { key, lane: (lane === "brain" ? "brain" : "mascot") as Lane, source: rest.join("/"), tokens: t.tokens.total, calls: t.calls }
+    })
+    .filter((row) => row.calls > 0)
+    .sort((a, b) => b.tokens - a.tokens)
+}
+
+export function TokenCounter({ initial, source }: { initial: Totals; source: "live" | "unavailable" }) {
   const [totals, setTotals] = useState(initial)
   const [live, setLive] = useState(source === "live")
   const [now, setNow] = useState(() => Date.now())
@@ -110,10 +102,10 @@ export function TokenCounter({ initial, source }: { initial: Totals; source: "li
       try {
         const response = await fetch("/api/pulse", { cache: "no-store" })
         if (!response.ok) return
-        const body = (await response.json()) as { source: "live" | "sample"; totals: Totals }
+        const body = (await response.json()) as { source: "live" | "unavailable"; totals: Totals }
         if (cancelled) return
         setLive(body.source === "live")
-        setTotals(body.totals)
+        if (body.source === "live") setTotals(body.totals)
         setNow(Date.now())
       } catch {
         // The last figure stands. A poll that fails is not a token unburned.
@@ -128,30 +120,77 @@ export function TokenCounter({ initial, source }: { initial: Totals; source: "li
     }
   }, [])
 
-  const both = LANES.reduce((sum, lane) => sum + totals.lanes[lane].tokens.total, 0)
-  const calls = LANES.reduce((sum, lane) => sum + totals.lanes[lane].calls, 0)
+  const all = grandTotal(totals)
+  const first = countingSince(totals)
+  const last = lastCall(totals)
+  const sources = bySource(totals)
+  const thinking = all.tokens.reasoning
+  const answered = Math.max(all.tokens.output - thinking, 0)
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-2">
         <p className="flex items-center gap-2 font-mono text-xs uppercase tracking-widest text-muted-foreground">
           <span className="relative flex size-2">
-            <span className={cn("absolute inline-flex size-full animate-ping rounded-full opacity-60", live ? "bg-primary" : "bg-muted-foreground")} />
-            <span className={cn("relative inline-flex size-2 rounded-full", live ? "bg-primary" : "bg-muted-foreground")} />
+            <span className={cn("absolute inline-flex size-full animate-ping rounded-full opacity-60", live ? "bg-primary" : "bg-destructive")} />
+            <span className={cn("relative inline-flex size-2 rounded-full", live ? "bg-primary" : "bg-destructive")} />
           </span>
-          {live ? "tokens burned, both minds, all time" : "sample count · the bot is not reachable from here"}
+          {live ? "tokens teeny has burned" : "the bot is not reachable right now · last known figure"}
+          {last ? <span className="normal-case tracking-normal">· last call {ago(last, now)}</span> : null}
         </p>
-        <Digits value={both} className="text-5xl font-semibold sm:text-6xl lg:text-7xl" />
+        <Digits value={all.tokens.total} className="text-6xl font-semibold sm:text-7xl lg:text-8xl" />
         <p className="text-sm text-muted-foreground">
-          across {formatTokens(calls)} model calls · every one of them is a row in the{" "}
+          across {formatTokens(all.calls)} model calls
+          {first ? `, counting since ${since(first)}` : ", counting from the first call the ledger sees"} · every one is a row in the{" "}
           <a href="/ledger" className="underline underline-offset-4 hover:text-foreground">ledger</a>
         </p>
       </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        {LANES.map((lane) => (
-          <LaneCard key={lane} lane={lane} totals={totals} now={now} />
-        ))}
-      </div>
+
+      <dl className="grid max-w-xl grid-cols-2 gap-x-6 gap-y-3 border-t pt-4 font-mono text-xs sm:grid-cols-4">
+        <div>
+          <dt className="text-muted-foreground">in</dt>
+          <dd className="text-lg text-foreground">{compactTokens(all.tokens.input)}</dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">cached</dt>
+          <dd className="text-lg text-foreground">{compactTokens(all.tokens.cached)}</dd>
+        </div>
+        <div>
+          <dt className="text-sky-400">thinking</dt>
+          <dd className="text-lg text-foreground">{compactTokens(thinking)}</dd>
+        </div>
+        <div>
+          <dt className="text-emerald-400">out</dt>
+          <dd className="text-lg text-foreground">{compactTokens(answered)}</dd>
+        </div>
+      </dl>
+
+      {sources.length ? (
+        <ul className="flex flex-wrap gap-2" aria-label="tokens by source">
+          {sources.map((row) => (
+            <li
+              key={row.key}
+              title={`${LANE_META[row.lane].name} · ${formatTokens(row.calls)} calls · ${formatTokens(row.tokens)} tokens`}
+              className={cn(
+                "flex items-center gap-2 rounded-full border bg-background/60 px-3 py-1 font-mono text-xs backdrop-blur",
+                row.lane === "brain" ? "border-sky-400/30" : "border-primary/30",
+              )}
+            >
+              <span>{row.source}</span>
+              <span className="text-muted-foreground">{compactTokens(row.tokens)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="max-w-xl text-sm text-muted-foreground">
+          {live
+            ? "The ledger began counting with this deploy and no call has run since. The next reply, chart or morning post is the first row."
+            : "Nothing to show until the bot answers."}
+        </p>
+      )}
+      <p className="sr-only">
+        {LANES.map((lane) => `${LANE_META[lane].name}: ${formatTokens(totals.lanes[lane].tokens.total)} tokens`).join("; ")}
+      </p>
     </div>
   )
 }
