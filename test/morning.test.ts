@@ -216,8 +216,9 @@ describe('the seconds hint', () => {
     const bodies = (fetchMock.mock.calls as Array<[string, RequestInit]>)
       .filter(([, init]) => init?.body)
       .map(([, init]) => JSON.parse(init.body as string) as Record<string, unknown>)
-    expect(bodies[0]).toMatchObject({ seconds: '12' })
+    expect(bodies[0]).toMatchObject({ seconds: '12', duration: '12', video_length: 12, length: 12, duration_seconds: 12 })
     expect(bodies[1]).not.toHaveProperty('seconds')
+    expect(bodies[1]).not.toHaveProperty('duration')
   })
 
   it('rounds up to a length Sora accepts', async () => {
@@ -375,7 +376,9 @@ describe('the morning pipeline', () => {
     expect(pick.system).toContain('You are Tiny.')
     const caption = calls.find(([call]) => call.prompt.includes('"text": string'))![0]
     expect(caption.prompt).toContain('yesterday: a post about robots')
-    expect(caption.prompt).toContain('Tiny sips coffee at sunrise')
+    // The clip is not narrated: the caption is told one is attached, and to leave it be.
+    expect(caption.prompt).not.toContain('Tiny sips coffee at sunrise')
+    expect(caption.prompt).toContain('Do NOT describe it')
   })
 
   it('looks at the picture, redraws once when it is not Tiny, and keeps the second either way', async () => {
@@ -392,6 +395,18 @@ describe('the morning pipeline', () => {
     expect(reader.describe).toHaveBeenCalledWith({ data: PNG, mimeType: 'image/png' }, expect.stringContaining('Tiny'))
     expect(result.problems).toEqual(['redrew the picture: the robot is purple'])
     expect(budget.remaining('image')).toBe(3)
+
+    // A verdict whose reason runs long, or whose JSON was cut off, still counts.
+    const verbose: ImageReader = {
+      describe: vi.fn().mockResolvedValue(`{"ok": true, "reason": "${'a very long explanation. '.repeat(30)}"}`),
+    }
+    const { run: wordy, images: drawnOnce } = pipeline({ reader: verbose })
+    expect((await wordy()).problems).toEqual([])
+    expect(drawnOnce.generate).toHaveBeenCalledTimes(1)
+    const cutOff: ImageReader = { describe: vi.fn().mockResolvedValue('{"ok": false, "reason": "the robot is purp') }
+    const { run: truncated, images: drawnTwice } = pipeline({ reader: cutOff })
+    await truncated()
+    expect(drawnTwice.generate).toHaveBeenCalledTimes(2)
 
     const stubborn: ImageReader = { describe: vi.fn().mockResolvedValue('No, it is a cat.') }
     const { run: again, images: drawn } = pipeline({ reader: stubborn })
@@ -643,7 +658,7 @@ describe('the morning job', () => {
       droppedAsPolitical: 1,
       pick: { story: 1, headline: 'h', topic: 'ai', angle: 'a', visual: 'v' },
       story: STORIES[0]!,
-      scene: { scene: 's', storyCue: 'c', alt: 'alt' },
+      scene: { concepts: ['a gag'], scene: 's', storyCue: 'c', alt: 'alt' },
       caption: 'gm',
       attached: 'video',
       outcome: 'posted',
@@ -738,7 +753,7 @@ describe('morning config', () => {
     expect(config.MORNING_ENABLED).toBe(false)
     expect(config.MORNING_CRON).toBe('0 8 * * *')
     expect(config.MORNING_NEWS_TOPICS).toHaveLength(3)
-    expect(config.MORNING_VIDEO_SECONDS).toBe(12)
+    expect(config.MORNING_VIDEO_SECONDS).toBe(10)
     expect(loadConfig({ ...REQUIRED, MORNING_NEWS_TOPICS: ' a , ,b' }).MORNING_NEWS_TOPICS).toEqual(['a', 'b'])
     expect(loadConfig({ ...REQUIRED, SERVICE_ROLE: 'morning' }).SERVICE_ROLE).toBe('morning')
   })
