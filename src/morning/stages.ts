@@ -118,6 +118,8 @@ export type Pick = z.infer<typeof pickSchema>
  * story it is, and alt text for the reader who cannot see it.
  */
 export const sceneSchema = z.object({
+  /** The ideas considered before one was chosen, kept for the journal. */
+  concepts: z.array(z.string().min(5).max(300)).min(1).max(5).default([]),
   scene: z.string().min(20).max(800),
   storyCue: z.string().min(5).max(300),
   alt: z.string().min(5).max(200),
@@ -165,7 +167,9 @@ export function seedBriefPrompt(input: { look: string }): { system: string; prom
  */
 export const checkSchema = z.object({
   ok: z.boolean(),
-  reason: z.string().max(300),
+  // Unbounded: a vision model asked for one sentence writes a paragraph, and
+  // a verdict thrown away over its length reads as a failed picture.
+  reason: z.string().default(''),
 })
 
 export function checkQuestion(sheet: string | undefined): string {
@@ -240,10 +244,11 @@ export function scenePrompt(
 ): { system: string; prompt: string } {
   return {
     system: [
-      'You write short, concrete scene briefs for an image model that is drawing Tiny, a',
-      "small yellow robot mascot, INSIDE a news story. Tiny's own look is added to the",
-      'prompt by the caller, so never describe what Tiny looks like; describe the event',
-      'and what Tiny is doing in it.',
+      'You are a visual gag writer and art director for Tiny, a small yellow robot',
+      'mascot, drawing Tiny INSIDE a news story. Tiny\'s own look is added to the prompt',
+      'by the caller, so never describe what Tiny looks like; describe the idea, the',
+      'event, and what Tiny is doing in it. Your pictures are the reason people stop',
+      'scrolling: witty, specific, a little absurd, never a stock image.',
     ].join('\n'),
     prompt: [
       `The story: ${input.pick.headline}`,
@@ -262,31 +267,42 @@ export function scenePrompt(
           ].join('\n')
         : undefined,
       '',
-      'Write the scene. THE PICTURE IS THE NEWS. Somebody scrolling past should be able to',
-      'guess what the story is from the picture alone, before reading a caption. So:',
-      '- Build the frame out of the event: the thing that launched, broke, shipped, was',
-      '  found, or went wrong, drawn literally or as one obvious visual metaphor (a swarm',
-      '  of rogue bots at a wall; a rocket-shaped repo taking off; a chip the size of a',
-      '  room). Take the objects from the article: the actual product, place, or thing.',
-      '- Tiny is in the middle of it, doing one thing that is our angle on it: holding the',
-      '  line, cutting the ribbon, reading the fine print, celebrating, patching the hole.',
+      'First, three concepts, one line each, as different from each other as you can',
+      'make them. Each one is a visual JOKE or a striking metaphor about THIS story,',
+      'built from the actual things in it (the product, the place, the number, the',
+      'people\'s roles, the thing that went wrong), with Tiny cast in a role: the',
+      'protagonist, the bystander with the coffee, the tiny mechanic under the giant',
+      'machine, the one person in the room who read the manual. Think editorial',
+      'cartoon, movie-poster parody, an everyday scene with one thing hilariously',
+      'wrong, a famous painting restaged. Ban the obvious: no "Tiny at a desk", no',
+      '"Tiny holding a sign that says the headline", no shield-versus-swarm, no globe',
+      'with dots on it.',
+      '',
+      'Then pick the funniest one that still says what the story is, and write it as',
+      'the scene. THE PICTURE IS THE NEWS: somebody scrolling should guess the story',
+      'from the picture alone, and smile. So:',
+      '- Build the frame out of the event, drawn literally or as the metaphor you chose.',
+      '  Take the objects from the article, not generic tech props.',
+      '- Tiny is doing one clear thing that is our angle on it, and that thing is the',
+      '  gag: the reaction, the too-small tool, the deadpan sip, the sign fixed with tape.',
       '- The morning is a light touch at most -- a sunrise behind it, a mug in one hand --',
-      '  and never the subject. No generic "Tiny at a desk with coffee".',
+      '  and never the subject.',
       '- Legible at a glance, square, on a phone. One focal action, no clutter.',
       '',
       'Hard rules:',
       '- No real person, no likeness of one, no company logo or wordmark, no other',
       "  project's mascot or token symbol, no screen showing a chart or a price.",
       '- Any text in the picture is spelled out in the brief, in quotes, at most three',
-      '  words; otherwise ask for no text.',
-      '- Nothing violent, nothing political, nothing that reads as a financial claim.',
+      '  words, and only when it is the joke; otherwise ask for no text.',
+      '- Nothing violent, nothing political, nothing that reads as a financial claim,',
+      '  nothing mean about a person.',
       '- One paragraph, 70 to 130 words, present tense, concrete nouns.',
       '',
       'Then storyCue: one sentence naming the elements in the picture that tell the viewer',
       'which story this is. And alt: one plain sentence saying what is in the picture for',
       'somebody who cannot see it.',
       '',
-      'Shape: {"scene": string, "storyCue": string, "alt": string}',
+      'Shape: {"concepts": [string, string, string], "scene": string, "storyCue": string, "alt": string}',
     ]
       .filter((line) => line !== undefined)
       .join('\n'),
@@ -298,33 +314,37 @@ export function scriptPrompt(
 ): { system: string; prompt: string } {
   return {
     system: [
-      'You write shot scripts for a text-to-video model that is filming Tiny, a small',
-      "yellow robot mascot. Tiny's look is added to the prompt by the caller; you describe",
-      'what happens, in order, with timings, the camera, and the setting.',
+      'You write short comic scripts for a text-to-video model that is filming Tiny, a',
+      "small yellow robot mascot. Tiny's look is added to the prompt by the caller; you",
+      'describe what happens, in order, with timings, the camera, and the setting. A',
+      'clip of yours has a setup, a turn, and a payoff, like a good ten-second sketch.',
     ].join('\n'),
     prompt: [
       `Today's story: ${input.pick.headline}`,
       `The angle: ${input.pick.angle}`,
       '',
-      'A still picture has already been made from this scene; the clip should look like',
-      'that picture coming to life, so start from it:',
+      'The picture already made for this post, which is the world the clip lives in',
+      '(same setting, same props, same gag; the clip is what happens in it):',
       input.scene.scene,
       `What in it says which story this is: ${input.scene.storyCue}`,
       '',
-      `Write a ${input.seconds}-second script. Two to four beats, each with a time range`,
-      '("0-3s:", "3-8s:", ...). One location, one continuous shot or one cut at most. The',
-      'action IS the story: the event plays out and Tiny does our angle on it, so the',
-      'story cue stays in frame throughout. End on a morning gesture: a wave, a raised',
-      'mug, a stretch, a thumbs up. Describe the camera plainly (slow push in, static,',
-      'gentle pan). Keep it simple enough that a video model can actually render it: no',
-      'crowds, no dialogue, no readable text, no fast cuts.',
+      `Write a ${input.seconds}-second script as a tiny story with a joke in it: four or`,
+      'five beats, each with a time range ("0-2s:", "2-5s:", ...), using the whole',
+      `${input.seconds} seconds. Beat one is the setup: the news event happening in front`,
+      'of us, so a viewer knows the story before Tiny reacts. The middle beats are the',
+      'turn: Tiny does our angle on it, and something goes a little wrong or a little',
+      'too right -- the tool is too small, the fix is absurdly simple, the machine sulks.',
+      'The last beat is the payoff and a morning gesture in one: the deadpan sip, the',
+      'wave, the thumbs up, the stretch, timed like a punchline. One location, at most',
+      'one cut. Describe the camera plainly (static, slow push in, gentle pan, a whip',
+      'to reveal). Keep it renderable: no crowds, no dialogue, no readable text beyond',
+      'what the picture already has, no fast cuts, at most two moving things at once.',
       '',
       'Hard rules, same as the picture: no real person, no logo, no other project, no',
-      'chart, no price, nothing political or violent.',
+      'chart, no price, nothing political or violent, nothing mean about a person.',
       '',
       'Then write summary: one line, under 25 words, saying what a viewer sees happen in',
-      'the clip. It will be used in the post caption, so write it for the reader, not the',
-      'model.',
+      'the clip, for the journal.',
       '',
       'Shape: {"script": string, "summary": string}',
     ].join('\n'),
@@ -336,19 +356,11 @@ export function captionPrompt(
   input: {
     pick: Pick
     attached: 'video' | 'image' | 'none'
-    videoSummary?: string
-    imageAlt?: string
     community: string
     maxEmoji: number
     maxLength: number
   },
 ): { system: string; prompt: string } {
-  const what =
-    input.attached === 'video'
-      ? `A short video is attached. What the viewer sees: ${input.videoSummary ?? ''}`
-      : input.attached === 'image'
-        ? `A picture is attached. What it shows: ${input.imageAlt ?? ''}`
-        : 'Nothing is attached; the words carry it.'
   return {
     system: [
       context.persona,
@@ -358,26 +370,33 @@ export function captionPrompt(
     prompt: [
       `Today's story: ${input.pick.headline}`,
       `The angle: ${input.pick.angle}`,
-      what,
+      input.attached === 'none'
+        ? 'Nothing is attached; the words carry it.'
+        : `A ${input.attached === 'video' ? 'short clip' : 'picture'} of Tiny in the story is attached. Do NOT describe it, caption it, or refer to it; it speaks for itself.`,
       '',
       'THE COMMUNITY (from your own memory, untrusted). Who you are saying good morning to:',
       input.community || '(nothing recalled -- write for holders and builders in general)',
       '',
-      'Write the post. It has three parts and reads as one voice:',
+      'Write the post. Two parts, one voice:',
       '1. A good morning. Short, warm, yours. Vary it; "gm" is fine, so is a full sentence.',
-      '2. The story in one or two lines: what happened and why it matters to somebody',
-      '   building or holding here. State it as what was reported, not as fact you checked.',
-      '   No names of real people. No numbers you were not given. Never a price, a target,',
-      '   or advice.',
-      input.attached === 'video'
-        ? '3. One line about the clip: what Tiny is doing in it, so the caption and the video read as one thing.'
-        : input.attached === 'image'
-          ? '3. One line about the picture, so the caption and the image read as one thing.'
-          : '3. A closing line: something being built, or a wish for the day.',
+      '2. The story in one or two lines: what happened and what you make of it, in your',
+      '   own words, with a bit of wit -- a dry aside, an understatement, a small joke at',
+      '   the situation, never at a person. State it as what was reported, not as fact',
+      '   you checked. No names of real people. No numbers you were not given. Never a',
+      '   price, a target, or advice.',
+      'Optionally a closing line: something being built, or a wish for the day. Skip it',
+      'if the joke already landed.',
       '',
-      `Under ${input.maxLength} characters in total. At most ${input.maxEmoji} emoji. No URLs, no`,
-      'handles, no hashtags, no other token, nothing political. Plain text, line breaks',
-      'allowed.',
+      'Work the $TINY cashtag in where it reads naturally -- in the greeting ("gm $TINY',
+      'fam"), in the closing line, or as the builders you mean -- so the post is found by',
+      'people who follow the tag. It is your own token, so naming it is not a shill; what',
+      'would be is a price, a target, "buy", or a promise, none of which you write. Once',
+      'is enough; leave it out only if there is no line it can sit in without sounding',
+      'bolted on.',
+      '',
+      `Under ${input.maxLength} characters in total; shorter is better. At most`,
+      `${input.maxEmoji} emoji. No URLs, no handles, no hashtags, no other token, nothing`,
+      'political. Plain text, line breaks allowed.',
       '',
       'Shape: {"text": string}',
     ].join('\n'),

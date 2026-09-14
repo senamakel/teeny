@@ -179,7 +179,7 @@ const schema = z.object({
   MORNING_STORIES_PER_TOPIC: z.coerce.number().int().min(1).max(20).default(8),
   // How long a clip is scripted for. Passed to the generator as a hint;
   // Sora rounds it to 4, 8 or 12, and a ladder rung may render its own.
-  MORNING_VIDEO_SECONDS: z.coerce.number().int().min(4).max(20).default(12),
+  MORNING_VIDEO_SECONDS: z.coerce.number().int().min(4).max(20).default(10),
 
   // --- the content calendar ------------------------------------------------
   // Scheduled posts from a JSON file: a "gm" every morning, a Friday post, a
