@@ -254,7 +254,7 @@ export function renderMetrics(metrics: XPostMetrics): string {
     `${compact(metrics.reposts)} reposts`,
     `${compact(metrics.likes)} likes`,
   ]
-  if (metrics.impressions !== undefined) parts.push(`${compact(metrics.impressions)} views`)
+  if (metrics.impressions) parts.push(`${compact(metrics.impressions)} views`)
   return parts.join(', ')
 }
 

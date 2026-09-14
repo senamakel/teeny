@@ -13,16 +13,6 @@ export interface XPost {
   metrics?: XPostMetrics
 }
 
-/** X's public counters on a post. Bookmarks and impressions are there when X gives them. */
-export interface XPostMetrics {
-  likes: number
-  replies: number
-  reposts: number
-  quotes: number
-  bookmarks?: number
-  impressions?: number
-}
-
 /**
  * One attachment on a post. `url` is set for a photo; a video or an animated
  * GIF only exposes a preview frame, which is still enough to look at.
@@ -246,17 +236,31 @@ export interface XTools {
   uploadMedia(media: XMedia): Promise<{ mediaId: string }>
   /** Likes a post as the account. Idempotent on X's side. */
   likePost(postId: string): Promise<void>
-  /** The public counters of the posts given, for the ones X still has. */
-  postMetrics(ids: string[]): Promise<XPostMetrics[]>
+  /** The public counters of the account's own posts given, for the ones X still has. */
+  postMetrics(ids: string[]): Promise<XOwnPostMetrics[]>
+}
+
+/**
+ * X's public counters on a post, keyed by the post. Carried on every post a
+ * search returns, so the morning's picker can see how much of a conversation
+ * a post already is. Impressions are the author's to see and nobody else's,
+ * so on another account's post they are absent.
+ */
+export interface XPostMetrics {
+  id: string
+  likes: number
+  replies: number
+  reposts: number
+  quotes: number
+  impressions?: number
+  bookmarks?: number
 }
 
 /**
  * The counters of one of the account's own posts, read back by id through
- * the account's client, which is why impressions are always there: X shows
- * them to the author and to nobody else.
+ * the account's client, which is why impressions are always there.
  */
 export interface XOwnPostMetrics extends XPostMetrics {
-  id: string
   impressions: number
 }
 

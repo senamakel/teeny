@@ -80,20 +80,21 @@ function toPosts(
         ...(post.createdAt ? { createdAt: post.createdAt } : {}),
         ...(post.inReplyToUserId ? { inReplyToUserId: post.inReplyToUserId } : {}),
         ...(attached.length > 0 ? { media: attached } : {}),
-        ...(post.publicMetrics ? { metrics: toMetrics(post.publicMetrics) } : {}),
+        ...(post.publicMetrics ? { metrics: toMetrics(post.id, post.publicMetrics) } : {}),
       },
     ]
   })
 }
 
-function toMetrics(raw: NonNullable<RawPost['publicMetrics']>): XPostMetrics {
+function toMetrics(id: string, raw: NonNullable<RawPost['publicMetrics']>): XPostMetrics {
   return {
+    id,
     likes: raw.likeCount ?? 0,
     replies: raw.replyCount ?? 0,
     reposts: raw.repostCount ?? 0,
     quotes: raw.quoteCount ?? 0,
-    ...(raw.bookmarkCount !== undefined ? { bookmarks: raw.bookmarkCount } : {}),
     ...(raw.impressionCount !== undefined ? { impressions: raw.impressionCount } : {}),
+    ...(raw.bookmarkCount !== undefined ? { bookmarks: raw.bookmarkCount } : {}),
   }
 }
 

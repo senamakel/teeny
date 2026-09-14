@@ -358,13 +358,13 @@ const MEME: XPost = {
   authorUsername: 'someone',
   createdAt: '2026-09-14T04:00:00Z',
   media: [{ type: 'photo', url: 'https://pbs/x.jpg', altText: 'a robot nodding' }],
-  metrics: { likes: 4_200, replies: 310, reposts: 90, quotes: 140, impressions: 900_000 },
+  metrics: { id: '77', likes: 4_200, replies: 310, reposts: 90, quotes: 140, impressions: 900_000 },
 }
 const QUIET: XPost = {
   id: '78',
   text: 'new open weights model dropped, benchmarks look fine',
   authorUsername: 'lab',
-  metrics: { likes: 12, replies: 0, reposts: 1, quotes: 0 },
+  metrics: { id: '78', likes: 12, replies: 0, reposts: 1, quotes: 0, impressions: 0 },
 }
 
 describe('the timeline', () => {
@@ -426,9 +426,9 @@ describe('the timeline', () => {
     const shilling: TimelineSource = {
       trending: vi.fn().mockResolvedValue([]),
       pulse: vi.fn().mockResolvedValue([
-        storyOf({ id: '3', text: 'hear me out, ca: 0x7927cd547e644db657d95cb04ea678c5feb37777 could run', metrics: { likes: 500, replies: 40, reposts: 0, quotes: 0 } }, TIMELINE_QUERIES[0]!),
-        storyOf({ id: '4', text: '$DARWIN is not an agent, it rewrites itself', metrics: { likes: 500, replies: 40, reposts: 0, quotes: 0 } }, TIMELINE_QUERIES[0]!),
-        storyOf({ id: '5', text: '$TINY holders, the model said we are absolutely right again', metrics: { likes: 500, replies: 40, reposts: 0, quotes: 0 } }, TIMELINE_QUERIES[0]!),
+        storyOf({ id: '3', text: 'hear me out, ca: 0x7927cd547e644db657d95cb04ea678c5feb37777 could run', metrics: { id: 'm', likes: 500, replies: 40, reposts: 0, quotes: 0, impressions: 0 } }, TIMELINE_QUERIES[0]!),
+        storyOf({ id: '4', text: '$DARWIN is not an agent, it rewrites itself', metrics: { id: 'm', likes: 500, replies: 40, reposts: 0, quotes: 0, impressions: 0 } }, TIMELINE_QUERIES[0]!),
+        storyOf({ id: '5', text: '$TINY holders, the model said we are absolutely right again', metrics: { id: 'm', likes: 500, replies: 40, reposts: 0, quotes: 0, impressions: 0 } }, TIMELINE_QUERIES[0]!),
       ]),
     }
     const read = await gatherTimeline(shilling, { queries: [TIMELINE_QUERIES[0]!], hours: 24, perQuery: 10 })
