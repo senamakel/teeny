@@ -136,22 +136,18 @@ const probability = (what: string) => z.number().min(0).max(1).describe(what)
 export const critiqueSchema = z.object({
   firstReply: z
     .string()
-    .max(280)
     .default('')
     .describe('The first reply a stranger would type under this, verbatim. Empty if you cannot think of one.'),
   disagreement: z
     .string()
-    .max(300)
     .default('')
     .describe('Who disagrees with it and what they type. "nobody" if it takes no position.'),
   shareReason: z
     .string()
-    .max(300)
     .default('')
     .describe('Who copies the link, into what chat, saying what. Or why nobody would.'),
   riskReason: z
     .string()
-    .max(300)
     .default('')
     .describe('What in it would earn a report, a mute, or "not interested". Empty if nothing.'),
   reply: probability('P(a viewer replies)'),
@@ -168,11 +164,10 @@ export const critiqueSchema = z.object({
   blockAuthor: probability('P(a viewer blocks the author)'),
   report: probability('P(a viewer reports it)'),
   fixes: z
-    .array(z.string().max(300))
-    .max(3)
+    .array(z.string())
     .default([])
     .describe('Up to three concrete rewrites, most valuable first, each under 280 characters. Say what to change, not that it should change.'),
-  summary: z.string().max(200).describe('One line: what the ranker does with this and why.'),
+  summary: z.string().default('').describe('One line: what the ranker does with this and why.'),
 })
 export type CritiqueAnswer = z.infer<typeof critiqueSchema>
 
@@ -207,12 +202,15 @@ export function toCritique(answer: CritiqueAnswer): Critique {
     ...scored,
     predicted,
     communityReply: answer.communityReply,
-    firstReply: answer.firstReply,
-    disagreement: answer.disagreement,
-    shareReason: answer.shareReason,
-    riskReason: answer.riskReason,
-    fixes: answer.fixes,
-    summary: answer.summary,
+    // Lengths are trimmed here rather than refused in the schema: a fast rung
+    // that runs a sentence long has still done the read, and a hard maximum
+    // turned a good answer into a parse failure.
+    firstReply: answer.firstReply.slice(0, 280),
+    disagreement: answer.disagreement.slice(0, 300),
+    shareReason: answer.shareReason.slice(0, 300),
+    riskReason: answer.riskReason.slice(0, 300),
+    fixes: answer.fixes.slice(0, 3).map((fix) => fix.slice(0, 300)),
+    summary: answer.summary.slice(0, 200),
   }
 }
 
@@ -234,9 +232,16 @@ const BRIEF = [
   '',
   'Estimate each probability for a typical viewer of this account\'s posts: crypto and AI',
   'twitter, holders of the coin, open-source builders, people who like the character. Be',
-  'calibrated, not kind. Most posts on X earn a like from under 5% of viewers and a reply',
-  'from under 1%; a genuinely conversation-starting post from an account this size might',
-  'get replies from 10-30% of the people who actually read it. Use the whole range.',
+  'calibrated, not kind, and anchor on these, per viewer who actually reads the post:',
+  '- dull but harmless (a greeting plus a fact, a description of the picture): reply 0-1%,',
+  '  like 2-4%, not interested 1-2%, mute under 0.5%, report 0. Dull is FLAT, not risky:',
+  '  people scroll past it, they do not punish it.',
+  '- a real conversation starter from this account: reply 8-20%, community reply 10-25%,',
+  '  quote 2-5%, copy link 1-3%, like 5-10%.',
+  '- not interested above 5% or mute above 2% only for bait shapes, spam, or a post that',
+  '  is off-topic for the people who follow; report above 1% only for politics, a person,',
+  '  hate, or anything that reads as a scam or a price call. Those are the only things that',
+  '  make a post RISKY rather than flat.',
   '',
   'What earns replies and quotes: a clear stance somebody reasonable will disagree with; a',
   'specific question with a one-line answer and no wrong answers; a forced choice; a blank',
@@ -256,6 +261,13 @@ const BRIEF = [
   'political or aimed at a named or identifiable person is reported by some viewers however',
   'popular it is with others: put report at a few percent at least, never zero.',
   '',
+  'The account posts a candlestick chart of its own token every day with a technical read',
+  'of it. That is the account\'s known shape, not a price call: a caption that says what',
+  'price has already done, names a level, and asks holders what they are watching earns no',
+  'report and no mute from the people who follow it. One that predicts a price, names a',
+  'target, or tells anyone to buy is a price call and is scored as one. The chart itself is',
+  'a given; never suggest replacing it.',
+  '',
   'Kinds. A "post" or "quote" is judged as above. A "reply" is judged on whether it keeps',
   'the thread going: answers the person and leaves the next door open. A "caption" comes',
   'with a line saying what the media shows; judge the words, and treat the media as the',
@@ -265,7 +277,8 @@ const BRIEF = [
   '',
   'Fixes are concrete rewrites of this draft in the account\'s own voice (lower-case,',
   'casual, one emoji at most, no hashtags, never a number it was not given, never a price,',
-  'never another token). Say what to change. Do not praise. Do not add a fact. A fix never',
+  'never another token). Say what to change. Do not praise. Do not add a fact, a number, a',
+  'benchmark, or a name the draft does not have, and never suggest changing the media. A fix never',
   'keeps the thing that earns the report: no version of a political post or a jab at a',
   'person is a fix; the fix is a different post on the same subject with the target gone.',
   '',
@@ -291,25 +304,47 @@ export class AlgoCritic implements Critic {
     )
   }
 
+  /**
+   * One read, tried twice. The fast rung sometimes stops after the first
+   * few fields of the object, and the library refuses the half it got; the
+   * second ask says so and the same rung fills the whole shape.
+   */
   async critique(input: CritiqueInput): Promise<Critique> {
-    const answer = await this.model.invoke([
-      { role: 'system', content: BRIEF },
-      {
-        role: 'user',
-        content: [
-          `Kind: ${input.kind}.`,
-          input.context ? `Context (what it answers, quotes, or is about):\n${input.context.slice(0, 2_000)}\n` : undefined,
-          input.media ? `Attached media shows: ${input.media.slice(0, 600)}\n` : undefined,
-          'The draft:',
-          input.text.slice(0, MAX_READ_LENGTH),
-        ]
-          .filter((line) => line !== undefined)
-          .join('\n'),
-      },
-    ])
-    const parsed = critiqueSchema.safeParse(answer)
-    if (!parsed.success) throw new Error(`the critic answered in an unreadable shape: ${parsed.error.message}`)
-    return toCritique(parsed.data)
+    const user = [
+      `Kind: ${input.kind}.`,
+      input.context ? `Context (what it answers, quotes, or is about):\n${input.context.slice(0, 2_000)}\n` : undefined,
+      input.media ? `Attached media shows: ${input.media.slice(0, 600)}\n` : undefined,
+      'The draft:',
+      input.text.slice(0, MAX_READ_LENGTH),
+    ]
+      .filter((line) => line !== undefined)
+      .join('\n')
+    let firstFailure: unknown
+    for (const attempt of [0, 1]) {
+      try {
+        const answer = await this.model.invoke([
+          { role: 'system', content: BRIEF },
+          { role: 'user', content: user },
+          ...(attempt === 0
+            ? []
+            : [
+                {
+                  role: 'user' as const,
+                  content:
+                    'Your previous answer was cut short and could not be read. Answer again with EVERY ' +
+                    'field of the shape filled in: all thirteen probabilities as numbers, the four ' +
+                    'reasoning lines, the fixes, and a one-line summary.',
+                },
+              ]),
+        ])
+        const parsed = critiqueSchema.safeParse(answer)
+        if (!parsed.success) throw new Error(`the critic answered in an unreadable shape: ${parsed.error.message}`)
+        return toCritique(parsed.data)
+      } catch (error) {
+        firstFailure ??= error
+      }
+    }
+    throw firstFailure instanceof Error ? firstFailure : new Error(String(firstFailure))
   }
 }
 

@@ -6,6 +6,8 @@ export interface ChartPromptOptions {
   symbol: string
   dryRun: boolean
   persona?: Persona
+  /** Whether x_critique is on the belt, so the step to use it is only given when it is. */
+  critic?: boolean
 }
 
 /**
@@ -80,8 +82,19 @@ export function chartPrompt(options: ChartPromptOptions): string {
     '8. render_chart once, on the timeframe you decided the post is about -- the chart and',
     '   the words have to be the same horizon. Once: a second call with the same arguments',
     '   draws the same chart again for nothing.',
-    '9. post_chart once, with that chartId.',
-    '10. remember a one-line note for anything worth carrying forward that is not the post',
+    ...(options.critic
+      ? [
+          '9. x_critique on the exact post text, kind "caption", media "a candlestick chart of',
+          `   $${options.symbol} on the timeframe", before post_chart. It answers with what the For You`,
+          '   ranker would do with the words and concrete fixes. A FLAT read means holders have',
+          '   nothing to type back: rewrite with the fixes -- a stance on the structure they can',
+          '   push on, a one-line question about their own read -- and ask once more. A RISKY',
+          '   read is something to take out, not sharpen. Keep every rule below about numbers,',
+          '   predictions and the positive lead; the critic knows the ranker, not the token.',
+          '10. post_chart once, with that chartId.',
+          '11. remember a one-line note for anything worth carrying forward that is not the post',
+        ]
+      : ['9. post_chart once, with that chartId.', '10. remember a one-line note for anything worth carrying forward that is not the post']),
     '   itself: something a holder asked, a name worth knowing, a mood worth remembering.',
     '   The post text is stored for you automatically, so do not just restate it.',
     '',

@@ -144,15 +144,18 @@ const safety = new SafetyGate({
 })
 
 /**
- * The ranker's reader, one for the process: the agents get it as a tool,
- * the morning pipeline reads its script and caption with it, and the API
- * serves it so anything else can ask.
+ * The ranker's reader, one for the process, and only for the pipelines that
+ * generate a timeline post: the task and content agents get it as a tool, the
+ * chart agent too, the morning pipeline reads its script and caption with it,
+ * and the API serves it so anything else can ask. The reply drafter and the
+ * Telegram bot never see it: a reply is already a conversation, and a reader
+ * that scores it for the timeline would pull it toward being a post.
  */
 const critic = config.ALGO_CRITIC
   ? new AlgoCritic({
       baseUrl: config.LLM_BASE_URL,
       apiKey: config.LLM_API_KEY,
-      model: config.ALGO_CRITIC_MODEL ?? config.LLM_MODEL,
+      model: config.ALGO_CRITIC_MODEL,
     })
   : undefined
 
@@ -242,7 +245,7 @@ const app = buildServer({
   memory,
   consumerSecret: config.X_API_SECRET,
   logger: { level: config.LOG_LEVEL },
-  ...(useAgent ? { agent: new LangGraphAgent(agentOptions) } : {}),
+  ...(useAgent ? { agent: new LangGraphAgent({ ...agentOptions, ...(critic ? { critic } : {}) }) } : {}),
   ...(config.AGENT_API_TOKEN ? { agentToken: config.AGENT_API_TOKEN } : {}),
   queue,
   botUserId: () => x.userId(),
@@ -344,6 +347,7 @@ if (runsChart) {
       persona,
       dryRun: config.DRY_RUN,
       safety,
+      ...(critic ? { critic } : {}),
     }),
     symbol: config.CHART_TOKEN_SYMBOL,
     timeframe: config.CHART_TIMEFRAME,
@@ -410,7 +414,7 @@ if (runsCalendar) {
     ? new TelegramApiClient({ token: config.TELEGRAM_BOT_TOKEN })
     : undefined
   const calendarJob = new CalendarJob({
-    agent: new ContentAgent(agentOptions),
+    agent: new ContentAgent({ ...agentOptions, ...(critic ? { critic } : {}) }),
     memory,
     x,
     ...(telegram ? { telegram } : {}),
@@ -510,7 +514,7 @@ app.log.info(
       : 'lexicon + links (no judge)',
     allowedLinks: config.LINK_ALLOWLIST.length,
     review: config.AGENT_API_TOKEN ? '/safety' : 'no AGENT_API_TOKEN, review page off',
-    critic: critic ? `x_critique + /critique on ${config.ALGO_CRITIC_MODEL ?? config.LLM_MODEL}` : 'off',
+    critic: critic ? `x_critique + /critique on ${config.ALGO_CRITIC_MODEL}` : 'off',
     giphy: gifs ? config.GIPHY_CHANNEL : false,
     vision: media?.reader ? config.VISION_MODEL : false,
     referenceSheet: media?.reference ? config.TINY_REFERENCE_IMAGES.length : false,

@@ -8,6 +8,8 @@ import { createExaClient, createExaTools } from './tools/exa.js'
 import { createNewsTools } from './tools/news.js'
 import { createMarketTools } from './tools/market.js'
 import { createMemoryTools } from './tools/memory.js'
+import { createCritiqueTools } from './tools/critique.js'
+import type { Critic } from '../critic/algo.js'
 import { createXTools } from './tools/x.js'
 import type { Persona } from './soul.js'
 import type { ChartRenderer } from '../chart/renderer.js'
@@ -44,6 +46,8 @@ export interface ChartAgentOptions {
   onPublished?: (post: PublishedChartPost) => Promise<void>
   /** The content filter, for post_chart. */
   safety?: Pick<SafetyGate, 'outbound'>
+  /** The ranker's reader, offered as x_critique for the post text before post_chart. */
+  critic?: Critic
 }
 
 /**
@@ -72,6 +76,7 @@ export class ChartAgent implements Agent {
         symbol: options.symbol,
         dryRun: options.dryRun,
         ...(options.persona ? { persona: options.persona } : {}),
+        ...(options.critic ? { critic: true } : {}),
       }),
     })
   }
@@ -79,6 +84,7 @@ export class ChartAgent implements Agent {
   private buildTools(options: ChartAgentOptions): StructuredToolInterface[] {
     return [
       ...createMemoryTools(options.memory),
+      ...(options.critic ? createCritiqueTools(options.critic) : []),
       ...createMarketTools({
         market: options.market,
         address: options.address,
