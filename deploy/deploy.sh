@@ -190,8 +190,8 @@ rsync -az --delete \
   --exclude 'dist' \
   --exclude 'data' \
   --exclude 'worktrees' \
-  --include 'brain/sync/***' \
-  --exclude 'brain/*' \
+  --include '/brain/sync/***' \
+  --exclude '/brain/*' \
   --exclude 'web/node_modules' \
   --exclude 'web/.next' \
   --exclude 'key.pem' \
