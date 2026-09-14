@@ -6,6 +6,7 @@ import { buildMedia } from '../media/wiring.js'
 import { CortexMemory } from '../memory/cortex.js'
 import { buildMorningPipeline } from '../morning/wiring.js'
 import { renderStories } from '../morning/news.js'
+import { lexicalGate } from '../safety/gate.js'
 
 /**
  * Rehearses the good-morning post without publishing.
@@ -58,6 +59,9 @@ const pipeline = buildMorningPipeline(config, {
   dryRun,
   ...(dryRun ? { allowPosting: false } : {}),
   logger: { info: log },
+  // The lexicon and the allowlist, as the service has them; no judge and no
+  // hold log, since this is a script and --publish can post for real.
+  safety: lexicalGate({ extraAllowedLinks: config.LINK_ALLOWLIST }),
 })
 
 console.log(

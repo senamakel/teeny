@@ -207,6 +207,11 @@ async function release(hold: Hold): Promise<string> {
   if (where.surface === 'calendar') {
     return `recorded; the "${where.tool ?? 'calendar'}" item posts again on its next run`
   }
+  // Nor is the morning post: the caption was written for a picture and a
+  // clip that are not kept past the run, and tomorrow's runs on its own.
+  if (where.surface === 'morning') {
+    return 'recorded; the morning post runs again tomorrow'
+  }
   return 'recorded; nothing here can publish it'
 }
 // Every role writes to it and the ingest role serves it, so it lives in the
@@ -336,6 +341,7 @@ if (runsMorning) {
       botUsername,
       dryRun: config.DRY_RUN,
       logger: app.log,
+      safety,
     }),
     logger: app.log,
     journal,

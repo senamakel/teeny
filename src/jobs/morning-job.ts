@@ -97,10 +97,14 @@ export class MorningJob {
           `scene: ${result.scene.scene}`,
           ...(result.script ? [`script: ${result.script.script}`] : []),
         ].join('\n'),
-        said: result.caption,
+        // A held caption is in the hold log for review, never on the public page.
+        said: result.outcome === 'held' ? '' : result.caption,
         declined: result.problems,
         outcome: result.outcome,
         ...(result.outcome === 'skipped' ? { outcomeNote: 'nothing could be attached' } : {}),
+        ...(result.outcome === 'held'
+          ? { outcomeNote: result.problems.find((problem) => problem.startsWith('content filter withheld')) ?? 'content filter withheld the caption' }
+          : {}),
       })
     } catch (error) {
       logger.error({ err: error }, 'morning job: could not journal the turn')

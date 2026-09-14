@@ -3,6 +3,7 @@ import { renderPersona, type Persona } from '../agent/soul.js'
 import type { Config } from '../config.js'
 import { OpenAITextModel } from '../media/reference.js'
 import type { MediaAccess } from '../media/wiring.js'
+import type { SafetyGate } from '../safety/gate.js'
 import type { Memory, XTools } from '../types.js'
 import { ExaNewsSource } from './news.js'
 import { MorningPipeline } from './pipeline.js'
@@ -27,6 +28,8 @@ export function buildMorningPipeline(
     dryRun: boolean
     allowPosting?: boolean
     logger?: { info: (object: unknown, message?: string) => void }
+    /** The content filter; the pipeline reads it on its prompts and its caption. */
+    safety?: Pick<SafetyGate, 'outbound'>
   },
 ): MorningPipeline {
   if (!config.EXA_API_KEY) throw new Error('EXA_API_KEY is not set, so there is no news to read')
@@ -58,5 +61,6 @@ export function buildMorningPipeline(
     videoSeconds: config.MORNING_VIDEO_SECONDS,
     maxEmoji: config.MAX_EMOJI_PER_POST,
     ...(options.logger ? { logger: options.logger } : {}),
+    ...(options.safety ? { safety: options.safety } : {}),
   })
 }

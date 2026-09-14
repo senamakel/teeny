@@ -4,6 +4,7 @@ import type { ReferenceSeed, ReferenceSheet, TextModel } from '../media/referenc
 import { withSeed } from '../media/reference.js'
 import type { MediaBudget, MediaStore } from '../media/store.js'
 import type { ImageGenerator, ImageReader, StoredMedia, VideoGenerator } from '../media/types.js'
+import type { SafetyGate } from '../safety/gate.js'
 import type { Memory, XTools } from '../types.js'
 import { gatherNews, renderStories, type NewsSource, type Story } from './news.js'
 import {
@@ -57,6 +58,16 @@ export interface MorningPipelineOptions {
   retryDelayMs?: number
   sleep?: (ms: number) => Promise<void>
   logger?: { info: (object: unknown, message?: string) => void }
+  /**
+   * The content filter, outbound, the way the calendar job and the media
+   * tools have it. The pipeline holds the generators directly rather than
+   * through the tools, so it reads the gate itself where the tools would:
+   * on the scene before a picture is drawn and on the script before a clip
+   * is filmed, before any budget is spent, and on the caption before it is
+   * posted. A refused picture is no picture, and so no post; a refused clip
+   * means the picture goes alone; a held caption is a missing morning.
+   */
+  safety?: { outbound: SafetyGate['outbound'] }
 }
 
 /**
@@ -83,7 +94,8 @@ export interface MorningResult {
   caption: string
   attached: 'video' | 'image' | 'none'
   postedId?: string
-  outcome: 'posted' | 'dry-run' | 'skipped'
+  /** `held` is the content filter's: the caption was written and refused, and nothing went out. */
+  outcome: 'posted' | 'dry-run' | 'skipped' | 'held'
   /** Every stage that went wrong and was worked around. */
   problems: string[]
   recalled: { history: string; community: string }
@@ -176,9 +188,13 @@ export class MorningPipeline {
     // Drawn, then looked at: an image rung is not bound to the sheet, and one
     // served a purple robot in rehearsal. A picture that fails the look is
     // drawn again once; the second is kept either way, and the problem noted.
+    // The scene passes the filter first, as a prompt does in the generate
+    // tool: a refused scene is not drawn at all, and no budget is spent.
     let image: StoredMedia | undefined
     const imagePrompt = withSeed(sheet, seed, scene.scene, { maxLength: MAX_GENERATION_PROMPT })
-    for (let attempt = 1; attempt <= IMAGE_ATTEMPTS && !image; attempt += 1) {
+    const sceneRefused = await this.refused(scene.scene, 'generate_image')
+    if (sceneRefused) problems.push(`the content filter refused the scene (${sceneRefused}); nothing drawn`)
+    for (let attempt = 1; attempt <= IMAGE_ATTEMPTS && !image && !sceneRefused; attempt += 1) {
       if (!options.budget.take('image')) {
         problems.push('the daily image allowance was already spent')
         break
@@ -220,7 +236,10 @@ export class MorningPipeline {
     if (script && !options.videos) {
       problems.push('video generation is off; posting the picture')
     } else if (script && options.videos) {
-      if (!options.budget.take('video')) {
+      const scriptRefused = await this.refused(script.script, 'generate_video')
+      if (scriptRefused) {
+        problems.push(`the content filter refused the script (${scriptRefused}); posting the picture`)
+      } else if (!options.budget.take('video')) {
         problems.push('the daily video allowance was already spent; posting the picture')
       } else {
         // One job from the budget, tried twice: the marketplace answers
@@ -251,13 +270,37 @@ export class MorningPipeline {
 
     // 6. The caption, written knowing what is attached.
     const attached: MorningResult['attached'] = video ? 'video' : image ? 'image' : 'none'
-    const caption = await this.caption(context, {
+    let caption = await this.caption(context, {
       pick,
       attached,
       ...(script ? { videoSummary: script.summary } : {}),
       imageAlt: scene.alt,
       community,
     })
+
+    // The gate, outbound, as the calendar job reads it: the styled caption
+    // is what would be posted, so that is what is checked, and what comes
+    // back (links cut) is what is posted. Checked before the dry run, so a
+    // rehearsal shows the filter's verdict too, and only when there is
+    // something to post, so a morning with no picture does not leave a hold
+    // for a caption that was never going out. A held caption is a missing
+    // morning, which is the right outcome for a post the account should not
+    // have written; the picture is not posted bare and tomorrow runs afresh.
+    let held: string | undefined
+    const outgoing =
+      attached === 'none'
+        ? undefined
+        : await options.safety?.outbound(caption, { surface: 'morning', kind: 'draft', tool: 'morning_post' })
+    if (outgoing) {
+      if (outgoing.fixes.length > 0) problems.push(`the content filter edited the caption: ${outgoing.fixes.join('; ')}`)
+      if (outgoing.decision.ok) {
+        caption = outgoing.text
+      } else {
+        held = outgoing.decision.category
+        log('caption held', { category: held, by: outgoing.decision.by, reason: outgoing.decision.reason })
+        problems.push(`content filter withheld the caption: ${held}`)
+      }
+    }
 
     const base: Omit<MorningResult, 'outcome' | 'postedId'> = {
       stories,
@@ -276,6 +319,7 @@ export class MorningPipeline {
     }
 
     // 7. Post, or say what would have been posted.
+    if (held) return { ...base, caption: '', outcome: 'held' }
     if (attached === 'none') {
       problems.push('nothing to attach, so nothing was posted')
       return { ...base, outcome: 'skipped' }
@@ -324,6 +368,19 @@ export class MorningPipeline {
       text = retry.text
     }
     return applyHouseStyle(text, { maxEmoji, maxLength: MAX_POST_LENGTH }).text
+  }
+
+  /**
+   * The filter's reading of a generation prompt, as the generate tools take
+   * it: on the scene or script as written, before the sheet and the seed are
+   * put in front of it, and before any budget is spent. Returns the category
+   * it was refused for, or nothing when it may be drawn. No gate, no reading.
+   */
+  private async refused(prompt: string, tool: 'generate_image' | 'generate_video'): Promise<string | undefined> {
+    const { safety } = this.options
+    if (!safety) return undefined
+    const result = await safety.outbound(prompt, { surface: 'morning', kind: 'prompt', tool })
+    return result.decision.ok ? undefined : result.decision.category
   }
 
   /** The vision ladder's verdict on a drawn picture. No eyes, or eyes that fail, means it passes. */

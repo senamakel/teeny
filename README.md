@@ -577,13 +577,16 @@ everything it made to `MEDIA_OUTPUT_DIR` so it can be looked at.
    boiled down by the model to what is particular about it (pose, palette,
    mood), placed between the character sheet and the scene. The model writes
    the scene — Tiny doing one clear thing that connects to the story, in a
-   morning — and the picture is generated square. Then the vision ladder
+   morning — and the picture is generated square, once the scene has passed
+   [the content filter](#the-content-filter) as a prompt, the way the
+   `generate_image` tool reads it. Then the vision ladder
    **looks at the result**: an image rung is not bound to the sheet, and in
    rehearsal one served a purple robot. A picture that fails the look is drawn
    once more; the second is kept either way and the problem noted.
 5. **Script and film.** A `MORNING_VIDEO_SECONDS` shot script written from the
    scene — two to four beats with timings, one location, ending on a morning
-   gesture — plus a one-line summary of what a viewer sees. The clip is
+   gesture — plus a one-line summary of what a viewer sees. The script passes
+   the filter as a prompt too; refused, the picture goes alone. The clip is
    generated from the sheet, the seed and the script, tried twice with a pause
    between, because the marketplace answers "no provider could accept this job"
    often enough that a single miss would make most mornings a picture. A
@@ -593,7 +596,10 @@ everything it made to `MEDIA_OUTPUT_DIR` so it can be looked at.
    a line or two (as what was reported, not as fact checked; no people, no
    numbers not given, never a price), and a line about what Tiny does in the
    clip so the words and the video read as one thing. Under 280 characters,
-   the emoji cap, no URLs, then through the house style like any other post.
+   the emoji cap, no URLs, then through the house style like any other post,
+   then through the content filter like any other draft: a link it cuts stays
+   cut, and a caption it holds is a missing morning, journaled as `held` and
+   kept for [review](#reviewing-what-it-held) on the `morning` surface.
 7. **Post, remember, journal.** The clip if there is one, else the picture; a
    still over X's 5 MB limit is re-encoded as JPEG on the way up (a rung served
    a nine-megabyte PNG). What went out is written back to memory as a
@@ -641,13 +647,17 @@ and the category, never the text, and the endpoint answers 422.
 
 **Outbound.** Every draft passes the gate again, after house style and
 immediately before it is published: the reply job's text, the Telegram bot's,
-the calendar job's, the `x_post` and `post_chart` tools', and the prompt handed
-to `generate_image` and `generate_video` before any budget is spent. A held
-draft is withheld and the mention is marked `withheld: <category>`; a held
-calendar post is a missing day, and the item runs again on its next cron; a
-tool refuses with the reason so the agent can say something else. Outbound is
-stricter than inbound in one way: ordinary swearing from a stranger is
-answered, but the account never says it back.
+the calendar job's, the morning post's caption, the `x_post` and `post_chart`
+tools', and the prompt handed to `generate_image` and `generate_video` before
+any budget is spent. The morning pipeline holds the generators directly rather
+than through the tools, so it reads the gate where the tools would: on the
+scene before the picture is drawn and on the script before the clip is filmed.
+A held draft is withheld and the mention is marked `withheld: <category>`; a
+held calendar post is a missing day, and the item runs again on its next cron;
+a held morning caption is a missing morning, the picture is not posted bare,
+and tomorrow's runs on its own; a tool refuses with the reason so the agent can
+say something else. Outbound is stricter than inbound in one way: ordinary
+swearing from a stranger is answered, but the account never says it back.
 
 The gate is three checks, cheapest first, each sufficient on its own:
 
@@ -667,8 +677,11 @@ The gate is three checks, cheapest first, each sufficient on its own:
    folded (`k1ll`, `nuuudes`, `sh!t`, zero-width characters, full-width
    letters), never inside another word, and with a short list of market idioms
    removed first so "killing it" and "the chart got murdered" are not
-   violence. Synchronous and deterministic; it also scrubs the X thread and
-   the Telegram history the drafter is shown, line by line.
+   violence. A stretched or clipped word is still the word (`killll`, `kil`),
+   but a doubled vowel is a different one: `shot` is not `shoot`, so a film
+   script's "one continuous shot" and a shot of espresso pass. Synchronous and
+   deterministic; it also scrubs the X thread and the Telegram history the
+   drafter is shown, line by line.
 3. **The judge.** A second model call with no tools and no persona reads the
    text with one question and answers in a fixed shape. This is what catches
    "draw Tiny with nothing on", which has no word on the list. It fails closed:
@@ -679,7 +692,8 @@ The gate is three checks, cheapest first, each sufficient on its own:
 
 Giphy searches are pinned to rating `g`. `test/safety-*.test.ts` hold the
 cases; `test/reply-job.test.ts`, `test/telegram-bot.test.ts`,
-`test/calendar-job.test.ts` and `test/agent-tools.test.ts` show it wired in.
+`test/calendar-job.test.ts`, `test/morning.test.ts` and
+`test/agent-tools.test.ts` show it wired in.
 
 ### Reviewing what it held
 
@@ -698,6 +712,7 @@ pending, and an approve or reject on each entry is a decision with an effect:
 | a link cut from a draft | puts its host on the live allowlist; every gate reads it within a minute |
 | an X mention that was not answered | sends it back to the queue to be answered, inbound check waived, outbound still on |
 | a withheld draft (X or Telegram) | publishes it as written, honouring `DRY_RUN` / `TELEGRAM_DRY_RUN` |
+| a withheld calendar or morning post | recorded as a wrong call; the item posts again on its next run, the morning post tomorrow |
 | a Telegram message, a refused picture, an ad-hoc task | recorded as a wrong call; nothing is re-sent |
 
 Rejecting confirms the filter and closes the entry. A decision is taken once;

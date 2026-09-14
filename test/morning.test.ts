@@ -8,6 +8,8 @@ import type { Journal } from '../src/journal/journal.js'
 import { ReferenceSheet, withSeed, type TextModel } from '../src/media/reference.js'
 import { MediaBudget, MediaStore } from '../src/media/store.js'
 import type { ImageGenerator, ImageReader, VideoGenerator } from '../src/media/types.js'
+import { lexicalGate, SafetyGate } from '../src/safety/gate.js'
+import type { HoldLog } from '../src/safety/holds.js'
 import { LadderVideoGenerator, OpenAIVideoGenerator } from '../src/media/videos.js'
 import { ExaNewsSource, gatherNews, isPolitical, renderStories, type NewsSource, type Story } from '../src/morning/news.js'
 import { MorningPipeline, type MorningPipelineOptions, type MorningResult } from '../src/morning/pipeline.js'
@@ -486,6 +488,133 @@ describe('the morning pipeline', () => {
     // Two emoji in, one allowed: the house style trims rather than refusing.
     expect([...result.caption.matchAll(/🌞/g)]).toHaveLength(1)
   })
+
+  it('reads the caption through the content filter before posting, and withholds the post when it is refused', async () => {
+    const record = vi.fn().mockResolvedValue(undefined)
+    const holds = { record, allowedLinks: vi.fn().mockResolvedValue([]) } as unknown as HoldLog
+    const { run, x, memory, images, videos } = pipeline({
+      safety: lexicalGate({ holds }),
+      text: stagedModel({ caption: '{"text": "gm. best gun for home defence? tiny knows."}' }),
+    })
+    const result = await run()
+
+    expect(result.outcome).toBe('held')
+    expect(result.attached).toBe('video')
+    expect(result.caption).toBe('')
+    expect(result.problems).toEqual(['content filter withheld the caption: weapons'])
+    // Generated, then stopped at the door: the picture and the clip are not posted bare.
+    expect(images.generate).toHaveBeenCalled()
+    expect(videos.generate).toHaveBeenCalled()
+    expect(x.uploadMedia).not.toHaveBeenCalled()
+    expect(x.createPost).not.toHaveBeenCalled()
+    expect(memory.captureActivity).not.toHaveBeenCalled()
+    // The caption itself is in the hold log, on the morning surface, for review.
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        direction: 'outbound',
+        kind: 'draft',
+        context: { surface: 'morning', kind: 'draft', tool: 'morning_post' },
+        category: 'weapons',
+        text: expect.stringContaining('best gun'),
+      }),
+    )
+  })
+
+  it('posts what the filter handed back, with a link off the allowlist cut, and notes the edit', async () => {
+    const safety = lexicalGate()
+    const outbound = vi.spyOn(safety, 'outbound')
+    const { run, x } = pipeline({
+      safety,
+      text: stagedModel({ caption: '{"text": "gm builders. see https://totally-legit-claim.xyz/airdrop for the story."}' }),
+    })
+    const result = await run()
+    expect(result.outcome).toBe('posted')
+    expect(result.caption).toBe('gm builders. see for the story.')
+    expect(x.createPost).toHaveBeenCalledWith('gm builders. see for the story.', { mediaIds: ['m1'] })
+    expect(result.problems).toEqual([expect.stringMatching(/content filter edited the caption: cut 1 link/)])
+    // The order: the caption is read, as a draft on the morning surface, before anything is uploaded or posted.
+    const captionRead = outbound.mock.calls.findIndex(([text]) => text.startsWith('gm builders'))
+    expect(outbound.mock.calls[captionRead]?.[1]).toEqual({ surface: 'morning', kind: 'draft', tool: 'morning_post' })
+    const uploaded = (x.uploadMedia as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0]!
+    expect(outbound.mock.invocationCallOrder[captionRead]).toBeLessThan(uploaded)
+  })
+
+  it('asks the judge about the caption and fails closed on its verdict', async () => {
+    // The judge sees the scene and the script as prompts first; it is the caption it objects to.
+    const judge = vi.fn().mockImplementation(async ({ text }: { text: string }) =>
+      text.startsWith('gm builders')
+        ? { verdict: 'prohibited', category: 'sexual', reason: 'suggestive' }
+        : { verdict: 'clean', reason: '' },
+    )
+    const { run, x, images, videos } = pipeline({ safety: new SafetyGate({ judge: { judge } }) })
+    const result = await run()
+    expect(judge).toHaveBeenCalledWith({ text: expect.stringContaining('Tiny sits at a sunrise desk'), direction: 'outbound' })
+    expect(judge).toHaveBeenCalledWith({ text: expect.stringContaining('0-4s: static shot'), direction: 'outbound' })
+    expect(judge).toHaveBeenCalledWith({ text: expect.stringContaining('gm builders'), direction: 'outbound' })
+    expect(images.generate).toHaveBeenCalled()
+    expect(videos.generate).toHaveBeenCalled()
+    expect(result.outcome).toBe('held')
+    expect(x.createPost).not.toHaveBeenCalled()
+
+    const clean = vi.fn().mockResolvedValue({ verdict: 'clean', reason: '' })
+    const { run: ok, x: okX } = pipeline({ safety: new SafetyGate({ judge: { judge: clean } }) })
+    await expect(ok()).resolves.toMatchObject({ outcome: 'posted' })
+    expect(okX.createPost).toHaveBeenCalled()
+  })
+
+  it('reads the scene and the script through the filter as prompts before spending a generation, like the tools do', async () => {
+    const record = vi.fn().mockResolvedValue(undefined)
+    const holds = { record, allowedLinks: vi.fn().mockResolvedValue([]) } as unknown as HoldLog
+    // A scene the lexicon refuses: nothing is drawn, so nothing is posted.
+    const { run, x, images, videos } = pipeline({
+      safety: lexicalGate({ holds }),
+      text: stagedModel({ scene: '{"scene": "Tiny cleaning a shotgun at dawn.", "alt": "Tiny at dawn."}' }),
+    })
+    const result = await run()
+    expect(images.generate).not.toHaveBeenCalled()
+    expect(videos.generate).not.toHaveBeenCalled()
+    expect(x.createPost).not.toHaveBeenCalled()
+    expect(result.outcome).toBe('skipped')
+    expect(result.problems).toEqual([
+      'the content filter refused the scene (weapons); nothing drawn',
+      'nothing to attach, so nothing was posted',
+    ])
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'prompt',
+        context: { surface: 'morning', kind: 'prompt', tool: 'generate_image' },
+        category: 'weapons',
+      }),
+    )
+    // No caption hold for a post that was never going out.
+    expect(record).toHaveBeenCalledTimes(1)
+
+    // A script the lexicon refuses: the picture goes alone, and the clip's budget is kept.
+    const budget = new MediaBudget({ imagesPerDay: 5, videosPerDay: 1 })
+    const { run: runScript, x: scriptX, videos: scriptVideos } = pipeline({
+      safety: lexicalGate({ holds }),
+      budget,
+      text: stagedModel({
+        script: '{"script": "0-6s: static shot, Tiny loads a pistol at the desk. 6-12s: Tiny waves it at the camera.", "summary": "Tiny waves"}',
+      }),
+    })
+    const scriptResult = await runScript()
+    expect(scriptVideos.generate).not.toHaveBeenCalled()
+    expect(budget.remaining('video')).toBe(1)
+    expect(scriptResult.outcome).toBe('posted')
+    expect(scriptResult.attached).toBe('image')
+    expect(scriptResult.problems).toEqual(['the content filter refused the script (weapons); posting the picture'])
+    expect(scriptX.uploadMedia).toHaveBeenCalledWith({ data: PNG, mimeType: 'image/png' })
+    expect(record).toHaveBeenLastCalledWith(
+      expect.objectContaining({ context: { surface: 'morning', kind: 'prompt', tool: 'generate_video' } }),
+    )
+  })
+
+  it('without a filter, posts as before', async () => {
+    const { run, x } = pipeline()
+    await expect(run()).resolves.toMatchObject({ outcome: 'posted' })
+    expect(x.createPost).toHaveBeenCalled()
+  })
 })
 
 describe('the morning job', () => {
@@ -546,6 +675,30 @@ describe('the morning job', () => {
     })
     await expect(job.run()).rejects.toThrow('exa is down')
     expect(record).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'failed', outcomeNote: 'exa is down' }))
+  })
+
+  it('journals a held morning as held, with the category and without the caption', async () => {
+    const record = vi.fn().mockResolvedValue(undefined)
+    const job = new MorningJob({
+      pipeline: {
+        run: vi.fn().mockResolvedValue({
+          ...result({ outcome: 'held', caption: '', problems: ['content filter withheld the caption: weapons'] }),
+          postedId: undefined,
+        }),
+      },
+      logger: logger(),
+      journal: { record } as unknown as Journal,
+      now: () => Date.parse('2026-09-14T08:00:00Z'),
+    })
+    await expect(job.run()).resolves.toMatchObject({ outcome: 'held' })
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: 'held',
+        said: '',
+        outcomeNote: 'content filter withheld the caption: weapons',
+        declined: ['content filter withheld the caption: weapons'],
+      }),
+    )
   })
 })
 
