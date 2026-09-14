@@ -61,6 +61,8 @@ function xTools(): XTools {
     getConversation: vi.fn(),
     createPost: vi.fn().mockResolvedValue({ id: '999' }),
     uploadMedia: vi.fn().mockResolvedValue({ mediaId: 'media-1' }),
+    likePost: vi.fn().mockResolvedValue(undefined),
+    postMetrics: vi.fn().mockResolvedValue([]),
   }
 }
 

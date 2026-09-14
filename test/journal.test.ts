@@ -101,6 +101,8 @@ describe('the reply job journals every mention', () => {
         ? vi.fn().mockRejectedValue(new Error('X is down'))
         : vi.fn().mockResolvedValue({ id: '99' }),
       uploadMedia: vi.fn(),
+      likePost: vi.fn().mockResolvedValue(undefined),
+      postMetrics: vi.fn().mockResolvedValue([]),
     } as XClient & Pick<XTools, 'createPost' | 'uploadMedia'>
     const memory: Memory = {
       captureActivity: vi.fn().mockResolvedValue(undefined),
@@ -129,6 +131,9 @@ describe('the reply job journals every mention', () => {
       markReplied: vi.fn().mockResolvedValue(undefined),
       markFailed: vi.fn().mockResolvedValue(undefined),
     requeueApproved: vi.fn().mockResolvedValue(true),
+    markSkipped: vi.fn().mockResolvedValue(undefined),
+    markLiked: vi.fn().mockResolvedValue(undefined),
+    countReplied: vi.fn().mockResolvedValue(0),
       counts: vi.fn(),
       close: vi.fn(),
     }
@@ -248,6 +253,9 @@ describe('GET /mind', () => {
         markReplied: vi.fn(),
         markFailed: vi.fn(),
         requeueApproved: vi.fn(),
+        markSkipped: vi.fn().mockResolvedValue(undefined),
+        markLiked: vi.fn().mockResolvedValue(undefined),
+        countReplied: vi.fn().mockResolvedValue(0),
         counts: vi.fn().mockResolvedValue({ pending: 2, replied: 40, failed: 1, skipped: 3 }),
         close: vi.fn(),
       },

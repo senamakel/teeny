@@ -25,9 +25,10 @@ import { loadConfig } from '../config.js'
  * Account Activity API: that one is deprecated, and since 2026-09-14 answers
  * every subscription call for a freshly created webhook with "Webhook with
  * specified ID not found, or not associated with app ID" -- it no longer
- * associates new webhooks at all. The events are `post.mention.create`,
- * `post.reply.create` and `post.quote.create`, the three ways somebody writes
- * a post about the account; the queue folds a reply that also mentions.
+ * associates new webhooks at all. The events are the ways somebody writes a
+ * post about the account (mention, reply, quote), which the queue folds when
+ * a reply also mentions, and the ways somebody notices it (repost, like,
+ * follow), which feed the people record.
  *
  * The endpoints disagree about credentials, one by one rather than by family.
  * Most want the app-only bearer; creating a subscription acts for the account
@@ -166,8 +167,20 @@ async function list(): Promise<Webhook[]> {
   return (response.data as Webhook[] | undefined) ?? []
 }
 
-/** The three events that are somebody writing a post about the account. */
-const EVENTS = ['post.mention.create', 'post.reply.create', 'post.quote.create']
+/**
+ * The events that are somebody writing a post about the account, which the
+ * queue answers, and the ones that are somebody noticing it, which the
+ * people record counts. Post events cost a post credit each; the rest are
+ * free.
+ */
+const EVENTS = [
+  'post.mention.create',
+  'post.reply.create',
+  'post.quote.create',
+  'post.repost.create',
+  'like.create',
+  'follow.follow',
+]
 
 interface Subscription {
   subscription_id?: string

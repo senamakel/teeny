@@ -4,6 +4,7 @@ import type { CalendarItem } from '../calendar/calendar.js'
 import type { TelegramApi } from '../clients/telegram.js'
 import { TELEGRAM_MAX_CAPTION_LENGTH } from '../clients/telegram.js'
 import type { Journal, Outcome } from '../journal/journal.js'
+import type { Cadence } from '../cadence/cadence.js'
 import type { MediaStore } from '../media/store.js'
 import type { SafetyGate } from '../safety/gate.js'
 import type { Memory, XTools } from '../types.js'
@@ -40,6 +41,12 @@ export interface CalendarJobDependencies {
    * is gated separately, in the generate tool the drafter was given.
    */
   safety?: Pick<SafetyGate, 'outbound'>
+  /**
+   * The content calendar's spacing rule. Asked before anything is drawn or
+   * written, so a slot that is too close to the last post, or held for a
+   * hot one, costs no generation. Only X is subject to it; a Telegram-only item posts regardless.
+   */
+  cadence?: Pick<Cadence, 'claim' | 'within'>
 }
 
 /**
@@ -71,6 +78,13 @@ export class CalendarJob {
     if (!options.force && last > 0 && now - last < minimum) {
       logger.info({ item: item.name, sinceLastRunMs: now - last }, 'calendar: skipping, it just ran')
       return false
+    }
+    if (item.channels.includes('x') && this.dependencies.cadence) {
+      const claim = await this.dependencies.cadence.claim(`calendar:${item.name}`)
+      if (!claim.ok && !options.force) {
+        logger.info({ item: item.name, ...claim }, `calendar: skipping, the cadence says ${claim.reason === 'gap' ? 'too soon after the last post' : 'the timeline is held for a hot post'}`)
+        return false
+      }
     }
     this.lastRunAt.set(item.name, now)
 
@@ -170,7 +184,10 @@ export class CalendarJob {
         const mediaIds = generated
           ? [(await this.dependencies.x.uploadMedia({ data: generated.data, mimeType: generated.mimeType })).mediaId]
           : undefined
-        const posted = await this.dependencies.x.createPost(text || ' ', mediaIds ? { mediaIds } : {})
+        const publish = () => this.dependencies.x.createPost(text || ' ', mediaIds ? { mediaIds } : {})
+        const posted = this.dependencies.cadence
+          ? await this.dependencies.cadence.within(`calendar:${item.name}`, publish)
+          : await publish()
         results.push(`x:${posted.id}`)
       } catch (error) {
         failures.push(`x: ${error instanceof Error ? error.message : String(error)}`)

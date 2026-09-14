@@ -79,6 +79,9 @@ describe('activity deliveries become queued mentions', () => {
       markReplied: vi.fn(),
       markFailed: vi.fn(),
       requeueApproved: vi.fn(),
+      markSkipped: vi.fn().mockResolvedValue(undefined),
+      markLiked: vi.fn().mockResolvedValue(undefined),
+      countReplied: vi.fn().mockResolvedValue(0),
       counts: vi.fn(),
       close: vi.fn(),
     }
@@ -219,6 +222,9 @@ describe('retweets', () => {
       markReplied: vi.fn(),
       markFailed: vi.fn(),
       requeueApproved: vi.fn(),
+      markSkipped: vi.fn().mockResolvedValue(undefined),
+      markLiked: vi.fn().mockResolvedValue(undefined),
+      countReplied: vi.fn().mockResolvedValue(0),
       counts: vi.fn(),
       close: vi.fn(),
     }
@@ -430,7 +436,7 @@ describe('X Activity API deliveries', () => {
     const app = buildServer({
       memory: memory(),
       consumerSecret: 'secret',
-      queue: { cache, takePending: vi.fn(), markReplied: vi.fn(), markFailed: vi.fn(), requeueApproved: vi.fn(), counts: vi.fn(), close: vi.fn() },
+      queue: { cache, takePending: vi.fn(), markReplied: vi.fn(), markFailed: vi.fn(), requeueApproved: vi.fn(), markSkipped: vi.fn(), markLiked: vi.fn(), countReplied: vi.fn().mockResolvedValue(0), counts: vi.fn(), close: vi.fn() },
       botUserId: async () => BOT,
       botUsername: 'TinyMascot',
     })
@@ -445,6 +451,53 @@ describe('X Activity API deliveries', () => {
     })
     expect(response.statusCode).toBe(200)
     expect(cache).toHaveBeenCalledWith([{ id: '906', text: 'yo @TinyMascot', authorId: '42', authorUsername: 'someone' }])
+    await app.close()
+  })
+})
+
+describe('interactions from deliveries', () => {
+  const BOT = '2094854245468000256'
+  const event = (eventType: string, payload: Record<string, unknown>, includes?: Record<string, unknown>) => ({
+    data: { event_type: eventType, event_uuid: '1', filter: { user_id: BOT }, payload, ...(includes ? { includes } : {}) },
+  })
+
+  it('credits the author, the follower, or the liker, never the account', async () => {
+    const { interactionsFromActivity } = await import('../src/webhooks/activity.js')
+    expect(interactionsFromActivity(event('post.quote.create', { id: '1', author_id: '42' }, { users: [{ id: '42', username: 'q' }] }), BOT)).toEqual([
+      { userId: '42', username: 'q', kind: 'quote' },
+    ])
+    expect(interactionsFromActivity(event('post.repost.create', { id: '1', author_id: '43' }), BOT)).toEqual([{ userId: '43', kind: 'repost' }])
+    expect(interactionsFromActivity(event('follow.follow', { source: { id: '44' }, target: { id: BOT } }), BOT)).toEqual([{ userId: '44', kind: 'follow' }])
+    expect(interactionsFromActivity(event('like.create', { liked_tweet_id: '9', tweet_author_id: BOT }, { users: [{ id: BOT }, { id: '45', username: 'l' }] }), BOT)).toEqual([
+      { userId: '45', username: 'l', kind: 'like' },
+    ])
+    expect(interactionsFromActivity(event('post.mention.create', { id: '1', author_id: BOT }), BOT)).toEqual([])
+    expect(interactionsFromActivity(event('profile.update.bio', { before: 'a', after: 'b' }), BOT)).toEqual([])
+    expect(interactionsFromActivity({ tweet_create_events: [] }, BOT)).toEqual([])
+  })
+
+  it('records them from the webhook', async () => {
+    const payload = JSON.stringify(event('follow.follow', { source: { id: '44' }, target: { id: BOT } }))
+    const observe = vi.fn().mockResolvedValue(undefined)
+    const app = buildServer({
+      memory: memory(),
+      consumerSecret: 'secret',
+      queue: { cache: vi.fn().mockResolvedValue(0), takePending: vi.fn(), markReplied: vi.fn(), markFailed: vi.fn(), requeueApproved: vi.fn(), markSkipped: vi.fn(), markLiked: vi.fn(), countReplied: vi.fn().mockResolvedValue(0), counts: vi.fn(), close: vi.fn() },
+      botUserId: async () => BOT,
+      botUsername: 'TinyMascot',
+      people: { observe },
+    })
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhooks/x',
+      headers: {
+        'content-type': 'application/json',
+        'x-twitter-webhooks-signature': `sha256=${createHmac('sha256', 'secret').update(payload).digest('base64')}`,
+      },
+      payload,
+    })
+    expect(response.statusCode).toBe(200)
+    expect(observe).toHaveBeenCalledWith({ userId: '44', kind: 'follow' })
     await app.close()
   })
 })

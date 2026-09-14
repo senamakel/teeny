@@ -12,9 +12,11 @@ import type { Agent, Memory } from './types.js'
 import {
   captureWebhookActivity,
   crcResponse,
+  interactionsFromActivity,
   isValidWebhookSignature,
   mentionsFromActivity,
 } from './webhooks/activity.js'
+import type { People } from './cadence/people.js'
 import type { WebhookForwarder } from './webhooks/forward.js'
 
 declare module 'fastify' {
@@ -99,6 +101,8 @@ export function buildServer(options: {
   critic?: Critic
   /** Where a copy of every verified X delivery is sent, after X has been answered. */
   forwarder?: WebhookForwarder
+  /** Who interacts with the account, fed from every delivery. */
+  people?: Pick<People, 'observe'>
 }): FastifyInstance {
   const app = Fastify({ logger: options.logger ?? false })
 
@@ -192,6 +196,16 @@ export function buildServer(options: {
       if (!botUserId) {
         request.log.error('no account id available; refusing to queue webhook activity')
         return reply.code(200).send({ ok: true })
+      }
+      if (options.people) {
+        const interactions = interactionsFromActivity(payload, botUserId)
+        await Promise.all(
+          interactions.map((interaction) =>
+            options.people!.observe(interaction).catch((error: unknown) => {
+              request.log.warn({ err: error, interaction }, 'could not record the interaction')
+            }),
+          ),
+        )
       }
       const mentions = mentionsFromActivity(payload, {
         botUserId,

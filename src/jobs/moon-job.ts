@@ -1,4 +1,5 @@
 import type { Journal } from '../journal/journal.js'
+import type { Cadence } from '../cadence/cadence.js'
 import { isTurn, type Rota } from './cycle.js'
 import type { MoonResult } from '../moon/pipeline.js'
 import { multiple } from '../moon/svg.js'
@@ -12,6 +13,12 @@ export interface MoonJobDependencies {
   journal?: Journal
   /** The posting rota and this job's slot in it. Absent, it posts every day the cron fires. */
   rota?: { rota: Rota; slot: number }
+  /**
+   * The content calendar's spacing rule. Asked before anything is drawn or
+   * written, so a slot that is too close to the last post, or held for a
+   * hot one, costs no generation. Absent, the job trusts its own timer.
+   */
+  cadence?: Pick<Cadence, 'claim' | 'within'>
 }
 
 /**
@@ -40,11 +47,19 @@ export class MoonJob {
       this.dependencies.logger.info({ sinceLastRunMs: now - this.lastRunAt, minimum }, 'moon job: skipping, it already ran recently')
       return undefined
     }
+    const claim = await this.dependencies.cadence?.claim('moon')
+    if (claim && !claim.ok && !options.force) {
+      this.dependencies.logger.info({ ...claim }, `moon job: skipping, the cadence says ${claim.reason === 'gap' ? 'too soon after the last post' : 'the timeline is held for a hot post'}`)
+      return undefined
+    }
     this.lastRunAt = now
 
     let result: MoonResult
     try {
-      result = await this.dependencies.pipeline.run()
+      const pipeline = this.dependencies.pipeline
+      result = this.dependencies.cadence
+        ? await this.dependencies.cadence.within('moon', () => pipeline.run())
+        : await pipeline.run()
     } catch (error) {
       await this.journalFailure(now, error)
       throw error

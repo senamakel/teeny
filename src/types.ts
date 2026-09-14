@@ -224,6 +224,19 @@ export interface XTools {
   getConversation(conversationId: string, maxResults?: number): Promise<XPost[]>
   createPost(text: string, options?: XCreateOptions): Promise<{ id: string }>
   uploadMedia(media: XMedia): Promise<{ mediaId: string }>
+  /** Likes a post as the account. Idempotent on X's side. */
+  likePost(postId: string): Promise<void>
+  /** The public counters of the posts given, for the ones X still has. */
+  postMetrics(ids: string[]): Promise<XPostMetrics[]>
+}
+
+export interface XPostMetrics {
+  id: string
+  impressions: number
+  likes: number
+  replies: number
+  reposts: number
+  quotes: number
 }
 
 export interface AgentRunResult {

@@ -15,6 +15,11 @@ export interface QueuedMention {
   error?: string
   /** Set when an operator approved a held mention; the inbound content check is waived. */
   filterApproved?: boolean
+  /** Which reply budget the answer came out of, and for `auto`, the own post it sits under. */
+  lane?: 'auto' | 'smart'
+  ownPostId?: string
+  /** When the account liked the post; a like costs nothing and is given to every mention. */
+  likedAt?: string
 }
 
 export interface MentionQueue {
@@ -22,8 +27,16 @@ export interface MentionQueue {
   cache(posts: XPost[]): Promise<number>
   /** Oldest pending posts first, so a backlog drains in the order it arrived. */
   takePending(limit: number): Promise<QueuedMention[]>
-  markReplied(postId: string, reply: { id?: string; text: string }): Promise<void>
+  markReplied(
+    postId: string,
+    reply: { id?: string; text: string; lane?: 'auto' | 'smart'; ownPostId?: string },
+  ): Promise<void>
   markFailed(postId: string, error: string): Promise<void>
+  /** Set aside without an answer: over budget, or not worth one. Not a failure. */
+  markSkipped(postId: string, reason: string): Promise<void>
+  markLiked(postId: string): Promise<void>
+  /** How many replies went out of a lane; under one own post, or since a time. */
+  countReplied(filter: { lane: 'auto' | 'smart'; ownPostId?: string; since?: string }): Promise<number>
   /**
    * Puts a held mention back to be answered, with the inbound content check
    * waived. Resolves false when there is no such mention.
@@ -58,6 +71,7 @@ export class MongoMentionQueue implements MentionQueue {
     await this.client.connect()
     await this.mentions.createIndex({ postId: 1 }, { unique: true })
     await this.mentions.createIndex({ status: 1, cachedAt: 1 })
+    await this.mentions.createIndex({ status: 1, lane: 1, ownPostId: 1, updatedAt: 1 })
     this.indexed = true
   }
 
@@ -99,7 +113,10 @@ export class MongoMentionQueue implements MentionQueue {
       .toArray()
   }
 
-  async markReplied(postId: string, reply: { id?: string; text: string }): Promise<void> {
+  async markReplied(
+    postId: string,
+    reply: { id?: string; text: string; lane?: 'auto' | 'smart'; ownPostId?: string },
+  ): Promise<void> {
     await this.ready()
     await this.mentions.updateOne(
       { postId },
@@ -109,10 +126,35 @@ export class MongoMentionQueue implements MentionQueue {
           updatedAt: new Date().toISOString(),
           replyText: reply.text,
           ...(reply.id ? { replyId: reply.id } : {}),
+          ...(reply.lane ? { lane: reply.lane } : {}),
+          ...(reply.ownPostId ? { ownPostId: reply.ownPostId } : {}),
         },
         $inc: { attempts: 1 },
       },
     )
+  }
+
+  async markSkipped(postId: string, reason: string): Promise<void> {
+    await this.ready()
+    await this.mentions.updateOne(
+      { postId },
+      { $set: { status: 'skipped', error: reason.slice(0, 500), updatedAt: new Date().toISOString() } },
+    )
+  }
+
+  async markLiked(postId: string): Promise<void> {
+    await this.ready()
+    await this.mentions.updateOne({ postId }, { $set: { likedAt: new Date().toISOString() } })
+  }
+
+  async countReplied(filter: { lane: 'auto' | 'smart'; ownPostId?: string; since?: string }): Promise<number> {
+    await this.ready()
+    return this.mentions.countDocuments({
+      status: 'replied',
+      lane: filter.lane,
+      ...(filter.ownPostId ? { ownPostId: filter.ownPostId } : {}),
+      ...(filter.since ? { updatedAt: { $gte: filter.since } } : {}),
+    })
   }
 
   async markFailed(postId: string, error: string): Promise<void> {

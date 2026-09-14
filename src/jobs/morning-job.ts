@@ -1,4 +1,5 @@
 import type { Journal } from '../journal/journal.js'
+import type { Cadence } from '../cadence/cadence.js'
 import type { MorningResult } from '../morning/pipeline.js'
 
 /**
@@ -19,6 +20,12 @@ export interface MorningJobDependencies {
   minIntervalMs?: number
   now?: () => number
   journal?: Journal
+  /**
+   * The content calendar's spacing rule. Asked before anything is drawn or
+   * written, so a slot that is too close to the last post, or held for a
+   * hot one, costs no generation. Absent, the job trusts its own timer.
+   */
+  cadence?: Pick<Cadence, 'claim' | 'within'>
 }
 
 /**
@@ -46,11 +53,19 @@ export class MorningJob {
       )
       return undefined
     }
+    const claim = await this.dependencies.cadence?.claim('morning')
+    if (claim && !claim.ok && !options.force) {
+      this.dependencies.logger.info({ ...claim }, `morning job: skipping, the cadence says ${claim.reason === 'gap' ? 'too soon after the last post' : 'the timeline is held for a hot post'}`)
+      return undefined
+    }
     this.lastRunAt = now
 
     let result: MorningResult
     try {
-      result = await this.dependencies.pipeline.run()
+      const pipeline = this.dependencies.pipeline
+      result = this.dependencies.cadence
+        ? await this.dependencies.cadence.within('morning', () => pipeline.run())
+        : await pipeline.run()
     } catch (error) {
       await this.journalFailure(now, error)
       throw error

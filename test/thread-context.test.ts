@@ -55,6 +55,8 @@ function xTools(overrides: Partial<XTools> = {}): XTools {
     searchPosts: vi.fn(),
     createPost: vi.fn(),
     uploadMedia: vi.fn(),
+    likePost: vi.fn().mockResolvedValue(undefined),
+    postMetrics: vi.fn().mockResolvedValue([]),
     ...overrides,
   } as unknown as XTools
 }

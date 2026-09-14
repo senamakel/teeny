@@ -71,6 +71,8 @@ function options() {
     getConversation: vi.fn(),
     createPost: vi.fn(),
     uploadMedia: vi.fn(),
+    likePost: vi.fn().mockResolvedValue(undefined),
+    postMetrics: vi.fn().mockResolvedValue([]),
   } as unknown as XTools
   const gifs = { search: vi.fn(), get: vi.fn(), download: vi.fn() } as unknown as GifSource
 

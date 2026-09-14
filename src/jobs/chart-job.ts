@@ -1,4 +1,5 @@
 import type { Journal } from '../journal/journal.js'
+import type { Cadence } from '../cadence/cadence.js'
 import { isTurn, type Rota } from './cycle.js'
 import type { Agent } from '../types.js'
 
@@ -15,6 +16,12 @@ export interface ChartJobDependencies {
   /** The posting rota and this job's slot in it. Absent, it posts every day the cron fires. */
   rota?: { rota: Rota; slot: number }
   journal?: Journal
+  /**
+   * The content calendar's spacing rule. Asked before anything is drawn or
+   * written, so a slot that is too close to the last post, or held for a
+   * hot one, costs no generation. Absent, the job trusts its own timer.
+   */
+  cadence?: Pick<Cadence, 'claim' | 'within'>
 }
 
 /**
@@ -47,6 +54,11 @@ export class ChartJob {
       )
       return false
     }
+    const claim = await this.dependencies.cadence?.claim('chart')
+    if (claim && !claim.ok && !options.force) {
+      this.dependencies.logger.info({ ...claim }, `chart job: skipping, the cadence says ${claim.reason === 'gap' ? 'too soon after the last post' : 'the timeline is held for a hot post'}`)
+      return false
+    }
     this.lastRunAt = now
 
     const task = [
@@ -56,10 +68,11 @@ export class ChartJob {
       'Follow your instructions exactly: research, render once, post once, remember what you did.',
     ].join(' ')
 
-    const result = await this.dependencies.agent.run({
-      task,
-      threadId: `chart:${new Date(now).toISOString().slice(0, 10)}`,
-    })
+    const { agent } = this.dependencies
+    const input = { task, threadId: `chart:${new Date(now).toISOString().slice(0, 10)}` }
+    const result = this.dependencies.cadence
+      ? await this.dependencies.cadence.within('chart', () => agent.run(input))
+      : await agent.run(input)
     this.dependencies.logger.info(
       { tools: result.steps.map((step) => step.tool), output: result.output },
       'chart job: done',
