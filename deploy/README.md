@@ -48,6 +48,15 @@ so the split is a compose change if it is ever wanted again; the constraint to
 remember then is that the chart cron and the Telegram poller must each run in
 exactly one place.
 
+## The morning post
+
+`MORNING_ENABLED=true` with `IMAGE_GEN_ENABLED=true` and `VIDEO_GEN_ENABLED=true`
+in the box's `.env` (set on 2026-09-14) schedules the good-morning post at
+`MORNING_CRON` (08:00 UTC). It draws and films through the box's own ladder,
+so that ladder has to be on a router that counts Surplus's prepaid credit as
+balance (llm-ladder-router #21) and have credit to spend; `ladder-up --pull`
+after a router release.
+
 ## The landing page
 
 `web/` is a separate Next.js app with its own image (`teeny-web:current`),
