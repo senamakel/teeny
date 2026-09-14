@@ -295,6 +295,8 @@ function pipelineOptions(overrides: Partial<Omit<MoonPipelineOptions, 'memory' |
     getConversation: vi.fn(),
     createPost: vi.fn().mockResolvedValue({ id: 'post-1' }),
     uploadMedia: vi.fn().mockResolvedValue({ mediaId: 'media-1' }),
+    likePost: vi.fn().mockResolvedValue(undefined),
+    postMetrics: vi.fn().mockResolvedValue([]),
   }
   return {
     source,

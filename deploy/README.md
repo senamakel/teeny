@@ -54,7 +54,7 @@ exactly one place.
 
 `MORNING_ENABLED=true` with `IMAGE_GEN_ENABLED=true` and `VIDEO_GEN_ENABLED=true`
 in the box's `.env` (set on 2026-09-14) schedules the good-morning post at
-`MORNING_CRON` (08:00 UTC). It draws and films through the box's own ladder,
+`MORNING_CRON` (07:00 UTC since 2026-09-14, so the chart at 15:00 clears the eight-hour cadence). It draws and films through the box's own ladder,
 so that ladder has to be on a router that counts Surplus's prepaid credit as
 balance (llm-ladder-router #21) and have credit to spend; `ladder-up --pull`
 after a router release.
@@ -186,9 +186,11 @@ account had been subscribed through is deprecated, and on 2026-09-14 it
 refused to associate any freshly created webhook at all (`Webhook with
 specified ID not found, or not associated with app ID`, for the new URL and
 the old one alike). The subscription is now through the **X Activity API**:
-one subscription each for `post.mention.create`, `post.reply.create` and
-`post.quote.create`, bound to the webhook by id, which `npm run webhook`
-creates and lists. Each delivered post event costs one post credit. The
+one subscription each for `post.mention.create`, `post.reply.create`,
+`post.quote.create`, `post.repost.create`, `like.create` and `follow.follow`,
+bound to the webhook by id, which `npm run webhook` creates and lists. Each
+delivered post event costs one post credit; the likes and follows are free
+and feed the people record that decides who is answered first. The
 delivery is one event per request, `{ data: { event_type, payload, ... } }`
 with a v2 post as the payload, and the app reads both that and the old
 `tweet_create_events` shape.

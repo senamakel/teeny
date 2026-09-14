@@ -614,7 +614,7 @@ shares with the moon chart: every third day by default, the day after the moon.
 
 ## The morning post
 
-A good-morning post every day, at 08:00 UTC by default. Unlike the chart agent
+A good-morning post every day, at 07:00 UTC by default. Unlike the chart agent
 it is not an agent: it is a fixed pipeline of model calls, because the steps
 are the same every morning and a video generation is not something to leave to
 a model's judgement about whether it "feels" like filming today.
@@ -1071,6 +1071,75 @@ Before this, every event was written as an opaque JSON blob attributed to the
 bot's own id, so recall could not tell two people apart and the account
 answered a stranger and a regular identically.
 
+## The cadence
+
+The account's own posts -- the morning post, the chart, the moon chart, the
+calendar items, anything the agent is asked to put on the timeline -- are
+spaced at least `POST_MIN_GAP_HOURS` apart (8), whichever job writes them.
+Each job used to guard only against running itself twice; none of them knew
+about the others, so a morning post at seven and a chart at eight were two
+well-behaved jobs and one badly paced account. Now every own post is written
+to one ledger (MongoDB `own_posts`), and `src/cadence/cadence.ts` reads it.
+
+Two checks. Each posting job asks `claim()` before it draws or writes
+anything, so a slot too close to the last post costs no generation: the job
+logs why and skips, and its next cron is its next chance. And the posting
+client itself is wrapped, so a post nobody asked about -- an ad-hoc agent
+task, a released hold -- is refused with the same answer. Replies are never
+subject to it; they are conversations, not slots.
+
+`POST_GAP_TOLERANCE_MINUTES` (20) is how much short of the gap still counts:
+the jobs fire on the hour and spend minutes drawing and filming, so a
+schedule of exactly eight hours apart lands at seven hours fifty. The default
+crons are the morning at 07:00, the chart at 15:00 and the moon at 20:00 UTC,
+with [the rota](#the-rota) putting the chart and the moon on different days.
+
+### A post that takes off
+
+The heat job (`HEAT_CRON`, every twenty minutes) reads the counters of the
+last day's own posts and keeps the readings. Two readings give a velocity,
+impressions an hour, and a post is hot when that is at least
+`HOT_IMPRESSIONS_PER_HOUR` (500) and at least `HOT_BASELINE_MULTIPLE` (3)
+times the median peak of the account's other recent posts -- one number alone
+misreads a big account's ordinary day or a small account's good hour.
+
+A hot post gets the timeline to itself: a hold of one slot from now, extended
+while it stays hot, up to `HOT_MAX_HOLD_SLOTS` (2) from when it first ran
+hot. The cadence refuses own posts while the hold runs. Posting into it would
+be competing with yourself -- the ranker's author-diversity rule shows a
+viewer one of the two, and the new one has no engagement yet -- so the slot
+is spent on the hot post's thread instead, through the reply budget below.
+
+### The reply budget
+
+Replies come out of two lanes, capped separately because they do different
+jobs. `auto` is the account answering under its own post -- somebody replied
+to the morning post and the account replies back -- and is capped at
+`REPLY_AUTO_PER_POST` (10) under each post. `smart` is the reply guy: a
+mention or a quote out in somebody else's timeline, answered there, capped at
+`REPLY_SMART_PER_POST` (10) per own post published in the last day, one
+post's worth at least. Three posts a day is sixty replies. A hot post's held
+slots are not lost, they move: each adds both allowances to the hot post's
+own thread, which is where the attention is.
+
+A mention over its lane's cap is liked, set aside (`status: skipped`,
+`error: budget: ...`) and never answered; it is not a failure and not retried.
+Every mention the job takes is liked first, budget or no budget
+(`REPLY_LIKE_MENTIONS`): a like costs nothing, X does not count it as
+publishing, and the person who wrote sees something back even when the answer
+never comes. Never in a dry run.
+
+### Who gets answered first
+
+Who interacts with the account, and how much, is kept in MongoDB `people`:
+every like, follow, reply, quote and repost the webhook delivers adds to the
+person's score (a quote 4, a reply or mention 3, a repost or follow 2, a like
+1, being answered 1). When the queue has more than a batch waiting, the reply
+job reads several batches' worth and takes the highest scores first, oldest
+first among equals; the rest wait for the next pass. The score is a sum, not
+a rate, so a regular who has been around for a month outranks a stranger who
+liked three things this morning, which is the intended bias.
+
 ## Ingest and reply are separate
 
 Reading X and answering it are split across a cache, because they fail
@@ -1106,9 +1175,9 @@ re-billed.
 There are two ways into the queue and one way out:
 
 ```text
-webhook     X Account Activity -> MongoDB `mentions` (status: pending)
+webhook     X Activity API     -> MongoDB `mentions` (status: pending), `people` (scores)
 IngestJob   cron -> X search   -> MongoDB `mentions` (status: pending)
-ReplyJob    cron -> pending mentions -> agent -> X reply -> status: replied
+ReplyJob    pending mentions, regulars first -> like -> budget -> agent -> X reply -> status: replied
 ```
 
 The webhook is the fast path: a mention arrives in seconds, costs nothing

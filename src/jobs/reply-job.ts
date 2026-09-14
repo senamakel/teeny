@@ -6,6 +6,8 @@ import type { Journal } from '../journal/journal.js'
 import type { MediaStore } from '../media/store.js'
 import type { SafetyGate } from '../safety/gate.js'
 import type { GifSource, ReplyDraft, XClient, XPost, XTools } from '../types.js'
+import type { Assessment, ReplyBudget } from '../cadence/budget.js'
+import type { People } from '../cadence/people.js'
 
 /**
  * Drains the cache. Never talks to X's search.
@@ -19,7 +21,7 @@ export class ReplyJob {
 
   constructor(
     private readonly dependencies: {
-      x: XClient & Pick<XTools, 'createPost' | 'uploadMedia'>
+      x: XClient & Pick<XTools, 'createPost' | 'uploadMedia'> & Partial<Pick<XTools, 'likePost'>>
       harness: ReplyHarness
       queue: MentionQueue
       logger: FastifyBaseLogger
@@ -61,6 +63,19 @@ export class ReplyJob {
        * build a job without one; the service always passes it.
        */
       safety?: SafetyGate
+      /**
+       * The reply budget: ten under each own post, ten out in the world per
+       * post. A mention over its lane's cap is liked, set aside, and never
+       * answered. Absent, every mention is answered, as before.
+       */
+      budget?: Pick<ReplyBudget, 'assess'>
+      /**
+       * Who has been interacting, so the batch answers the regulars first.
+       * Absent, oldest first.
+       */
+      people?: Pick<People, 'scores' | 'observe'>
+      /** Whether every mention taken is liked before anything else. Defaults to on when `x.likePost` exists. */
+      likeMentions?: boolean
     },
   ) {}
 
@@ -175,6 +190,39 @@ export class ReplyJob {
     }
   }
 
+  /**
+   * The batch, regulars first. Several batches' worth are read and the
+   * ones by the people who interact most are taken; the rest stay pending
+   * for the next pass. With no people record it is oldest first, as before.
+   */
+  private async take() {
+    const { queue, maxReplies, people } = this.dependencies
+    if (!people) return queue.takePending(maxReplies)
+    const pending = await queue.takePending(maxReplies * 5)
+    if (pending.length <= maxReplies) return pending
+    const scores = await people
+      .scores(pending.flatMap((item) => (item.post.authorId ? [item.post.authorId] : [])))
+      .catch(() => new Map<string, number>())
+    const score = (item: (typeof pending)[number]): number =>
+      item.post.authorId ? (scores.get(item.post.authorId) ?? 0) : 0
+    return [...pending]
+      .sort((a, b) => score(b) - score(a) || a.cachedAt.localeCompare(b.cachedAt))
+      .slice(0, maxReplies)
+  }
+
+  /** A like on the post, once, never in a dry run, and never in the way of the reply. */
+  private async like(post: XPost, already: boolean): Promise<void> {
+    const { x, logger, dryRun } = this.dependencies
+    const wanted = this.dependencies.likeMentions ?? Boolean(x.likePost)
+    if (!wanted || !x.likePost || already || dryRun) return
+    try {
+      await x.likePost(post.id)
+      await this.dependencies.queue.markLiked(post.id)
+    } catch (error) {
+      logger.warn({ err: error, postId: post.id }, 'could not like the mention')
+    }
+  }
+
   /** Resolves true when it answered something, which is what tells a worker
    * loop to come straight back rather than idle. */
   async run(): Promise<boolean> {
@@ -184,7 +232,7 @@ export class ReplyJob {
     }
     this.running = true
     try {
-      const queued = await this.dependencies.queue.takePending(this.dependencies.maxReplies)
+      const queued = await this.take()
       if (queued.length === 0) return false
 
       // A self-reply is the failure that compounds -- the answer is itself a
@@ -220,6 +268,30 @@ export class ReplyJob {
         }
 
         try {
+          // A like first, for everyone, budget or no budget: it costs nothing,
+          // X does not count it as publishing, and the person who wrote to
+          // the account sees something back even when the answer never comes.
+          await this.like(item.post, Boolean(item.likedAt))
+
+          // The budget, before the model is paid for a draft that would not
+          // go out. Over the cap is liked and set aside; it is not a failure
+          // and it is not retried.
+          const assessed = await this.dependencies.budget?.assess(post, botUserId)
+          if (assessed && !assessed.allowed) {
+            await this.dependencies.queue.markSkipped(post.id, `budget: ${assessed.lane} lane at ${assessed.used}/${assessed.cap}`)
+            this.dependencies.logger.info(
+              { postId: post.id, lane: assessed.lane, ownPostId: assessed.ownPostId, used: assessed.used, cap: assessed.cap },
+              'set a mention aside: the reply budget for its lane is spent',
+            )
+            await this.journal(
+              post,
+              { thinking: `The ${assessed.lane} reply budget is spent (${assessed.used} of ${assessed.cap}), so this one gets a like and no answer.` },
+              'skipped',
+              `reply budget: ${assessed.lane} lane spent`,
+            )
+            continue
+          }
+
           // The gate, inbound: a post about something the account does not
           // touch is not answered, not remembered, and not shown to the
           // drafter. The journal gets the category and never the text.
@@ -328,7 +400,13 @@ export class ReplyJob {
           await this.dependencies.queue.markReplied(post.id, {
             ...(posted?.id ? { id: posted.id } : {}),
             text: styled.text,
+            ...(assessed ? laneOf(assessed) : {}),
           })
+          if (post.authorId) {
+            await this.dependencies.people
+              ?.observe({ userId: post.authorId, kind: 'answered', ...(post.authorUsername ? { username: post.authorUsername } : {}) })
+              .catch(() => undefined)
+          }
           await this.journal(
             post,
             { ...drafted, text: styled.text },
@@ -363,4 +441,8 @@ export class ReplyJob {
       this.running = false
     }
   }
+}
+
+function laneOf(assessed: Assessment): { lane: Assessment['lane']; ownPostId?: string } {
+  return { lane: assessed.lane, ...(assessed.ownPostId ? { ownPostId: assessed.ownPostId } : {}) }
 }

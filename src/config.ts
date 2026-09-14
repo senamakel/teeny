@@ -105,6 +105,29 @@ const schema = z.object({
   MONGO_URI: z.string().min(1).default('mongodb://mongo:27017'),
   MONGO_DATABASE: z.string().min(1).default('teeny'),
   MENTIONS_COLLECTION: z.string().min(1).default('mentions'),
+  // --- the content calendar's cadence ---
+  // The least time between two of the account's own posts, whichever job
+  // writes them; a job whose slot comes sooner skips it. The tolerance is
+  // for the minutes a job spends drawing and filming after its cron fires.
+  POST_MIN_GAP_HOURS: z.coerce.number().min(0).max(48).default(8),
+  POST_GAP_TOLERANCE_MINUTES: z.coerce.number().min(0).max(120).default(20),
+  // The heat job: reads the last day's own posts' counters on this cron and
+  // holds the timeline for one that is taking off. Hot is at least this many
+  // impressions an hour and this many times the account's usual peak; the
+  // hold is one slot (POST_MIN_GAP_HOURS), extended while it stays hot, up
+  // to HOT_MAX_HOLD_SLOTS from when it first ran hot.
+  HEAT_ENABLED: z.coerce.boolean().default(true),
+  HEAT_CRON: z.string().default('*/20 * * * *'),
+  HOT_IMPRESSIONS_PER_HOUR: z.coerce.number().min(1).default(500),
+  HOT_BASELINE_MULTIPLE: z.coerce.number().min(1).default(3),
+  HOT_MAX_HOLD_SLOTS: z.coerce.number().int().min(1).max(6).default(2),
+  // The reply budget: answers under each own post, and answers out in the
+  // world per own post published in the last day. A hot post's held slots
+  // add both allowances to its own thread. Every mention taken is liked
+  // whether or not it is answered; likes are not posts and are not budgeted.
+  REPLY_AUTO_PER_POST: z.coerce.number().int().min(0).max(100).default(10),
+  REPLY_SMART_PER_POST: z.coerce.number().int().min(0).max(100).default(10),
+  REPLY_LIKE_MENTIONS: z.coerce.boolean().default(true),
   // Where the content filter keeps what it held, for review at /safety.
   HOLDS_COLLECTION: z.string().min(1).default('holds'),
   // How much of the thread is fetched before drafting. Zero disables it, and
@@ -181,7 +204,7 @@ const schema = z.object({
   MORNING_ENABLED: offByDefault,
   // 08:00 UTC: morning in Europe, the small hours in New York, evening in
   // Asia. A daily post lands or it does not; there is no catch-up.
-  MORNING_CRON: z.string().default('0 8 * * *'),
+  MORNING_CRON: z.string().default('0 7 * * *'),
   // What is searched for, comma separated. Each is one Exa query over the
   // news index, bounded to MORNING_NEWS_DAYS. Politics is filtered out of
   // the results before the model sees them, whatever the query.

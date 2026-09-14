@@ -9,6 +9,8 @@ function xTools(posts: XPost[]): XTools {
     getConversation: vi.fn(),
     createPost: vi.fn(),
     uploadMedia: vi.fn(),
+    likePost: vi.fn().mockResolvedValue(undefined),
+    postMetrics: vi.fn().mockResolvedValue([]),
   }
 }
 

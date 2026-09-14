@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { isWorthAnswering, type Memory, type XPost } from '../types.js'
+import type { Interaction } from '../cadence/people.js'
 
 /**
  * Two shapes arrive here, because X has two webhook products and the
@@ -133,6 +134,48 @@ function fromV2Post(post: Record<string, unknown>, includes?: ActivityIncludes):
     ...(author?.username ? { authorUsername: author.username } : {}),
     ...(typeof post.created_at === 'string' ? { createdAt: new Date(post.created_at).toISOString() } : {}),
     ...(typeof post.in_reply_to_user_id === 'string' ? { inReplyToUserId: post.in_reply_to_user_id } : {}),
+  }
+}
+
+/**
+ * Who did what to the account in a delivery, for the people record. Only
+ * the X Activity API envelope carries enough to say: a post event names its
+ * author, a follow its source, a like is credited to whoever `includes`
+ * names that is not the account itself. The account's own doings are not
+ * interactions.
+ */
+export function interactionsFromActivity(
+  payload: Record<string, unknown>,
+  botUserId: string,
+): Array<{ userId: string; username?: string; kind: Interaction }> {
+  const event = activityEvent(payload)
+  if (!event) return []
+  const users = event.includes?.users ?? []
+  const named = (userId: string, kind: Interaction) => {
+    if (!userId || userId === botUserId) return []
+    const username = users.find((user) => user.id === userId)?.username
+    return [{ userId, kind, ...(username ? { username } : {}) }]
+  }
+  const author = typeof event.payload.author_id === 'string' ? event.payload.author_id : ''
+  switch (event.eventType) {
+    case 'post.mention.create':
+      return named(author, 'mention')
+    case 'post.reply.create':
+      return named(author, 'reply')
+    case 'post.quote.create':
+      return named(author, 'quote')
+    case 'post.repost.create':
+      return named(author, 'repost')
+    case 'follow.follow': {
+      const source = event.payload.source as { id?: string } | undefined
+      return named(source?.id ?? '', 'follow')
+    }
+    case 'like.create': {
+      const liker = users.find((user) => user.id && user.id !== botUserId)
+      return named(liker?.id ?? '', 'like')
+    }
+    default:
+      return []
   }
 }
 

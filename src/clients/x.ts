@@ -6,6 +6,7 @@ import type {
   XCreateOptions,
   XMedia,
   XPost,
+  XPostMetrics,
   XSearchOptions,
   XTools,
 } from '../types.js'
@@ -245,6 +246,39 @@ export class XApiClient implements XClient, XTools {
 
   async reply(postId: string, text: string): Promise<{ id: string }> {
     return this.createPost(text, { replyToPostId: postId })
+  }
+
+  async likePost(postId: string): Promise<void> {
+    const { id } = await this.identity()
+    const response = await this.writeClient.users.likePost(id, { tweetId: postId })
+    if (response.errors?.length) throw new Error(`X refused the like: ${JSON.stringify(response.errors)}`)
+  }
+
+  /**
+   * Counters for up to a hundred posts at a time. Through the account's own
+   * client rather than the app's: impression counts are the account's to
+   * see on its own posts, and the bearer is not the account.
+   */
+  async postMetrics(ids: string[]): Promise<XPostMetrics[]> {
+    const metrics: XPostMetrics[] = []
+    for (let offset = 0; offset < ids.length; offset += 100) {
+      const response = await this.writeClient.posts.getByIds(ids.slice(offset, offset + 100), {
+        postFields: ['public_metrics', 'created_at'],
+      })
+      for (const post of response.data ?? []) {
+        const counts = post.publicMetrics
+        if (!post.id || !counts) continue
+        metrics.push({
+          id: post.id,
+          impressions: counts.impressionCount ?? 0,
+          likes: counts.likeCount ?? 0,
+          replies: counts.replyCount ?? 0,
+          reposts: counts.repostCount ?? 0,
+          quotes: counts.quoteCount ?? 0,
+        })
+      }
+    }
+    return metrics
   }
 
   /**

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadConfig } from '../src/config.js'
+import type { Cadence } from '../src/cadence/cadence.js'
 import { MorningJob } from '../src/jobs/morning-job.js'
 import type { Journal } from '../src/journal/journal.js'
 import { ReferenceSheet, withSeed, type TextModel } from '../src/media/reference.js'
@@ -299,6 +300,8 @@ function pipeline(overrides: Partial<Omit<MorningPipelineOptions, 'videos'>> & {
     getConversation: vi.fn(),
     createPost: vi.fn().mockResolvedValue({ id: '9001' }),
     uploadMedia: vi.fn().mockResolvedValue({ mediaId: 'm1' }),
+    likePost: vi.fn().mockResolvedValue(undefined),
+    postMetrics: vi.fn().mockResolvedValue([]),
   }
   const memory: Memory = {
     captureActivity: vi.fn().mockResolvedValue(undefined),
@@ -794,6 +797,28 @@ describe('the morning job', () => {
     expect(run).toHaveBeenCalledTimes(3)
   })
 
+  it('asks the cadence first, and runs the pipeline under its own kind when it may', async () => {
+    const run = vi.fn().mockResolvedValue(result())
+    const kinds: Array<string | undefined> = []
+    let answer: Awaited<ReturnType<Cadence['claim']>> = { ok: false, reason: 'gap', lastPostId: '5', lastPostedAt: '2026-09-14T05:00:00.000Z', until: '2026-09-14T13:00:00.000Z' }
+    const cadence = {
+      claim: vi.fn(async () => answer),
+      within: vi.fn(async (kind: string, fn: () => Promise<unknown>) => {
+        kinds.push(kind)
+        return fn()
+      }),
+    } as unknown as Pick<Cadence, 'claim' | 'within'>
+    const job = new MorningJob({ pipeline: { run }, logger: logger(), cadence, now: () => Date.parse('2026-09-14T07:00:00Z') })
+
+    await expect(job.run()).resolves.toBeUndefined()
+    expect(run).not.toHaveBeenCalled()
+    expect(cadence.claim).toHaveBeenCalledWith('morning')
+
+    answer = { ok: true }
+    await expect(job.run()).resolves.toMatchObject({ outcome: 'posted' })
+    expect(kinds).toEqual(['morning'])
+  })
+
   it('journals a failure and still throws it', async () => {
     const record = vi.fn().mockResolvedValue(undefined)
     const job = new MorningJob({
@@ -843,10 +868,10 @@ describe('morning config', () => {
     LLM_MODEL: 'reasoning',
   }
 
-  it('is off unless switched on, posts at 08:00 UTC, and reads three topics', () => {
+  it('is off unless switched on, posts at 07:00 UTC, and reads three topics', () => {
     const config = loadConfig(REQUIRED)
     expect(config.MORNING_ENABLED).toBe(false)
-    expect(config.MORNING_CRON).toBe('0 8 * * *')
+    expect(config.MORNING_CRON).toBe('0 7 * * *')
     expect(config.MORNING_NEWS_TOPICS).toHaveLength(3)
     expect(config.MORNING_VIDEO_SECONDS).toBe(10)
     expect(loadConfig({ ...REQUIRED, MORNING_NEWS_TOPICS: ' a , ,b' }).MORNING_NEWS_TOPICS).toEqual(['a', 'b'])

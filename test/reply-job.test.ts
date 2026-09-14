@@ -56,6 +56,9 @@ function queue(pending: XPost[] = []): MentionQueue {
     markReplied: vi.fn().mockResolvedValue(undefined),
     markFailed: vi.fn().mockResolvedValue(undefined),
     requeueApproved: vi.fn().mockResolvedValue(true),
+    markSkipped: vi.fn().mockResolvedValue(undefined),
+    markLiked: vi.fn().mockResolvedValue(undefined),
+    countReplied: vi.fn().mockResolvedValue(0),
     counts: vi.fn(),
     close: vi.fn(),
   }
@@ -145,6 +148,8 @@ describe('ReplyJob', () => {
       reply: vi.fn(),
       createPost: vi.fn().mockResolvedValue({ id: '99' }),
       uploadMedia: vi.fn().mockResolvedValue({ mediaId: 'media-1' }),
+      likePost: vi.fn().mockResolvedValue(undefined),
+      postMetrics: vi.fn().mockResolvedValue([]),
     } as XClient & Pick<XTools, 'createPost' | 'uploadMedia'>
     const memory: Memory = {
       captureActivity: vi.fn().mockResolvedValue(undefined),
@@ -618,6 +623,8 @@ describe('ReplyJob content filter', () => {
       reply: vi.fn(),
       createPost: vi.fn().mockResolvedValue({ id: '99' }),
       uploadMedia: vi.fn().mockResolvedValue({ mediaId: 'media-1' }),
+      likePost: vi.fn().mockResolvedValue(undefined),
+      postMetrics: vi.fn().mockResolvedValue([]),
     } as XClient & Pick<XTools, 'createPost' | 'uploadMedia'>
     const memory: Memory = {
       captureActivity: vi.fn().mockResolvedValue(undefined),
@@ -756,6 +763,8 @@ describe('ReplyJob answers an approved mention', () => {
       reply: vi.fn(),
       createPost: vi.fn().mockResolvedValue({ id: '99' }),
       uploadMedia: vi.fn(),
+      likePost: vi.fn().mockResolvedValue(undefined),
+      postMetrics: vi.fn().mockResolvedValue([]),
     } as XClient & Pick<XTools, 'createPost' | 'uploadMedia'>
     const memory: Memory = {
       captureActivity: vi.fn(),

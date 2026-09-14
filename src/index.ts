@@ -38,6 +38,11 @@ import { ContentAgent } from './agent/content-model.js'
 import { loadCalendar } from './calendar/calendar.js'
 import { CalendarJob } from './jobs/calendar-job.js'
 import { buildWebhookForwarder } from './webhooks/forward.js'
+import { Cadence, CadenceHeld, paced } from './cadence/cadence.js'
+import { MongoPostLedger } from './cadence/ledger.js'
+import { MongoPeople } from './cadence/people.js'
+import { ReplyBudget } from './cadence/budget.js'
+import { HeatJob } from './cadence/heat.js'
 
 const config = loadConfig()
 const memory = new CortexMemory(
@@ -48,7 +53,7 @@ const memory = new CortexMemory(
   },
   config.CORTEX_SCOPE,
 )
-const x = new XApiClient({
+const rawX = new XApiClient({
   username: config.X_BOT_USERNAME,
   apiKey: config.X_API_KEY,
   apiSecret: config.X_API_SECRET,
@@ -56,6 +61,22 @@ const x = new XApiClient({
   accessTokenSecret: config.X_ACCESS_TOKEN_SECRET,
   ...(config.X_BEARER_TOKEN ? { bearerToken: config.X_BEARER_TOKEN } : {}),
 })
+// The content calendar's spacing rule, in front of every own post from any
+// job or tool: the ledger is what they all write, and the cadence reads it.
+const ledger = new MongoPostLedger({ uri: config.MONGO_URI, database: config.MONGO_DATABASE })
+const people = new MongoPeople({ uri: config.MONGO_URI, database: config.MONGO_DATABASE })
+const gapMs = config.POST_MIN_GAP_HOURS * 3_600_000
+const cadence = new Cadence({
+  ledger,
+  minGapMs: gapMs,
+  toleranceMs: config.POST_GAP_TOLERANCE_MINUTES * 60_000,
+  // The logger does not exist yet; the closure runs only after `app` does.
+  logger: {
+    info: (detail, event) => app.log.info(detail, event),
+    warn: (detail, event) => app.log.warn(detail, event),
+  },
+})
+const x = paced(rawX, cadence)
 /**
  * The account's own handle, read from the token rather than trusted from the
  * environment. `X_BOT_USERNAME` is a fallback for a cold start where X cannot
@@ -210,8 +231,15 @@ async function release(hold: Hold): Promise<string> {
   const where = hold.context
   if (where.surface === 'x' || where.surface === 'chart') {
     if (config.DRY_RUN) return 'dry run: would have published on X'
-    const posted = await x.createPost(hold.text, where.postId ? { replyToPostId: where.postId } : {})
-    return `published on X as ${posted.id}`
+    try {
+      const posted = await x.createPost(hold.text, where.postId ? { replyToPostId: where.postId } : {})
+      return `published on X as ${posted.id}`
+    } catch (error) {
+      // An own post released into a slot the cadence refuses is recorded,
+      // not published; the operator can release it again after the gap.
+      if (error instanceof CadenceHeld) return `recorded, not published: ${error.message}`
+      throw error
+    }
   }
   if (where.surface === 'telegram' && where.chatId) {
     if (!telegramApi) return 'recorded; this process has no Telegram client to send it with'
@@ -257,6 +285,7 @@ const app = buildServer({
   memory,
   consumerSecret: config.X_API_SECRET,
   ...(forwarder ? { forwarder } : {}),
+  people,
   logger: { level: config.LOG_LEVEL },
   ...(useAgent ? { agent: new LangGraphAgent({ ...agentOptions, ...(critic ? { critic } : {}) }) } : {}),
   ...(config.AGENT_API_TOKEN ? { agentToken: config.AGENT_API_TOKEN } : {}),
@@ -335,7 +364,31 @@ if (runsReplies) {
     ...(media ? { media: media.store } : {}),
     journal,
     safety,
+    budget: new ReplyBudget({
+      ledger,
+      queue,
+      autoPerPost: config.REPLY_AUTO_PER_POST,
+      smartPerPost: config.REPLY_SMART_PER_POST,
+      gapMs,
+    }),
+    people,
+    likeMentions: config.REPLY_LIKE_MENTIONS,
   })
+  if (config.HEAT_ENABLED) {
+    const heat = new HeatJob({
+      ledger,
+      x,
+      lookbackMs: 24 * 3_600_000,
+      gapMs,
+      impressionsPerHour: config.HOT_IMPRESSIONS_PER_HOUR,
+      baselineMultiple: config.HOT_BASELINE_MULTIPLE,
+      maxHoldSlots: config.HOT_MAX_HOLD_SLOTS,
+      logger: app.log,
+    })
+    cron.schedule(config.HEAT_CRON, () => {
+      void heat.run().catch((error: unknown) => app.log.error({ err: error }, 'heat job failed'))
+    })
+  }
   if (config.REPLY_MODE === 'worker') {
     new ReplyWorker({
       job: replyJob,
@@ -368,6 +421,7 @@ if (runsChart) {
     dryRun: config.DRY_RUN,
     journal,
     rota: { rota, slot: config.CHART_ROTA_SLOT },
+    cadence,
   })
   cron.schedule(config.CHART_CRON, () => {
     void chartJob.run().catch((error: unknown) => app.log.error({ err: error }, 'chart job failed'))
@@ -389,6 +443,7 @@ if (runsMorning) {
     }),
     logger: app.log,
     journal,
+    cadence,
   })
   cron.schedule(config.MORNING_CRON, () => {
     void morningJob
@@ -411,6 +466,7 @@ if (runsMoon) {
     logger: app.log,
     journal,
     rota: { rota, slot: config.MOON_ROTA_SLOT },
+    cadence,
   })
   cron.schedule(config.MOON_CRON, () => {
     void moonJob.run().catch((error: unknown) => app.log.error({ err: error }, 'moon job failed'))
@@ -438,6 +494,7 @@ if (runsCalendar) {
     maxEmoji: config.MAX_EMOJI_PER_POST,
     journal,
     safety,
+    cadence,
   })
   for (const item of calendar.items) {
     if (!item.enabled) continue
@@ -555,6 +612,13 @@ app.log.info(
       : false,
     moon: runsMoon ? `${config.MOON_COIN_ID} against ${config.MOON_CATEGORY} at "${config.MOON_CRON}", rota slot ${config.MOON_ROTA_SLOT}` : false,
     rota: runsChart || runsMoon ? `${config.POST_ROTA_DAYS} days from ${config.POST_ROTA_ANCHOR}` : false,
+    cadence: `${config.POST_MIN_GAP_HOURS}h between own posts, ${config.POST_GAP_TOLERANCE_MINUTES}m tolerance`,
+    heat: runsReplies && config.HEAT_ENABLED
+      ? `"${config.HEAT_CRON}", hot at ${config.HOT_IMPRESSIONS_PER_HOUR}/h and ${config.HOT_BASELINE_MULTIPLE}x, hold up to ${config.HOT_MAX_HOLD_SLOTS} slots`
+      : false,
+    replyBudget: runsReplies
+      ? `${config.REPLY_AUTO_PER_POST} auto + ${config.REPLY_SMART_PER_POST} smart per post${config.REPLY_LIKE_MENTIONS ? ', likes unbudgeted' : ''}`
+      : false,
     calendar: runsCalendar ? calendarItems : false,
   },
   'teeny started',

@@ -209,6 +209,9 @@ describe('the review endpoints', () => {
       markReplied: vi.fn(),
       markFailed: vi.fn(),
       requeueApproved: vi.fn().mockResolvedValue(true),
+      markSkipped: vi.fn().mockResolvedValue(undefined),
+      markLiked: vi.fn().mockResolvedValue(undefined),
+      countReplied: vi.fn().mockResolvedValue(0),
       counts: vi.fn(),
       close: vi.fn(),
     }
