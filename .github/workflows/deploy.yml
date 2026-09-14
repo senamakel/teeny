@@ -9,6 +9,9 @@
 #
 # Deploys queue rather than overlap: two pushes a minute apart produce two
 # deploys in order, never one racing the other for the containers.
+#
+# The checks in front of the deploy are check.yml, the workflow pull requests
+# run, called here as a reusable workflow rather than copied.
 
 name: deploy
 
@@ -22,27 +25,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The same checks a pull request runs, from check.yml, so what gates the
+  # deploy is exactly what gated the merge.
   check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            web/package-lock.json
-      - run: npm ci
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm ci
-        working-directory: web
-      - run: npm run lint
-        working-directory: web
-      - run: npm run build
-        working-directory: web
+    uses: ./.github/workflows/check.yml
 
   deploy:
     needs: check

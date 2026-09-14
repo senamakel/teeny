@@ -12,7 +12,9 @@ cp deploy/.env.example deploy/.env   # the infrastructure around it
 ```
 
 Every push to `main` also deploys, through `.github/workflows/deploy.yml`:
-the checks run on the runner, then the same script runs with `--keep-env`,
+the checks in `.github/workflows/check.yml` (lint, typecheck, build, test,
+the web build; the same workflow every pull request runs) pass on the runner,
+then the same script runs with `--keep-env`,
 which leaves the box's two `.env` files untouched and reads what it needs to
 verify from them over SSH. The workflow holds one secret, `DEPLOY_SSH_KEY`, a
 dedicated key authorised for `droid@robot1`; the host key is pinned in
