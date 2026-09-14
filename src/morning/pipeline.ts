@@ -77,6 +77,9 @@ export interface MorningPipelineOptions {
  */
 export const MAX_GENERATION_PROMPT = 2_000
 
+/** How much of the chosen article the scene writer reads. */
+const ARTICLE_CHARACTERS = 3_000
+
 /** How many times a picture is drawn before one is accepted, and a clip attempted before the picture goes alone. */
 const IMAGE_ATTEMPTS = 2
 const VIDEO_ATTEMPTS = 2
@@ -179,11 +182,17 @@ export class MorningPipeline {
         seed = undefined
       }
     }
+    // The article itself, for the scene: the excerpt is two sentences and a
+    // picture built from two sentences is a picture of a desk. Unreadable is
+    // fine; the headline and the picked visual carry it.
+    const article = story
+      ? await options.news.read(story.url, { maxCharacters: ARTICLE_CHARACTERS }).catch(() => '')
+      : ''
     const scene = await askJson(options.text, {
-      ...scenePrompt({ pick, storyExcerpt: story?.excerpt ?? '', seedLook: seed?.look }),
+      ...scenePrompt({ pick, article, seedLook: seed?.look }),
       schema: sceneSchema,
     })
-    log('scene written', { seed: seed?.url, words: scene.scene.split(/\s+/).length })
+    log('scene written', { seed: seed?.url, words: scene.scene.split(/\s+/).length, cue: scene.storyCue })
 
     // Drawn, then looked at: an image rung is not bound to the sheet, and one
     // served a purple robot in rehearsal. A picture that fails the look is
@@ -419,6 +428,7 @@ export class MorningPipeline {
         ...(result.story ? { source: result.story.source, url: result.story.url } : {}),
         ...(result.seed ? { seed: result.seed.url } : {}),
         scene: result.scene.scene,
+        storyCue: result.scene.storyCue,
         ...(result.script ? { script: result.script.script, clip: result.script.summary } : {}),
         attached: result.attached,
         published: result.outcome === 'posted',

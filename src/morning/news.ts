@@ -14,6 +14,8 @@ export interface Story {
 export interface NewsSource {
   /** Recent stories on a topic, newest the search can find first. */
   search(topic: string, options: { days: number; limit: number }): Promise<Story[]>
+  /** The article itself, as much of it as `maxCharacters` allows, or nothing when it cannot be read. */
+  read(url: string, options: { maxCharacters: number }): Promise<string>
 }
 
 /** Exa, bounded to the last day or two and to its news index. */
@@ -45,6 +47,13 @@ export class ExaNewsSource implements NewsSource {
         },
       ]
     })
+  }
+
+  async read(url: string, options: { maxCharacters: number }): Promise<string> {
+    const { results } = await this.exa
+      .getContents([url], { text: { maxCharacters: options.maxCharacters } })
+      .catch(() => ({ results: [] as ExaSearchHit[] }))
+    return (results[0]?.text ?? '').replace(/\s+/g, ' ').trim()
   }
 }
 

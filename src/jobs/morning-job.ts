@@ -95,6 +95,7 @@ export class MorningJob {
           `angle: ${result.pick.angle}`,
           ...(result.seed ? [`seed: ${result.seed.url}`] : []),
           `scene: ${result.scene.scene}`,
+          `cue: ${result.scene.storyCue}`,
           ...(result.script ? [`script: ${result.script.script}`] : []),
         ].join('\n'),
         // A held caption is in the hold log for review, never on the public page.
