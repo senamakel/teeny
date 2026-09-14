@@ -9,6 +9,8 @@ import { createMarketTools } from './tools/market.js'
 import { createMediaTools } from './tools/media.js'
 import { createMemoryTools } from './tools/memory.js'
 import { createXTools } from './tools/x.js'
+import { createCritiqueTools } from './tools/critique.js'
+import type { Critic } from '../critic/algo.js'
 import { systemPrompt } from './prompt.js'
 import { summariseResult } from '../journal/journal.js'
 import type { Persona } from './soul.js'
@@ -23,6 +25,8 @@ export interface LlmOptions {
   apiKey: string
   model: string
   temperature?: number
+  /** A cap on the answer. Unset, the endpoint's default. */
+  maxTokens?: number
 }
 
 export interface AgentOptions {
@@ -73,6 +77,11 @@ export interface AgentOptions {
    * directly.
    */
   safety?: Pick<SafetyGate, 'outbound'>
+  /**
+   * The ranker's reader, offered as `x_critique`. Advisory: the drafter is
+   * told to ask before it posts to its own timeline, and can post anyway.
+   */
+  critic?: Critic
 }
 
 export function createChatModel(options: LlmOptions): ChatOpenAI {
@@ -80,6 +89,7 @@ export function createChatModel(options: LlmOptions): ChatOpenAI {
     model: options.model,
     apiKey: options.apiKey,
     temperature: options.temperature ?? 0.3,
+    ...(options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens }),
     configuration: { baseURL: options.baseUrl },
   })
 }
@@ -97,6 +107,7 @@ export function buildTools(options: AgentOptions): StructuredToolInterface[] {
       ...(options.safety ? { safety: options.safety } : {}),
     }),
     ...(options.exaApiKey ? createExaTools(createExaClient(options.exaApiKey)) : []),
+    ...(options.critic ? createCritiqueTools(options.critic) : []),
     ...(options.gifs ? createGiphyTools(options.gifs.source, options.gifs.channel) : []),
     ...(options.media
       ? createMediaTools(options.media, options.safety ? { safety: options.safety } : {})
@@ -186,6 +197,7 @@ export class LangGraphAgent implements Agent {
         botUsername: options.botUsername,
         dryRun: options.dryRun,
         ...(options.persona ? { persona: options.persona } : {}),
+        ...(options.critic ? { critic: true } : {}),
       }),
       checkpointer: new MemorySaver(),
     })
