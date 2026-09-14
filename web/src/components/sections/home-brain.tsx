@@ -15,7 +15,7 @@ export function HomeBrain({ snapshot, repo }: { snapshot: BrainSnapshot; repo: R
           <div>
             <p className="mb-2 font-mono text-xs uppercase tracking-widest text-primary">The brain</p>
             <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-              {snapshot.agents.length} agents that revise their own definition.
+              {snapshot.agents.length ? `${snapshot.agents.length} agents` : "A team of agents"} that revise their own definition.
             </h2>
             <p className="mt-2 max-w-2xl text-muted-foreground">
               An OpenCompany company whose whole state is a public git repository. The scout looks, the scribe
@@ -27,7 +27,13 @@ export function HomeBrain({ snapshot, repo }: { snapshot: BrainSnapshot; repo: R
             <ArrowRight className="size-4" />
           </Button>
         </div>
-        <AgentDesk snapshot={snapshot} />
+        {snapshot.workflows.length ? (
+          <AgentDesk snapshot={snapshot} />
+        ) : (
+          <p className="rounded-2xl border bg-card px-4 py-8 text-center text-sm text-muted-foreground">
+            The bot is not reachable right now, so the brain&apos;s checkout cannot be read.
+          </p>
+        )}
         <div className="mt-6 grid gap-6 lg:grid-cols-2">
           <RepoCard repo={repo} compact />
           <ul className="grid content-start gap-3 sm:grid-cols-2">

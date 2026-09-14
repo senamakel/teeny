@@ -211,7 +211,7 @@ export function AgentDesk({ snapshot, className }: { snapshot: BrainSnapshot; cl
         </span>
         <span className="ml-auto flex items-center gap-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
           <span className={cn("size-1.5 rounded-full", recorded ? "bg-emerald-400" : "bg-primary")} />
-          {recorded ? (snapshot.source === "live" ? "replaying the latest run" : "replaying a sample run") : "rehearsal · no run recorded yet"}
+          {recorded ? "replaying the latest run" : "rehearsal · no run recorded yet"}
         </span>
       </div>
 

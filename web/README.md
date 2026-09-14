@@ -39,14 +39,16 @@ Set `MIND_API_URL` to the bot's base URL and the page reads three things from
 it, each revalidated every 60s and marked live: `/mind` (the journal:
 `src/lib/mind.ts`), `/ledger` (every model call and the running token count:
 `src/lib/ledger.ts`) and `/brain` (the roster, the workflows and the latest
-runs of the OpenCompany company: `src/lib/company.ts`). Unset, every page shows
-labelled samples. `BRAIN_REPO` (default `teenydroid/brain`) is read from the
+runs of the OpenCompany company: `src/lib/company.ts`). Unset or unreachable,
+every page says so and shows nothing: there is no sample data anywhere. `BRAIN_REPO` (default `teenydroid/brain`) is read from the
 public GitHub API for the commits shown on `/brain`; `GITHUB_TOKEN` is optional
 and only raises the rate limit.
 
-The counter on the front page polls `/api/pulse`, a route in this app that
-reads the bot's totals on every request, every twenty seconds, and rolls each
-figure to the new value. It never extrapolates: between polls it holds still.
+The counter on the front page is one figure, every token Teeny has burned
+across the account and the brain, counting from the first call the ledger
+saw. It polls `/api/pulse`, a route in this app that reads the bot's totals
+on every request, every twenty seconds, and rolls to the new value. It never
+extrapolates: between polls it holds still.
 
 The desk (`src/components/agent-desk.tsx`) lays the brain's workflow out by
 rank and replays its latest run from the host's own step record; with no run

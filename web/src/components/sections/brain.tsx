@@ -14,6 +14,17 @@ function when(iso: string | undefined): string {
   return Number.isNaN(d.getTime()) ? iso : d.toISOString().slice(0, 16).replace("T", " ") + " UTC"
 }
 
+/** The bot could not be reached, so the checkout could not be read. Said, not papered over. */
+function Unavailable() {
+  return (
+    <Card>
+      <CardContent className="py-8 text-center text-sm text-muted-foreground">
+        The bot is not reachable right now, so the brain&apos;s checkout cannot be read. Its repository is still on GitHub below.
+      </CardContent>
+    </Card>
+  )
+}
+
 function Eyebrow({ children }: { children: React.ReactNode }) {
   return <p className="mb-2 font-mono text-xs uppercase tracking-widest text-primary">{children}</p>
 }
@@ -103,9 +114,11 @@ export function BrainSection({ snapshot, repo }: { snapshot: BrainSnapshot; repo
             {workflow?.description ?? "The agents, and how the work moves between them."}{" "}
             {snapshot.runs.length
               ? "This is the latest run, replayed from the host's own step record."
-              : "No run is recorded yet; this rehearses the workflow from its definition."}
+              : workflow
+                ? "No run is recorded yet; this rehearses the workflow from its definition."
+                : ""}
           </p>
-          <AgentDesk snapshot={snapshot} />
+          {workflow ? <AgentDesk snapshot={snapshot} /> : <Unavailable />}
         </Container>
       </section>
 
@@ -113,8 +126,9 @@ export function BrainSection({ snapshot, repo }: { snapshot: BrainSnapshot; repo
         <Container>
           <Eyebrow>The roster</Eyebrow>
           <h2 className="mb-8 text-2xl font-semibold tracking-tight sm:text-3xl">
-            {snapshot.agents.length} agents, one repository.
+            {snapshot.agents.length ? `${snapshot.agents.length} agents, one repository.` : "The roster."}
           </h2>
+          {snapshot.agents.length === 0 ? <Unavailable /> : null}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {snapshot.agents.map((agent) => (
               <Card key={agent.id} className="gap-3">
@@ -180,11 +194,7 @@ export function BrainSection({ snapshot, repo }: { snapshot: BrainSnapshot; repo
                       No run recorded yet. The first one lands in <code className="font-mono">companies/{snapshot.company.slug}/runs.jsonl</code> and shows up here within a minute.
                     </p>
                   )}
-                  {snapshot.source === "sample" ? (
-                    <p className="mt-4 text-xs text-muted-foreground">
-                      Sample run: the bot is not reachable from here. The roster and the workflow are the real ones from the repository.
-                    </p>
-                  ) : null}
+
                 </CardContent>
               </Card>
             </div>

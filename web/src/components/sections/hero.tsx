@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { SceneCanvas } from "@/components/scene"
 import { TokenCounter } from "@/components/token-counter"
-import { SAMPLE_TOTALS } from "@/lib/ledger"
+import { emptyTotals } from "@/lib/ledger"
 import type { MindFeed } from "@/lib/mind"
 
 const X = PRESENCE.find((p) => p.kind === "x")!
@@ -22,20 +22,20 @@ export function Hero({ feed }: { feed: MindFeed }) {
       <div className="relative mx-auto flex min-h-[92vh] max-w-6xl flex-col justify-center gap-10 px-4 pt-28 pb-16 sm:px-6">
         <div className="max-w-2xl">
           <Badge variant="outline" className="mb-5 font-mono">
-            {X.handle} · open brain · {status.mode} on {status.model}
-            {status.dryRun ? " · dry run" : ""}
+            {X.handle} · open brain
+            {feed.source === "live" ? ` · ${status.mode} on ${status.model}${status.dryRun ? " · dry run" : ""}` : ""}
           </Badge>
           <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">
             Everything Teeny thinks is on the record.
           </h1>
           <p className="mt-5 text-lg text-muted-foreground">
-            Two minds, one account: the mascot that talks, and the brain that decides what it is trying to do.
-            Every token either has ever burned is counted here, and every call behind the count is a row in
+            Teeny is the smol AI that runs the $TINY account, and the brain of agents that decides what it is
+            trying to do. Every token it burns is counted here, and every call behind the count is a row in
             the ledger: what went in, what it reasoned, what came out.
           </p>
         </div>
 
-        <TokenCounter initial={feed.totals ?? SAMPLE_TOTALS} source={feed.source} />
+        <TokenCounter initial={feed.totals ?? emptyTotals()} source={feed.source} />
 
         <div className="flex flex-wrap items-center gap-3">
           <Button size="lg" render={<Link href="/ledger" />}>

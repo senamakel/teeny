@@ -115,9 +115,9 @@ export function InferenceRow({ entry, open = false }: { entry: Inference; open?:
               "inline-flex size-6 items-center justify-center rounded-md border text-[10px] font-semibold",
               entry.lane === "brain" ? "border-sky-400/40 text-sky-400" : "border-primary/40 text-primary",
             )}
-            title={`${lane.name} · ${lane.who}`}
+            title={lane.name}
           >
-            {lane.name[0]}
+            {entry.lane === "brain" ? "B" : "A"}
           </span>
           <span className="font-medium">{entry.source}</span>
           {entry.kind && entry.kind !== "inference" ? (
@@ -212,8 +212,8 @@ function Empty({ children }: { children: React.ReactNode }) {
   )
 }
 
-function Calls({ entries }: { entries: Inference[] }) {
-  if (!entries.length) return <Empty>Nothing here yet.</Empty>
+function Calls({ entries, source }: { entries: Inference[]; source: LedgerFeed["source"] }) {
+  if (!entries.length) return <LedgerEmpty source={source} />
   return (
     <div className="flex flex-col gap-3">
       {entries.map((entry, index) => (
@@ -315,18 +315,26 @@ function Lessons() {
   )
 }
 
-export function SampleNotice({ what }: { what: string }) {
+export function Unreachable({ what }: { what: string }) {
   return (
-    <div className="mb-6 flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
-      <AlertCircle className="mt-0.5 size-4 shrink-0 text-primary" />
+    <div className="mb-6 flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm">
+      <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
       <p>
-        <span className="font-medium">Sample entries.</span>{" "}
-        <span className="text-muted-foreground">
-          The bot is not reachable from here, so {what} are reconstructed from incidents recorded in the code
-          and its history. The shape is real; the timestamps and the counts are not.
-        </span>
+        <span className="font-medium">The bot is not reachable right now.</span>{" "}
+        <span className="text-muted-foreground">Nothing here is made up, so {what} stay empty until it answers.</span>
       </p>
     </div>
+  )
+}
+
+/** What the ledger shows when there is no row: the reason, never a stand-in. */
+export function LedgerEmpty({ source }: { source: "live" | "unavailable" }) {
+  return (
+    <Empty>
+      {source === "live"
+        ? "No call has run since the ledger began counting. The next reply, chart or morning post is the first row."
+        : "The bot is not reachable right now, so there is nothing to show."}
+    </Empty>
   )
 }
 
@@ -338,21 +346,21 @@ export function Ledger({ ledger, mind }: { ledger: LedgerFeed; mind: MindFeed })
 
   return (
     <Container>
-      {ledger.source === "sample" ? <SampleNotice what="these rows" /> : null}
+      {ledger.source === "unavailable" ? <Unreachable what="the rows" /> : null}
 
       <Tabs defaultValue="calls">
         <TabsList variant="line" className="mb-6 flex-wrap">
           <TabsTrigger value="calls">Calls · {calls.length}</TabsTrigger>
-          <TabsTrigger value="mascot">{LANE_META.mascot.name} · {mascot.length}</TabsTrigger>
-          <TabsTrigger value="brain">{LANE_META.brain.name} · {brain.length}</TabsTrigger>
+          <TabsTrigger value="mascot">The account · {mascot.length}</TabsTrigger>
+          <TabsTrigger value="brain">The brain · {brain.length}</TabsTrigger>
           <TabsTrigger value="turns">Turns · {turns.length}</TabsTrigger>
           <TabsTrigger value="lessons">Lessons · {LESSONS.length}</TabsTrigger>
         </TabsList>
-        <TabsContent value="calls"><Calls entries={calls} /></TabsContent>
-        <TabsContent value="mascot"><Calls entries={mascot} /></TabsContent>
+        <TabsContent value="calls"><Calls entries={calls} source={ledger.source} /></TabsContent>
+        <TabsContent value="mascot"><Calls entries={mascot} source={ledger.source} /></TabsContent>
         <TabsContent value="brain">
           {brain.length ? (
-            <Calls entries={brain} />
+            <Calls entries={brain} source={ledger.source} />
           ) : (
             <Empty>
               <Brain className="mx-auto mb-3 size-5 text-muted-foreground" />
@@ -371,7 +379,11 @@ export function Ledger({ ledger, mind }: { ledger: LedgerFeed; mind: MindFeed })
               ))}
             </div>
           ) : (
-            <Empty>Nothing here yet.</Empty>
+            <Empty>
+              {mind.source === "live"
+                ? "No turn is in the journal yet."
+                : "The bot is not reachable right now, so there is nothing to show."}
+            </Empty>
           )}
         </TabsContent>
         <TabsContent value="lessons"><Lessons /></TabsContent>

@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { ArrowRight } from "lucide-react"
-import { InferenceRow } from "@/components/sections/ledger"
+import { InferenceRow, LedgerEmpty } from "@/components/sections/ledger"
 import { Button } from "@/components/ui/button"
 import { Container } from "@/components/section"
 import type { LedgerFeed } from "@/lib/ledger"
@@ -18,7 +18,6 @@ export function HomeLedger({ ledger }: { ledger: LedgerFeed }) {
             <p className="mt-2 max-w-2xl text-muted-foreground">
               Input, thinking, output, cost. The system prompt is the one thing withheld; each row carries its
               digest so the record commits to it without showing it.
-              {ledger.source === "sample" ? " These are samples: the bot is not reachable from here." : ""}
             </p>
           </div>
           <Button variant="outline" render={<Link href="/ledger" />}>
@@ -26,11 +25,15 @@ export function HomeLedger({ ledger }: { ledger: LedgerFeed }) {
             <ArrowRight className="size-4" />
           </Button>
         </div>
-        <div className="flex flex-col gap-3">
-          {latest.map((entry, index) => (
-            <InferenceRow key={entry.id} entry={entry} open={index === 0} />
-          ))}
-        </div>
+        {latest.length ? (
+          <div className="flex flex-col gap-3">
+            {latest.map((entry, index) => (
+              <InferenceRow key={entry.id} entry={entry} open={index === 0} />
+            ))}
+          </div>
+        ) : (
+          <LedgerEmpty source={ledger.source} />
+        )}
       </Container>
     </section>
   )
