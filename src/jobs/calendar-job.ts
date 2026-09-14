@@ -5,6 +5,7 @@ import type { TelegramApi } from '../clients/telegram.js'
 import { TELEGRAM_MAX_CAPTION_LENGTH } from '../clients/telegram.js'
 import type { Journal, Outcome } from '../journal/journal.js'
 import type { MediaStore } from '../media/store.js'
+import type { SafetyGate } from '../safety/gate.js'
 import type { Memory, XTools } from '../types.js'
 
 export interface ContentDrafter {
@@ -32,6 +33,13 @@ export interface CalendarJobDependencies {
   minIntervalMs?: number
   now?: () => number
   journal?: Journal
+  /**
+   * The content filter, outbound. A calendar post is the account's own words
+   * with nobody to answer, so only the out gate applies: a draft it holds is
+   * not published on any channel, and a link it cuts stays cut. The picture
+   * is gated separately, in the generate tool the drafter was given.
+   */
+  safety?: Pick<SafetyGate, 'outbound'>
 }
 
 /**
@@ -90,7 +98,7 @@ export class CalendarJob {
       maxLength: 280,
     })
     if (styled.fixes.length > 0) logger.info({ item: item.name, fixes: styled.fixes }, 'calendar: house style applied')
-    const text = styled.text
+    let text = styled.text
 
     const generated = draft.mediaId ? this.dependencies.media?.get(draft.mediaId) : undefined
     if (item.media !== 'none' && !generated) {
@@ -104,6 +112,44 @@ export class CalendarJob {
     if (!text && !generated) {
       await this.journal(id, now, item, { ...draft, text }, 'held', 'the draft was empty')
       return true
+    }
+
+    // The gate, outbound: the styled text is what would go out on every
+    // channel, so that is what is checked, and what comes back (links cut)
+    // is what goes out. Checked before the dry run, so a dry run shows the
+    // filter's verdict too. A held post is a missing day, which is the right
+    // outcome for a post the account should not have written; the item runs
+    // again on its next cron.
+    const outgoing = await this.dependencies.safety?.outbound(text, {
+      surface: 'calendar',
+      kind: 'draft',
+      tool: item.name,
+    })
+    if (outgoing) {
+      if (outgoing.fixes.length > 0) {
+        logger.warn({ item: item.name, fixes: outgoing.fixes }, 'calendar: the content filter edited the draft')
+      }
+      if (!outgoing.decision.ok) {
+        logger.warn(
+          {
+            item: item.name,
+            category: outgoing.decision.category,
+            by: outgoing.decision.by,
+            reason: outgoing.decision.reason,
+          },
+          'calendar: withheld the post, the content filter refused the draft',
+        )
+        await this.journal(
+          id,
+          now,
+          item,
+          { ...draft, text: '' },
+          'held',
+          `content filter withheld the draft: ${outgoing.decision.category}`,
+        )
+        return true
+      }
+      text = outgoing.text
     }
 
     if (this.dependencies.dryRun) {

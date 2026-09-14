@@ -10,6 +10,7 @@ import { GlobalMarketClient } from '../market/global.js'
 import { TokenMarket } from '../market/market.js'
 import { buildMedia } from '../media/wiring.js'
 import { CortexMemory } from '../memory/cortex.js'
+import { lexicalGate } from '../safety/gate.js'
 
 /**
  * Runs one calendar item now, dry: the real drafter, the real generators if
@@ -45,6 +46,9 @@ const x = new XApiClient({
 })
 const media = buildMedia(config, { log: (event, detail) => console.log('[media]', event, detail ?? '') })
 const dryRun = !publish || config.DRY_RUN
+// The lexicon and the allowlist, as the service has them; no judge and no
+// hold log, since this is a script and --publish can post for real.
+const safety = lexicalGate({ extraAllowedLinks: config.LINK_ALLOWLIST })
 const logger = {
   info: (o: unknown, m?: string) => console.log('[info]', m ?? '', JSON.stringify(o)),
   warn: (o: unknown, m?: string) => console.warn('[warn]', m ?? '', JSON.stringify(o)),
@@ -56,6 +60,7 @@ const job = new CalendarJob({
     memory,
     x,
     ...(media ? { media } : {}),
+    safety,
     botUsername: config.X_BOT_USERNAME,
     dryRun,
     llm: { baseUrl: config.LLM_BASE_URL, apiKey: config.LLM_API_KEY, model: config.LLM_MODEL },
@@ -87,6 +92,7 @@ const job = new CalendarJob({
   dryRun,
   telegramChatIds: config.CALENDAR_TELEGRAM_CHAT_IDS,
   maxEmoji: config.MAX_EMOJI_PER_POST,
+  safety,
 })
 
 console.log(`running "${item.name}" (${item.channels.join('+')}, media: ${item.media}) ${dryRun ? 'DRY' : 'FOR REAL'}`)

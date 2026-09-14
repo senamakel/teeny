@@ -158,3 +158,21 @@ describe('media config', () => {
     ).toHaveLength(10)
   })
 })
+
+describe('content filter config', () => {
+  it('runs the judge unless it is switched off, and rides on the chat model by default', () => {
+    const config = loadConfig({ ...REQUIRED })
+    expect(config.SAFETY_JUDGE).toBe(true)
+    expect(config.SAFETY_JUDGE_MODEL).toBeUndefined()
+    expect(loadConfig({ ...REQUIRED, SAFETY_JUDGE: 'false' }).SAFETY_JUDGE).toBe(false)
+    expect(loadConfig({ ...REQUIRED, SAFETY_JUDGE_MODEL: '' }).SAFETY_JUDGE_MODEL).toBeUndefined()
+    expect(loadConfig({ ...REQUIRED, SAFETY_JUDGE_MODEL: 'fast' }).SAFETY_JUDGE_MODEL).toBe('fast')
+  })
+
+  it('parses the extra link allowlist and is empty by default', () => {
+    expect(loadConfig({ ...REQUIRED }).LINK_ALLOWLIST).toEqual([])
+    expect(
+      loadConfig({ ...REQUIRED, LINK_ALLOWLIST: 'dexscreener.com/solana, solscan.io ,,' }).LINK_ALLOWLIST,
+    ).toEqual(['dexscreener.com/solana', 'solscan.io'])
+  })
+})

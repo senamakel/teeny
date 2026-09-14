@@ -11,6 +11,7 @@ import {
 } from '../clients/telegram.js'
 import type { ChatHarness } from '../harness/chat-harness.js'
 import type { MediaStore } from '../media/store.js'
+import type { SafetyGate } from '../safety/gate.js'
 import type { ImageMimeType, ImageReader } from '../media/types.js'
 import type { ChatMessage, GifSource } from '../types.js'
 import { commandOf, isAddressedToBot, toChatMessage, type BotIdentity } from './inbox.js'
@@ -58,6 +59,12 @@ export interface TelegramBotOptions {
   debounceMs?: number
   /** The least time between two GIFs in one chat. */
   gifCooldownMs?: number
+  /**
+   * The content filter, both ways. A message it holds gets no answer and no
+   * reaction, and is not remembered; a draft it holds is not sent. It also
+   * scrubs the chat history the drafter is shown, line by line.
+   */
+  safety?: SafetyGate
   /** Injectable for the tests. */
   sleep?: (ms: number) => Promise<void>
   now?: () => number
@@ -308,11 +315,33 @@ export class TelegramBot {
     // The conversation so far, as much of it as the budget holds. Read fails
     // soft: a reply without the room's history is worse, a person left
     // unanswered because Mongo hiccupped is worse still.
+    // The gate, inbound. Silence is the whole answer: no reply, no reaction,
+    // nothing kept. In a group that reads as the account not having seen it,
+    // which is exactly right.
+    const { safety } = this.options
+    const context = {
+      surface: 'telegram' as const,
+      chatId: message.chatId,
+      messageId: message.id,
+      ...(thread ? { messageThreadId: String(thread) } : {}),
+      ...(message.authorUsername ? { authorUsername: message.authorUsername } : {}),
+      ...(message.authorName ? { authorName: message.authorName } : {}),
+    }
+    const incoming = await safety?.inbound(message.text, context)
+    if (incoming && !incoming.ok) {
+      logger.info(
+        { chatId: message.chatId, category: incoming.category, by: incoming.by, reason: incoming.reason },
+        'held a telegram message: the content filter refused it',
+      )
+      return
+    }
+
     const history = await this.transcript
       .recent(message.chatId, {
         maxTokens: this.options.historyTokens ?? 5_000,
         excluding: ids,
       })
+      .then((turns) => (safety ? turns.filter((turn) => safety.screen(turn.text)) : turns))
       .catch((error: unknown) => {
         logger.warn({ err: error, chatId: message.chatId }, 'could not read the chat transcript')
         return []
@@ -325,6 +354,24 @@ export class TelegramBot {
       : undefined
     if (styled && styled.fixes.length > 0) {
       logger.info({ fixes: styled.fixes }, 'house style applied to a telegram draft')
+    }
+
+    // The gate, outbound: what would be sent is what is checked. A held draft
+    // takes its reaction and its media with it; the account does not react
+    // warmly to a message it was about to answer badly.
+    if (styled && safety) {
+      const outgoing = await safety.outbound(styled.text, context)
+      if (outgoing.fixes.length > 0) {
+        logger.warn({ chatId: message.chatId, fixes: outgoing.fixes }, 'the content filter edited a telegram draft')
+      }
+      if (!outgoing.decision.ok) {
+        logger.warn(
+          { chatId: message.chatId, category: outgoing.decision.category, by: outgoing.decision.by, reason: outgoing.decision.reason },
+          'withheld a telegram reply: the content filter refused the draft',
+        )
+        return
+      }
+      styled.text = outgoing.text
     }
     const pieces = styled ? splitForTelegram(styled.text) : []
     if (pieces.length === 0 && !draft.reaction && !draft.mediaId) {

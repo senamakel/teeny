@@ -15,6 +15,7 @@ import type { Persona } from './soul.js'
 import type { GlobalMarketClient } from '../market/global.js'
 import type { TokenMarket } from '../market/market.js'
 import type { MediaAccess } from '../media/wiring.js'
+import type { SafetyGate } from '../safety/gate.js'
 import type { Agent, AgentRunResult, GifSource, Memory, XTools } from '../types.js'
 
 export interface LlmOptions {
@@ -65,6 +66,13 @@ export interface AgentOptions {
     symbol?: string
     global?: GlobalMarketClient
   }
+  /**
+   * The content filter, given to every tool that publishes or generates:
+   * x_post, post_chart, generate_image, generate_video. The drafters gate
+   * their own output in the job; this is for the agents that publish
+   * directly.
+   */
+  safety?: Pick<SafetyGate, 'outbound'>
 }
 
 export function createChatModel(options: LlmOptions): ChatOpenAI {
@@ -86,10 +94,13 @@ export function buildTools(options: AgentOptions): StructuredToolInterface[] {
       ...(options.gifs ? { gifs: options.gifs } : {}),
       ...(options.searchLimit === undefined ? {} : { searchLimit: options.searchLimit }),
       ...(options.media ? { media: options.media.store } : {}),
+      ...(options.safety ? { safety: options.safety } : {}),
     }),
     ...(options.exaApiKey ? createExaTools(createExaClient(options.exaApiKey)) : []),
     ...(options.gifs ? createGiphyTools(options.gifs.source, options.gifs.channel) : []),
-    ...(options.media ? createMediaTools(options.media) : []),
+    ...(options.media
+      ? createMediaTools(options.media, options.safety ? { safety: options.safety } : {})
+      : []),
     ...(options.market
       ? createMarketTools({
           market: options.market.market,

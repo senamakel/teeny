@@ -4,6 +4,7 @@ import { ReplyHarness } from '../harness/reply-harness.js'
 import type { MentionQueue } from '../queue/mentions.js'
 import type { Journal } from '../journal/journal.js'
 import type { MediaStore } from '../media/store.js'
+import type { SafetyGate } from '../safety/gate.js'
 import type { GifSource, ReplyDraft, XClient, XPost, XTools } from '../types.js'
 
 /**
@@ -54,6 +55,12 @@ export class ReplyJob {
       random?: () => number
       /** The mind, for the landing page. Optional, and never in the way of a reply. */
       journal?: Journal
+      /**
+       * The content filter, both ways. A mention it holds is never drafted; a
+       * draft it holds is never published. Optional only so the tests can
+       * build a job without one; the service always passes it.
+       */
+      safety?: SafetyGate
     },
   ) {}
 
@@ -65,7 +72,7 @@ export class ReplyJob {
   private async journal(
     post: XPost,
     draft: Partial<ReplyDraft>,
-    outcome: 'posted' | 'dry-run' | 'skipped' | 'failed',
+    outcome: 'posted' | 'dry-run' | 'skipped' | 'held' | 'failed',
     note?: string,
   ): Promise<void> {
     const { journal, logger } = this.dependencies
@@ -213,6 +220,36 @@ export class ReplyJob {
         }
 
         try {
+          // The gate, inbound: a post about something the account does not
+          // touch is not answered, not remembered, and not shown to the
+          // drafter. The journal gets the category and never the text.
+          const context = {
+            surface: 'x' as const,
+            postId: post.id,
+            ...(post.conversationId ? { conversationId: post.conversationId } : {}),
+            ...(post.authorUsername ? { authorUsername: post.authorUsername } : {}),
+          }
+          // A mention an operator approved from the review page comes back
+          // through the queue with the inbound check waived. The outbound
+          // check is not: the approval was of the question, not the answer.
+          const incoming = item.filterApproved
+            ? undefined
+            : await this.dependencies.safety?.inbound(post.text, context)
+          if (incoming && !incoming.ok) {
+            await this.dependencies.queue.markFailed(post.id, `held: ${incoming.category}`)
+            this.dependencies.logger.info(
+              { postId: post.id, category: incoming.category, by: incoming.by, reason: incoming.reason },
+              'held a mention: the content filter refused it',
+            )
+            await this.journal(
+              { ...post, text: `[held by the content filter: ${incoming.category}]` },
+              { thinking: 'This is not something I talk about, so I am not answering it.' },
+              'skipped',
+              `content filter: ${incoming.category}`,
+            )
+            continue
+          }
+
           const drafted = await this.dependencies.harness.generate(post)
           const styled = applyHouseStyle(drafted.text, {
             ...(this.dependencies.maxEmoji === undefined
@@ -225,6 +262,35 @@ export class ReplyJob {
               { postId: post.id, fixes: styled.fixes },
               'house style corrected the draft',
             )
+          }
+
+          // The gate, outbound: the styled text is what would be published,
+          // so that is what is checked, and what comes back (links cut) is
+          // what goes out. A held draft is a mention answered by nobody, which
+          // is the right outcome for a draft the account should not have written.
+          const outgoing = await this.dependencies.safety?.outbound(styled.text, context)
+          if (outgoing) {
+            if (outgoing.fixes.length > 0) {
+              this.dependencies.logger.warn(
+                { postId: post.id, fixes: outgoing.fixes },
+                'the content filter edited the draft',
+              )
+            }
+            if (!outgoing.decision.ok) {
+              await this.dependencies.queue.markFailed(post.id, `withheld: ${outgoing.decision.category}`)
+              this.dependencies.logger.warn(
+                { postId: post.id, category: outgoing.decision.category, by: outgoing.decision.by, reason: outgoing.decision.reason },
+                'withheld a reply: the content filter refused the draft',
+              )
+              await this.journal(
+                post,
+                { ...drafted, text: '' },
+                'held',
+                `content filter withheld the draft: ${outgoing.decision.category}`,
+              )
+              continue
+            }
+            styled.text = outgoing.text
           }
 
           const mediaIds = this.dependencies.dryRun

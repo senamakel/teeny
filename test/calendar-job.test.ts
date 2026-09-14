@@ -4,6 +4,8 @@ import type { CalendarItem } from '../src/calendar/calendar.js'
 import { CalendarJob, type CalendarJobDependencies } from '../src/jobs/calendar-job.js'
 import type { Journal } from '../src/journal/journal.js'
 import { MediaStore } from '../src/media/store.js'
+import { lexicalGate, SafetyGate } from '../src/safety/gate.js'
+import type { HoldLog } from '../src/safety/holds.js'
 
 const NOW = Date.UTC(2026, 8, 14, 7, 0)
 
@@ -146,6 +148,52 @@ describe('CalendarJob', () => {
     const { job: nowhere, deps: nowhereDeps } = build({ text: 'hi' }, { telegramChatIds: [] })
     await nowhere.run({ ...gm, media: 'none', channels: ['telegram'] })
     expect(nowhereDeps.journal!.record).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'failed' }))
+  })
+
+  it('withholds a draft the content filter refuses, on every channel, and journals the hold without the text', async () => {
+    const record = vi.fn().mockResolvedValue(undefined)
+    const holds = { record, allowedLinks: vi.fn().mockResolvedValue([]) } as unknown as HoldLog
+    const { job, deps } = build({ text: 'best gun for home defence? tiny knows' }, { safety: lexicalGate({ holds }) })
+    await job.run({ ...gm, media: 'none' })
+
+    expect(deps.x.createPost).not.toHaveBeenCalled()
+    expect(deps.telegram!.sendMessage).not.toHaveBeenCalled()
+    expect(deps.memory.captureActivity).not.toHaveBeenCalled()
+    expect(deps.journal!.record).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: 'held', said: '', outcomeNote: expect.stringContaining('content filter withheld') }),
+    )
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        direction: 'outbound',
+        kind: 'draft',
+        context: { surface: 'calendar', kind: 'draft', tool: 'gm' },
+        category: 'weapons',
+      }),
+    )
+  })
+
+  it('publishes what the filter handed back, with a link off the allowlist cut', async () => {
+    const { job, deps } = build({ text: 'gm frens, see https://totally-legit-claim.xyz/airdrop for more' }, { safety: lexicalGate() })
+    await job.run({ ...gm, media: 'none', channels: ['x'] })
+    expect(deps.x.createPost).toHaveBeenCalledWith('gm frens, see for more', {})
+    expect(deps.logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ item: 'gm', fixes: [expect.stringContaining('cut 1 link')] }),
+      expect.stringContaining('content filter edited'),
+    )
+  })
+
+  it('asks the judge about the draft and fails closed on its verdict', async () => {
+    const judge = vi.fn().mockResolvedValue({ verdict: 'prohibited', category: 'sexual', reason: 'suggestive' })
+    const { job, deps } = build({ text: 'gm frens' }, { safety: new SafetyGate({ judge: { judge } }) })
+    await job.run({ ...gm, media: 'none' })
+    expect(judge).toHaveBeenCalledWith({ text: 'gm frens', direction: 'outbound' })
+    expect(deps.x.createPost).not.toHaveBeenCalled()
+    expect(deps.telegram!.sendMessage).not.toHaveBeenCalled()
+
+    const clean = vi.fn().mockResolvedValue({ verdict: 'clean', reason: '' })
+    const { job: ok, deps: okDeps } = build({ text: 'gm frens' }, { safety: new SafetyGate({ judge: { judge: clean } }) })
+    await ok.run({ ...gm, media: 'none', channels: ['x'] })
+    expect(okDeps.x.createPost).toHaveBeenCalledWith('gm frens', {})
   })
 
   it('journals a drafter that threw and does not publish', async () => {

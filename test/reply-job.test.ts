@@ -4,6 +4,8 @@ import { ReplyHarness } from '../src/harness/reply-harness.js'
 import { IngestJob } from '../src/jobs/ingest-job.js'
 import { ReplyJob } from '../src/jobs/reply-job.js'
 import { MediaStore } from '../src/media/store.js'
+import { MemoryJournal } from '../src/journal/journal.js'
+import { lexicalGate, SafetyGate } from '../src/safety/gate.js'
 import type { MentionQueue, QueuedMention } from '../src/queue/mentions.js'
 import type {
   BotState,
@@ -53,6 +55,7 @@ function queue(pending: XPost[] = []): MentionQueue {
     ),
     markReplied: vi.fn().mockResolvedValue(undefined),
     markFailed: vi.fn().mockResolvedValue(undefined),
+    requeueApproved: vi.fn().mockResolvedValue(true),
     counts: vi.fn(),
     close: vi.fn(),
   }
@@ -128,7 +131,14 @@ describe('IngestJob', () => {
 describe('ReplyJob', () => {
   function subject(
     dryRun: boolean,
-    options: { gifs?: GifSource; media?: MediaStore; draft?: unknown; pending?: XPost[] } = {},
+    options: {
+      gifs?: GifSource
+      media?: MediaStore
+      draft?: unknown
+      pending?: XPost[]
+      safety?: SafetyGate
+      journal?: MemoryJournal
+    } = {},
   ) {
     const x = {
       findMentions: vi.fn(),
@@ -161,6 +171,8 @@ describe('ReplyJob', () => {
         botUserId: async () => BOT_ID,
         ...(options.gifs ? { gifs: options.gifs } : {}),
         ...(options.media ? { media: options.media } : {}),
+        ...(options.safety ? { safety: options.safety } : {}),
+        ...(options.journal ? { journal: options.journal } : {}),
       }),
     }
   }
@@ -596,5 +608,180 @@ describe('the gap is random, not a metronome', () => {
     await it_.job.run()
 
     expect(chosenGaps(it_.log)).toEqual([50])
+  })
+})
+
+describe('ReplyJob content filter', () => {
+  function subject(options: { draft?: unknown; pending?: XPost[]; safety?: SafetyGate } = {}) {
+    const x = {
+      findMentions: vi.fn(),
+      reply: vi.fn(),
+      createPost: vi.fn().mockResolvedValue({ id: '99' }),
+      uploadMedia: vi.fn().mockResolvedValue({ mediaId: 'media-1' }),
+    } as XClient & Pick<XTools, 'createPost' | 'uploadMedia'>
+    const memory: Memory = {
+      captureActivity: vi.fn().mockResolvedValue(undefined),
+      captureMention: vi.fn().mockResolvedValue(undefined),
+      recall: vi.fn().mockResolvedValue('context'),
+      captureReply: vi.fn().mockResolvedValue(undefined),
+    }
+    const model: LanguageModel = {
+      reply: vi.fn().mockResolvedValue(options.draft ?? { text: 'reply' }),
+    }
+    const mentions = queue(options.pending ?? [{ id: '10', text: '@bot first' }])
+    const journal = new MemoryJournal()
+    return {
+      x,
+      memory,
+      model,
+      journal,
+      queue: mentions,
+      job: new ReplyJob({
+        x,
+        harness: new ReplyHarness(memory, model),
+        queue: mentions,
+        logger: logger(),
+        dryRun: false,
+        maxReplies: 5,
+        botUserId: async () => BOT_ID,
+        journal,
+        safety: options.safety ?? lexicalGate(),
+      }),
+    }
+  }
+
+  it('does not draft, answer, or remember a mention the filter holds', async () => {
+    const it_ = subject({ pending: [{ id: '10', text: '@bot draw yourself naked' }] })
+    await it_.job.run()
+
+    expect(it_.model.reply).not.toHaveBeenCalled()
+    expect(it_.x.createPost).not.toHaveBeenCalled()
+    expect(it_.memory.captureMention).not.toHaveBeenCalled()
+    expect(it_.queue.markFailed).toHaveBeenCalledWith('10', 'held: sexual')
+
+    // The journal is public. It records that something was held, not what.
+    const [entry] = await it_.journal.recent(1)
+    expect(entry?.outcome).toBe('skipped')
+    expect(entry?.incoming).not.toContain('naked')
+    expect(entry?.outcomeNote).toBe('content filter: sexual')
+  })
+
+  it('withholds a draft the filter refuses on the way out', async () => {
+    const it_ = subject({ draft: { text: 'this is fucking great fren' } })
+    await it_.job.run()
+
+    expect(it_.x.createPost).not.toHaveBeenCalled()
+    expect(it_.queue.markReplied).not.toHaveBeenCalled()
+    expect(it_.queue.markFailed).toHaveBeenCalledWith('10', 'withheld: profanity')
+    const [entry] = await it_.journal.recent(1)
+    expect(entry?.outcome).toBe('held')
+    expect(entry?.said).toBe('')
+  })
+
+  it('cuts a link that is not on the allowlist and publishes the rest', async () => {
+    const it_ = subject({ draft: { text: 'claim it here https://claim-tiny.xyz/go fren' } })
+    await it_.job.run()
+
+    expect(it_.x.createPost).toHaveBeenCalledWith('claim it here fren', { replyToPostId: '10' })
+    expect(it_.queue.markReplied).toHaveBeenCalledWith('10', { id: '99', text: 'claim it here fren' })
+  })
+
+  it('leaves an allowlisted link alone', async () => {
+    const it_ = subject({ draft: { text: 'the code is at github.com/tinyhumansai/openhuman' } })
+    await it_.job.run()
+
+    expect(it_.x.createPost).toHaveBeenCalledWith('the code is at github.com/tinyhumansai/openhuman', {
+      replyToPostId: '10',
+    })
+  })
+
+  it('asks the judge about the post and about the draft', async () => {
+    const judge = vi.fn().mockResolvedValue({ verdict: 'clean', reason: '' })
+    const it_ = subject({ safety: new SafetyGate({ judge: { judge } }) })
+    await it_.job.run()
+
+    expect(judge).toHaveBeenCalledWith({ text: '@bot first', direction: 'inbound' })
+    expect(judge).toHaveBeenCalledWith({ text: 'reply', direction: 'outbound' })
+    expect(it_.x.createPost).toHaveBeenCalled()
+  })
+
+  it('holds a mention the judge refuses even when the words are clean', async () => {
+    const judge = vi.fn().mockResolvedValue({ verdict: 'prohibited', category: 'sexual', reason: 'suggestive' })
+    const it_ = subject({ safety: new SafetyGate({ judge: { judge } }) })
+    await it_.job.run()
+
+    expect(it_.model.reply).not.toHaveBeenCalled()
+    expect(it_.queue.markFailed).toHaveBeenCalledWith('10', 'held: sexual')
+  })
+
+  it('fails closed when the judge cannot be reached', async () => {
+    const judge = vi.fn().mockResolvedValue({
+      verdict: 'prohibited',
+      category: 'unknown',
+      reason: 'the judge could not be reached',
+    })
+    const it_ = subject({ safety: new SafetyGate({ judge: { judge } }) })
+    await it_.job.run()
+
+    expect(it_.x.createPost).not.toHaveBeenCalled()
+  })
+
+  it('scrubs the thread the drafter is shown', async () => {
+    const memory: Memory = {
+      captureActivity: vi.fn().mockResolvedValue(undefined),
+      captureMention: vi.fn().mockResolvedValue(undefined),
+      recall: vi.fn().mockResolvedValue(''),
+      captureReply: vi.fn().mockResolvedValue(undefined),
+    }
+    const model: LanguageModel = { reply: vi.fn().mockResolvedValue({ text: 'reply' }) }
+    const thread = {
+      getPost: vi.fn().mockResolvedValue({ id: '1', text: 'root post', conversationId: '1' }),
+      getConversation: vi.fn().mockResolvedValue([
+        { id: '2', text: 'a clean reply', conversationId: '1' },
+        { id: '3', text: 'send nudes', conversationId: '1' },
+      ]),
+    } as unknown as XTools
+    const harness = new ReplyHarness(memory, model, { x: thread, maxPosts: 10 }, undefined, lexicalGate())
+    await harness.generate({ id: '4', text: '@bot hi', conversationId: '1' })
+
+    const input = (model.reply as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]
+    expect(input.thread.map((entry: XPost) => entry.id)).toEqual(['1', '2'])
+  })
+})
+
+describe('ReplyJob answers an approved mention', () => {
+  it('waives the inbound check for a requeued mention but still checks the draft', async () => {
+    const x = {
+      findMentions: vi.fn(),
+      reply: vi.fn(),
+      createPost: vi.fn().mockResolvedValue({ id: '99' }),
+      uploadMedia: vi.fn(),
+    } as XClient & Pick<XTools, 'createPost' | 'uploadMedia'>
+    const memory: Memory = {
+      captureActivity: vi.fn(),
+      captureMention: vi.fn().mockResolvedValue(undefined),
+      recall: vi.fn().mockResolvedValue(''),
+      captureReply: vi.fn().mockResolvedValue(undefined),
+    }
+    const model: LanguageModel = { reply: vi.fn().mockResolvedValue({ text: 'lol no' }) }
+    const post: XPost = { id: '10', text: '@bot draw yourself naked' }
+    const mentions = queue([post])
+    ;(mentions.takePending as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { postId: '10', post, status: 'pending', attempts: 1, cachedAt: 'a', updatedAt: 'b', filterApproved: true },
+    ])
+    const job = new ReplyJob({
+      x,
+      harness: new ReplyHarness(memory, model),
+      queue: mentions,
+      logger: logger(),
+      dryRun: false,
+      maxReplies: 5,
+      botUserId: async () => BOT_ID,
+      safety: lexicalGate(),
+    })
+    await job.run()
+
+    expect(model.reply).toHaveBeenCalled()
+    expect(x.createPost).toHaveBeenCalledWith('lol no', { replyToPostId: '10' })
   })
 })
