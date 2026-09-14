@@ -5,6 +5,7 @@ import { withSeed } from '../media/reference.js'
 import type { MediaBudget, MediaStore } from '../media/store.js'
 import type { ImageGenerator, ImageReader, StoredMedia, VideoGenerator } from '../media/types.js'
 import type { SafetyGate } from '../safety/gate.js'
+import { renderCritique, type Critic, type Critique } from '../critic/algo.js'
 import type { Memory, XTools } from '../types.js'
 import { gatherNews, renderStories, type NewsSource, type Story } from './news.js'
 import {
@@ -68,6 +69,13 @@ export interface MorningPipelineOptions {
    * means the picture goes alone; a held caption is a missing morning.
    */
   safety?: { outbound: SafetyGate['outbound'] }
+  /**
+   * The ranker's reader. The script and the caption are each shown to it
+   * once and rewritten once when it says FLAT or RISKY, with its fixes in the
+   * prompt. Advisory: a critic that cannot be reached is a line in the
+   * problems and the first draft goes out.
+   */
+  critic?: Critic
 }
 
 /**
@@ -101,6 +109,8 @@ export interface MorningResult {
   outcome: 'posted' | 'dry-run' | 'skipped' | 'held'
   /** Every stage that went wrong and was worked around. */
   problems: string[]
+  /** The ranker's reader on the script and the caption, when there is one. The last read of each. */
+  critiques?: { script?: Critique; caption?: Critique }
   recalled: { history: string; community: string }
 }
 
@@ -131,6 +141,7 @@ export class MorningPipeline {
     const today = new Date(now).toISOString().slice(0, 10)
     const context: StageContext = { persona: options.persona, botUsername: options.botUsername, today }
     const problems: string[] = []
+    const critiques: NonNullable<MorningResult['critiques']> = {}
     const log = (event: string, detail: Record<string, unknown> = {}): void =>
       options.logger?.info(detail, `morning: ${event}`)
 
@@ -233,11 +244,23 @@ export class MorningPipeline {
     let video: StoredMedia | undefined
     if (image) {
       try {
-        script = await askJson(options.text, {
-          ...scriptPrompt(context, { pick, scene, seconds: options.videoSeconds }),
-          schema: scriptSchema,
-        })
+        const ask = scriptPrompt(context, { pick, scene, seconds: options.videoSeconds })
+        script = await askJson(options.text, { ...ask, schema: scriptSchema })
         log('script written', { summary: script.summary })
+        const read = await this.critique('script', { kind: 'script', text: script.script, context: about(pick) }, problems)
+        if (read) {
+          critiques.script = read
+          if (read.verdict !== 'worthy') {
+            script = await askJson(options.text, {
+              system: ask.system,
+              prompt: rewriteWith(ask.prompt, script.script, read),
+              schema: scriptSchema,
+            })
+            const again = await this.critique('script', { kind: 'script', text: script.script, context: about(pick) }, problems)
+            if (again) critiques.script = again
+            log('script rewritten on the critic\'s read', { was: read.verdict, now: again?.verdict ?? 'unread' })
+          }
+        }
       } catch (error) {
         problems.push(`script failed: ${messageOf(error)}`)
       }
@@ -281,6 +304,19 @@ export class MorningPipeline {
     // narrate it: the clip is the joke, the words are the good morning.
     const attached: MorningResult['attached'] = video ? 'video' : image ? 'image' : 'none'
     let caption = await this.caption(context, { pick, attached, community })
+    if (attached !== 'none') {
+      const shows = video && script ? script.summary : scene.alt
+      const read = await this.critique('caption', { kind: 'caption', text: caption, media: shows, context: about(pick) }, problems)
+      if (read) {
+        critiques.caption = read
+        if (read.verdict !== 'worthy') {
+          caption = await this.caption(context, { pick, attached, community, rewrite: { draft: caption, critique: read } })
+          const again = await this.critique('caption', { kind: 'caption', text: caption, media: shows, context: about(pick) }, problems)
+          if (again) critiques.caption = again
+          log('caption rewritten on the critic\'s read', { was: read.verdict, now: again?.verdict ?? 'unread' })
+        }
+      }
+    }
 
     // The gate, outbound, as the calendar job reads it: the styled caption
     // is what would be posted, so that is what is checked, and what comes
@@ -319,6 +355,7 @@ export class MorningPipeline {
       caption,
       attached,
       problems,
+      ...(critiques.script || critiques.caption ? { critiques } : {}),
       recalled: { history, community },
     }
 
@@ -353,10 +390,14 @@ export class MorningPipeline {
       pick: Pick
       attached: MorningResult['attached']
       community: string
+      /** The previous draft and the ranker's read of it, when this is the rewrite. */
+      rewrite?: { draft: string; critique: Critique }
     },
   ): Promise<string> {
     const { maxEmoji } = this.options
-    const ask = captionPrompt(context, { ...input, maxEmoji, maxLength: MAX_POST_LENGTH })
+    const { rewrite, ...rest } = input
+    const ask = captionPrompt(context, { ...rest, maxEmoji, maxLength: MAX_POST_LENGTH })
+    if (rewrite) ask.prompt = rewriteWith(ask.prompt, rewrite.draft, rewrite.critique)
     let { text } = await askJson(this.options.text, { ...ask, schema: captionSchema })
     if (text.length > MAX_POST_LENGTH || countEmoji(text) > maxEmoji) {
       const retry = await askJson(this.options.text, {
@@ -404,6 +445,25 @@ export class MorningPipeline {
     }
   }
 
+  /**
+   * The ranker's reader on a draft, or nothing when there is no critic or
+   * it cannot be reached. The stage names which draft, for the problems.
+   */
+  private async critique(
+    stage: 'script' | 'caption',
+    input: Parameters<Critic['critique']>[0],
+    problems: string[],
+  ): Promise<Critique | undefined> {
+    const { critic } = this.options
+    if (!critic) return undefined
+    try {
+      return await critic.critique(input)
+    } catch (error) {
+      problems.push(`the critic could not read the ${stage}: ${messageOf(error)}`)
+      return undefined
+    }
+  }
+
   private async recall(query: string): Promise<string> {
     return this.options.memory.recall(query).catch(() => '')
   }
@@ -442,4 +502,30 @@ function sleep(ms: number): Promise<void> {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/** The story as the critic hears it: enough to judge the caption's subject, not the article. */
+function about(pick: Pick): string {
+  return `Story: ${pick.headline}\nAngle: ${pick.angle}`
+}
+
+/**
+ * The stage's own prompt again, with the draft and the ranker's read under
+ * it, so the rewrite is the same job done with the feedback in hand rather
+ * than a new job that has forgotten the rules.
+ */
+export function rewriteWith(prompt: string, draft: string, critique: Critique): string {
+  return [
+    prompt,
+    '',
+    'Your first draft:',
+    draft,
+    '',
+    "A reader who knows how X's ranker scores a post read it:",
+    renderCritique(critique),
+    '',
+    'Rewrite it with the fixes, keeping every rule above and your own voice. The point is',
+    'that somebody has something to type back: a stance they can push on, a question with',
+    'a one-line answer, a blank to fill. Never at a person, never political, never a price.',
+  ].join('\n')
 }

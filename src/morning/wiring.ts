@@ -4,6 +4,7 @@ import type { Config } from '../config.js'
 import { OpenAITextModel } from '../media/reference.js'
 import type { MediaAccess } from '../media/wiring.js'
 import type { SafetyGate } from '../safety/gate.js'
+import type { Critic } from '../critic/algo.js'
 import type { Memory, XTools } from '../types.js'
 import { ExaNewsSource } from './news.js'
 import { MorningPipeline } from './pipeline.js'
@@ -30,6 +31,8 @@ export function buildMorningPipeline(
     logger?: { info: (object: unknown, message?: string) => void }
     /** The content filter; the pipeline reads it on its prompts and its caption. */
     safety?: Pick<SafetyGate, 'outbound'>
+    /** The ranker's reader; the pipeline shows it the script and the caption. */
+    critic?: Critic
   },
 ): MorningPipeline {
   if (!config.EXA_API_KEY) throw new Error('EXA_API_KEY is not set, so there is no news to read')
@@ -62,5 +65,6 @@ export function buildMorningPipeline(
     maxEmoji: config.MAX_EMOJI_PER_POST,
     ...(options.logger ? { logger: options.logger } : {}),
     ...(options.safety ? { safety: options.safety } : {}),
+    ...(options.critic ? { critic: options.critic } : {}),
   })
 }

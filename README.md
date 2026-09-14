@@ -36,10 +36,12 @@ repositories, the published roadmap, and the rule that $TINY is the only token
 it ever promotes. Volatile numbers, price and market cap and burn totals, are
 deliberately absent so they cannot be quoted from memory.
 Every skill under `skills/` is a Markdown document the agent follows on every
-turn. There are three: `humanizer` is the rewrite guide that keeps posts from
+turn. There are four: `humanizer` is the rewrite guide that keeps posts from
 reading like a chatbot; `humor` is the joke mechanics, the sarcasm dial and the
-roast recipe; `video-script` is how the morning clip is scripted as a
-ten-second sketch a video model can render.
+roast recipe; `conversation` is how every timeline post is built to be
+answered, with the For You ranker's actual weights as the reason; and
+`video-script` is how the morning clip is scripted as a ten-second sketch a
+video model can render.
 
 Both are read from disk at startup and prepended to the agent's system prompt,
 for the task agent, the reply drafter, and the morning post's pick, script and
@@ -127,6 +129,70 @@ it made. `threadId` resumes an earlier conversation from the in-memory
 checkpointer; that state is lost on restart. The endpoint returns 503 while
 `AGENT_MODE=simple` or `AGENT_API_TOKEN` is unset, and the agent still honours
 `DRY_RUN`, so nothing is published until you turn it off.
+
+### The ranker's reader
+
+X's For You feed scores a post as `sum(weight × P(action))` per viewer, and
+the weights are public (`home-mixer/params/param.rs` in
+[xai-org/x-algorithm](https://github.com/xai-org/x-algorithm)): a reply is 5,
+a quote 5, a copied link 20, a like 0.5, a follow 4; "not interested" is
+-43.2, a mute -58.8, a report -234. A reply is worth ten likes and one report
+undoes forty-seven replies. The `conversation` skill is written from those
+numbers, and `src/critic/algo.ts` is a separate agent that applies them.
+
+The critic is shown one draft — a post, a caption with a line saying what the
+media shows, a clip script, a thread — and asked to estimate each action's
+probability for a typical viewer, plus the first reply a stranger would type,
+who disagrees, who copies the link, and what would earn a report. The
+arithmetic is done in code with the weights above, so the number it hands
+back is the ranker's, not the model's opinion of itself, and the verdict is
+one of three: **worthy** (score ≥ 2), **flat** (nobody has anything to type
+back), or **risky** (the predicted cost is -4 or worse — one in ten tapping
+"not interested", one in fifty reporting — where the fix is to take the thing
+out, not sharpen it). It is a critic, not a filter: it publishes nothing, holds
+nothing, and fails open, so a critic that cannot be reached is one line in
+the log and the draft goes out.
+
+It reaches the account three ways:
+
+- **`x_critique`**, a tool on every agent's belt. The task and content agents
+  are told to call it on any standalone or quote post, caption, or script
+  before publishing, rewrite a flat or risky draft with its fixes, and ask
+  once more. A reply to a person is already a conversation and is exempt
+  unless the drafter is unsure it leaves the door open.
+- **The morning pipeline** shows it the script and then the caption; each is
+  rewritten once when the read is flat or risky, with the previous draft and
+  the critique appended to the same stage prompt. The last read of each is
+  kept on the result as `critiques`.
+- **`POST /critique`**, behind `AGENT_API_TOKEN`, for anything else:
+
+```sh
+curl -X POST https://your-host.example/critique \
+  -H "authorization: Bearer $AGENT_API_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"kind":"caption","text":"gm. another lab shipped a faster model. the model has not been the bottleneck since last year.","media":"Tiny toasts a dead status board with a mug"}'
+```
+
+The response is the critique — verdict, score, upside, cost, the per-action
+probabilities, the first reply, the fixes — plus `rendered`, the same thing
+as the tool prints it. `kind` is one of `post`, `quote`, `reply`, `caption`,
+`script`, `thread`, `other`; `context` carries the post being answered or the
+story behind a caption.
+
+```text
+ALGO_CRITIC=true          # off: no tool, no pipeline read, /critique is 503
+ALGO_CRITIC_MODEL=        # blank: the chat model
+```
+
+A read is one structured model call and takes as long as the model takes: on
+the local ladder's `reasoning` rung, thirty to sixty seconds each, which the
+morning pipeline can afford (at most four) and an agent turn may not. Point
+`ALGO_CRITIC_MODEL` at a faster rung if `x_critique` is slowing replies down.
+
+Checked against the `conversation` skill's own examples on that rung: the
+flat post and flat caption read FLAT (-0.33 and 0.21), their conversation
+versions WORTHY (2.47 and 2.36), a political insult with a cashtag bolted on
+RISKY (cost -5.5), and an engagement-bait price call RISKY (-15.35).
 
 ## Pictures
 
@@ -609,7 +675,10 @@ everything it made to `MEDIA_OUTPUT_DIR` so it can be looked at.
    the emoji cap, no URLs, then through the house style like any other post,
    then through the content filter like any other draft: a link it cuts stays
    cut, and a caption it holds is a missing morning, journaled as `held` and
-   kept for [review](#reviewing-what-it-held) on the `morning` surface.
+   kept for [review](#reviewing-what-it-held) on the `morning` surface. Before
+   the filter, the [ranker's reader](#the-rankers-reader) reads it, as it read
+   the script a stage earlier, and a flat or risky draft is rewritten once with
+   the critique in the prompt.
 7. **Post, remember, journal.** The clip if there is one, else the picture; a
    still over X's 5 MB limit is re-encoded as JPEG on the way up (a rung served
    a nine-megabyte PNG). What went out is written back to memory as a

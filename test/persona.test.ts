@@ -63,6 +63,8 @@ describe('prompts', () => {
 
   it('falls back to the generic identity without a soul', () => {
     const prompt = systemPrompt({ botUsername: 'stonksrocks', dryRun: false })
+    expect(prompt).not.toContain('x_critique')
+    expect(systemPrompt({ botUsername: 'stonksrocks', dryRun: false, critic: true })).toContain('call\n  x_critique')
 
     expect(prompt).toContain('@stonksrocks')
     expect(prompt).toContain('DRY RUN is off')
