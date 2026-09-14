@@ -149,19 +149,24 @@ published one. The deploy prints which of the two it is shipping.
 
 ## The webhook
 
-teeny has its own name: **`teeny.tinyhumans.ai`**, proxied by Cloudflare to
-this box, with a Let's Encrypt certificate on the origin and
-`deploy/nginx/teeny.conf` installed as its vhost.
+X delivers to the landing page's name: **`https://teeny.enamakel.com/api/webhooks/x`**,
+proxied by Cloudflare to this box, where the vhost in
+`deploy/nginx/teeny.enamakel.com.conf` routes that one path to the agent
+container (`/webhooks/x` on `127.0.0.1:3110`) and everything else to the
+site. Installing or changing the vhost is `./deploy/web-vhost.sh`.
 
 ```text
-https://teeny.tinyhumans.ai/webhooks/x    X Account Activity
-https://teeny.tinyhumans.ai/agent/run     ad-hoc tasks, bearer AGENT_API_TOKEN
+https://teeny.enamakel.com/api/webhooks/x   X Activity API deliveries
+https://teeny.tinyhumans.ai/agent/run       ad-hoc tasks, bearer AGENT_API_TOKEN
+https://teeny.tinyhumans.ai/safety          the content filter's review page
 ```
 
-Everything else on that name answers 404. `/health` and `/queue` are
-operational, not public — read them over SSH.
+`teeny.tinyhumans.ai` (`deploy/nginx/teeny.conf`) still answers `/webhooks/x`
+too, so the old registration would work if it were ever put back; it is not
+where X delivers. `/health` and `/queue` are operational, not public, on
+either name -- read them over SSH.
 
-Two things about the vhost, both of which have bitten this box before:
+Two things about these vhosts, both of which have bitten this box before:
 
 - The 443 block is not optional. Cloudflare connects to the origin over
   HTTPS, and a name with no TLS server of its own falls through to the first
@@ -169,23 +174,47 @@ Two things about the vhost, both of which have bitten this box before:
   domain.
 - Test it with SNI. `curl -H 'Host: ...' https://127.0.0.1/` sends no SNI, so
   nginx answers from the default server and the result tells you nothing
-  about this vhost. Use `--resolve teeny.tinyhumans.ai:443:127.0.0.1`.
+  about this vhost. Use `--resolve teeny.enamakel.com:443:127.0.0.1`.
 
-X delivers here — the registration was moved off `stonks.rocks` on
-2026-09-08 with `npm run webhook`, and X's CRC challenge against the new URL
-passed. Nothing depends on stonks.rocks resolving to this box any more; the
-webhook location left in that vhost is now dead weight and can go whenever
-that file is next touched.
+The registration moved from `stonks.rocks` to `teeny.tinyhumans.ai` on
+2026-09-08 and from there to `teeny.enamakel.com/api` on 2026-09-14, both
+with `npm run webhook`, and X's CRC challenge against the new URL passed
+each time.
+
+The second move also changed what delivers. The Account Activity API the
+account had been subscribed through is deprecated, and on 2026-09-14 it
+refused to associate any freshly created webhook at all (`Webhook with
+specified ID not found, or not associated with app ID`, for the new URL and
+the old one alike). The subscription is now through the **X Activity API**:
+one subscription each for `post.mention.create`, `post.reply.create` and
+`post.quote.create`, bound to the webhook by id, which `npm run webhook`
+creates and lists. Each delivered post event costs one post credit. The
+delivery is one event per request, `{ data: { event_type, payload, ... } }`
+with a v2 post as the payload, and the app reads both that and the old
+`tweet_create_events` shape.
 
 ```sh
-npm run webhook                                            # where X delivers, and who is subscribed
-npm run webhook -- --set https://teeny.tinyhumans.ai/webhooks/x --confirm
+npm run webhook                                                 # where X delivers, and who is subscribed
+npm run webhook -- --set https://teeny.enamakel.com/api/webhooks/x --confirm
 ```
 
 The app holds exactly one webhook, so a move is a delete followed by a create
 and there is no moment where both are registered — the cron poll covers the
 seconds in between. See the header of `src/scripts/webhook.ts` for the rest,
 including why a wrong credential shows up as a `503` rather than a 401.
+
+### Forwarding it
+
+teeny is the only place X can deliver to, so any other service that wants
+the account's activity gets a copy from teeny. Set `WEBHOOK_FORWARD_URL` in
+`.env` (and `WEBHOOK_FORWARD_TOKEN`, sent as a bearer, if the receiver wants
+one) and every delivery whose signature checks out is POSTed there byte for
+byte, with X's `x-twitter-webhooks-signature` header still on it, so the
+receiver verifies it against the same `X_API_SECRET` and trusts nothing about
+the hop. The copy goes out after X has been answered and is not waited for:
+a receiver that is slow or down never costs a mention here, and a copy that
+does not arrive is logged and lost -- there is no replay, so the receiver
+should not be the only reader of anything it cannot afford to miss.
 
 The cron poll is the safety net under all of it: a webhook delivery that fails
 is retried for a while and then dropped, and an account that misses a mention

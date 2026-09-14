@@ -2,9 +2,18 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { isWorthAnswering, type Memory, type XPost } from '../types.js'
 
 /**
- * Account Activity delivers v1.1-shaped tweet objects, not v2 ones: snake_case
- * `id_str` rather than `id`, the author nested under `user`, and the text
- * truncated into `extended_tweet.full_text` once it passes 140 characters.
+ * Two shapes arrive here, because X has two webhook products and the
+ * account moved from one to the other on 2026-09-14.
+ *
+ * Account Activity (the old one, deprecated) delivers v1.1-shaped tweet
+ * objects under `tweet_create_events`: snake_case `id_str` rather than `id`,
+ * the author nested under `user`, and the text truncated into
+ * `extended_tweet.full_text` once it passes 140 characters.
+ *
+ * The X Activity API delivers one event per request as
+ * `{ data: { event_type, event_uuid, filter, tag, payload, includes } }`,
+ * where a `post.*` event's payload is a v2 post and the author's handle is
+ * in `includes.users`, when it is anywhere.
  */
 interface ActivityTweet {
   id_str?: string
@@ -43,13 +52,25 @@ export function mentionsFromActivity(
   payload: Record<string, unknown>,
   options: { botUserId: string; botUsername: string },
 ): XPost[] {
-  const events = payload.tweet_create_events
-  if (!Array.isArray(events)) return []
   // Required, not optional. A delivery is mostly the account's own activity,
   // so without an id to compare against there is no way to tell the account's
   // posts from anybody else's, and the safe reading of every one of them is
   // "not a mention".
   if (!options.botUserId) return []
+
+  const event = activityEvent(payload)
+  if (event) {
+    if (!POST_EVENTS.has(event.eventType)) return []
+    const post = fromV2Post(event.payload, event.includes)
+    if (!post) return []
+    if (/^RT @[A-Za-z0-9_]{1,15}:/.test(post.text)) return []
+    if (post.authorId === options.botUserId) return []
+    if (!isWorthAnswering(post, options)) return []
+    return [post]
+  }
+
+  const events = payload.tweet_create_events
+  if (!Array.isArray(events)) return []
 
   return (events as ActivityTweet[]).flatMap((tweet) => {
     // A retweet of the account carries "RT @handle: ..." as its text, so it
@@ -65,6 +86,54 @@ export function mentionsFromActivity(
     if (!isWorthAnswering(post, options)) return []
     return [post]
   })
+}
+
+/** The X Activity API events whose payload is somebody's post about the account. */
+const POST_EVENTS = new Set(['post.mention.create', 'post.reply.create', 'post.quote.create'])
+
+interface ActivityIncludes {
+  users?: Array<{ id?: string; username?: string }>
+}
+
+interface ActivityEvent {
+  eventType: string
+  eventId?: string
+  payload: Record<string, unknown>
+  includes?: ActivityIncludes
+}
+
+/** The X Activity API envelope, when the delivery is one. */
+export function activityEvent(payload: Record<string, unknown>): ActivityEvent | undefined {
+  const data = payload.data
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return undefined
+  const envelope = data as Record<string, unknown>
+  if (typeof envelope.event_type !== 'string') return undefined
+  const body =
+    envelope.payload && typeof envelope.payload === 'object' ? (envelope.payload as Record<string, unknown>) : {}
+  return {
+    eventType: envelope.event_type,
+    ...(typeof envelope.event_uuid === 'string' ? { eventId: envelope.event_uuid } : {}),
+    payload: body,
+    ...(envelope.includes && typeof envelope.includes === 'object'
+      ? { includes: envelope.includes as ActivityIncludes }
+      : {}),
+  }
+}
+
+function fromV2Post(post: Record<string, unknown>, includes?: ActivityIncludes): XPost | undefined {
+  const id = typeof post.id === 'string' ? post.id : undefined
+  const text = typeof post.text === 'string' ? post.text : undefined
+  if (!id || !text) return undefined
+  const authorId = typeof post.author_id === 'string' ? post.author_id : undefined
+  const author = authorId ? includes?.users?.find((user) => user.id === authorId) : undefined
+  return {
+    id,
+    text,
+    ...(authorId ? { authorId } : {}),
+    ...(author?.username ? { authorUsername: author.username } : {}),
+    ...(typeof post.created_at === 'string' ? { createdAt: new Date(post.created_at).toISOString() } : {}),
+    ...(typeof post.in_reply_to_user_id === 'string' ? { inReplyToUserId: post.in_reply_to_user_id } : {}),
+  }
 }
 
 export function crcResponse(token: string, consumerSecret: string): string {
@@ -89,6 +158,11 @@ export function activityEntries(payload: Record<string, unknown>): Array<{
   payload: unknown
 }> {
   const entries: Array<{ kind: string; id: string; payload: unknown }> = []
+  const event = activityEvent(payload)
+  if (event) {
+    const id = typeof event.payload.id === 'string' ? event.payload.id : event.eventId ?? '0'
+    return [{ kind: event.eventType, id, payload: event.payload }]
+  }
   for (const [kind, value] of Object.entries(payload)) {
     if (!kind.endsWith('_events') || !Array.isArray(value)) continue
     for (const [index, event] of value.entries()) {
@@ -114,7 +188,7 @@ export async function captureWebhookActivity(
 ): Promise<void> {
   await Promise.all(
     activityEntries(payload)
-      .filter((entry) => entry.kind !== 'tweet_create_events')
+      .filter((entry) => entry.kind !== 'tweet_create_events' && !POST_EVENTS.has(entry.kind))
       .map((entry) => memory.captureActivity(entry.kind, entry.id, entry.payload)),
   )
 }

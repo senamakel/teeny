@@ -15,6 +15,7 @@ import {
   isValidWebhookSignature,
   mentionsFromActivity,
 } from './webhooks/activity.js'
+import type { WebhookForwarder } from './webhooks/forward.js'
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -96,6 +97,8 @@ export function buildServer(options: {
   }
   /** The ranker's reader, served at POST /critique behind the same token as the task endpoint. */
   critic?: Critic
+  /** Where a copy of every verified X delivery is sent, after X has been answered. */
+  forwarder?: WebhookForwarder
 }): FastifyInstance {
   const app = Fastify({ logger: options.logger ?? false })
 
@@ -162,6 +165,16 @@ export function buildServer(options: {
     }
 
     const payload = request.body as Record<string, unknown>
+
+    // The copy goes out first and is not awaited: the receiver's clock is
+    // its own, and X's is the one this handler answers to.
+    if (options.forwarder) {
+      const copy = request.rawBody
+      const header = Array.isArray(signature) ? signature[0] : signature
+      void options.forwarder.forward(copy, header).catch((error: unknown) => {
+        request.log.warn({ err: error }, 'webhook copy failed')
+      })
+    }
 
     // X retries a delivery it does not see acknowledged quickly, so the work is
     // queued rather than done here: the reply itself takes a model call and
