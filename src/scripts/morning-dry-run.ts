@@ -6,8 +6,9 @@ import { buildMedia } from '../media/wiring.js'
 import { CortexMemory } from '../memory/cortex.js'
 import { buildMorningPipeline } from '../morning/wiring.js'
 import { renderStories } from '../morning/news.js'
+import { renderTrends } from '../morning/timeline.js'
 import { lexicalGate } from '../safety/gate.js'
-import { AlgoCritic } from '../critic/algo.js'
+import { AlgoCritic, renderCritique } from '../critic/algo.js'
 
 /**
  * Rehearses the good-morning post without publishing.
@@ -83,11 +84,20 @@ console.log(
 
 const result = await pipeline.run()
 
-console.log(`\nNEWS (${result.stories.length} stories, ${result.droppedAsPolitical} dropped as political)`)
+console.log(`\nNEWS (${result.stories.length} stories; ${result.droppedAsPolitical} dropped as political or promotional across both lists)`)
 console.log(renderStories(result.stories))
+console.log(`\nTIMELINE (${result.posts.length} posts)`)
+console.log(renderStories(result.posts, result.stories.length + 1) || '(nothing read)')
+console.log(`\nTRENDING (${result.trends.length})`)
+console.log(renderTrends(result.trends) || '(not available)')
 console.log('\nPICK')
 console.log(JSON.stringify(result.pick, null, 2))
 if (result.story) console.log(`  from: ${result.story.url}`)
+console.log('\nFRESHNESS')
+for (const check of result.freshness.subject) {
+  console.log(`  [${check.story}] ${check.headline}: ${check.verdict.toUpperCase()} (${check.reason})${check.said ? `\n      said before: ${check.said}` : ''}`)
+}
+if (result.freshness.subject.length === 0) console.log('  (the subject could not be checked)')
 console.log('\nSEED')
 console.log(result.seed ? `${result.seed.url}\n${result.seed.look}` : '(no reference sheet)')
 console.log('\nCONCEPTS')
@@ -102,6 +112,11 @@ console.log(result.script ? `${result.script.script}\n\nsummary: ${result.script
 console.log(`\nVIDEO: ${result.video ? `${result.video.id} at ${result.video.path ?? '(not saved)'}` : '(none)'}`)
 console.log(`\nCAPTION (${result.caption.length} chars, ${result.attached} attached)\n`)
 console.log(result.caption)
+if (result.freshness.post) {
+  console.log(`\nfreshness: ${result.freshness.post.verdict.toUpperCase()} (${result.freshness.post.reason})`)
+}
+if (result.critiques?.script) console.log(`\nRANKER'S READ OF THE SCRIPT\n${renderCritique(result.critiques.script)}`)
+if (result.critiques?.caption) console.log(`\nRANKER'S READ OF THE CAPTION\n${renderCritique(result.critiques.caption)}`)
 console.log(`\nOUTCOME: ${result.outcome}${result.postedId ? ` (post ${result.postedId})` : ''}`)
 if (result.problems.length > 0) {
   console.log('\nPROBLEMS')

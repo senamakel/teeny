@@ -16,7 +16,17 @@ import { ExaNewsSource, gatherNews, isPolitical, renderStories, type NewsSource,
 import { MorningPipeline, type MorningPipelineOptions, type MorningResult } from '../src/morning/pipeline.js'
 import type { Critic, Critique } from '../src/critic/algo.js'
 import { askJson, extractJson, pickSchema, scriptPrompt } from '../src/morning/stages.js'
-import type { Memory, XMedia, XTools } from '../src/types.js'
+import {
+  XTimelineSource,
+  conversationScore,
+  gatherTimeline,
+  parseTimelineQueries,
+  renderTrends,
+  storyOf,
+  TIMELINE_QUERIES,
+  type TimelineSource,
+} from '../src/morning/timeline.js'
+import type { Memory, XMedia, XPost, XTools } from '../src/types.js'
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0])
 const MP4 = new Uint8Array([0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70])
@@ -154,7 +164,7 @@ describe('the script stage', () => {
     const { system, prompt } = scriptPrompt(
       { persona: 'SOUL\n<skill name="video-script">beats</skill>', botUsername: 'TinyMascot', today: '2026-09-14' },
       {
-        pick: { story: 1, headline: 'A model launched', topic: 'ai', angle: 'local-first has no status page', visual: 'a board' },
+        pick: { shortlist: [], story: 1, headline: 'A model launched', topic: 'ai', hook: '', angle: 'local-first has no status page', visual: 'a board' },
         scene: { concepts: ['a dead status board'], scene: 'A status board over a stage.', storyCue: 'the board', alt: 'a board' },
         seconds: 10,
       },
@@ -260,11 +270,14 @@ const STORIES = [
 ]
 
 /** A model that answers each stage in turn by recognising the shape it was asked for. */
-function stagedModel(overrides: Partial<Record<'pick' | 'scene' | 'script' | 'caption', string>> = {}): TextModel {
+function stagedModel(overrides: Partial<Record<'pick' | 'scene' | 'script' | 'caption' | 'fresh', string>> = {}): TextModel {
   return {
     complete: vi.fn().mockImplementation(async ({ prompt }: { prompt: string }) => {
       if (prompt.includes('"brief": string')) {
         return '{"brief": "Tiny in a bucket hat and sunglasses, glowing nodes across the body, polished 3D, warm gold light."}'
+      }
+      if (prompt.includes('"verdict": "fresh"|"repeat"|"stale"')) {
+        return overrides.fresh ?? '{"said": "", "reason": "nothing like it in memory", "verdict": "fresh"}'
       }
       if (prompt.includes('"story": number')) {
         return overrides.pick ?? '{"story": 1, "headline": "An agent runtime hit 40k stars", "topic": "ai", "angle": "open source wins", "visual": "a star counter ticking past 40k"}'
@@ -337,6 +350,109 @@ function pipeline(overrides: Partial<Omit<MorningPipelineOptions, 'videos'>> & {
   return { run: () => new MorningPipeline(options).run(), x, memory, images, videos, text }
 }
 
+// --- the timeline --------------------------------------------------------------
+
+const MEME: XPost = {
+  id: '77',
+  text: 'the model said "you\'re absolutely right" nine times in one session and i am cooked\nhttps://t.co/x',
+  authorUsername: 'someone',
+  createdAt: '2026-09-14T04:00:00Z',
+  media: [{ type: 'photo', url: 'https://pbs/x.jpg', altText: 'a robot nodding' }],
+  metrics: { likes: 4_200, replies: 310, reposts: 90, quotes: 140, impressions: 900_000 },
+}
+const QUIET: XPost = {
+  id: '78',
+  text: 'new open weights model dropped, benchmarks look fine',
+  authorUsername: 'lab',
+  metrics: { likes: 12, replies: 0, reposts: 1, quotes: 0 },
+}
+
+describe('the timeline', () => {
+  it('turns a post into a story with its counters, its picture, and its own url', () => {
+    const s = storyOf(MEME, TIMELINE_QUERIES[0]!)
+    expect(s).toMatchObject({
+      title: 'the model said "you\'re absolutely right" nine times in one session and i am cooked',
+      url: 'https://x.com/someone/status/77',
+      source: '@someone on X',
+      topic: 'ai memes',
+      kind: 'x',
+      media: 'a robot nodding',
+      metrics: { replies: 310 },
+    })
+    expect(s.excerpt).not.toContain('https://')
+  })
+
+  it("values what a post already earned the way the ranker does: a reply is ten likes", () => {
+    expect(conversationScore(storyOf(QUIET, TIMELINE_QUERIES[1]!))).toBe(12 * 0.5 + 1)
+    expect(conversationScore(storyOf(MEME, TIMELINE_QUERIES[0]!))).toBe(310 * 5 + 140 * 5 + 90 + 4_200 * 0.5)
+  })
+
+  it('reads recent originals by relevancy inside the window, best conversations first, and shrugs at a search that fails', async () => {
+    const searchPosts = vi.fn().mockResolvedValue([QUIET, MEME])
+    const source = new XTimelineSource({ searchPosts }, () => Date.parse('2026-09-14T08:00:00Z'))
+    const found = await source.pulse(TIMELINE_QUERIES[0]!, { hours: 24, limit: 20 })
+    expect(found.map((s) => s.url)).toEqual(['https://x.com/someone/status/77', 'https://x.com/lab/status/78'])
+    expect(searchPosts).toHaveBeenCalledWith(expect.stringContaining('has:media -has:cashtags -is:retweet -is:reply'), {
+      maxResults: 20,
+      startTime: '2026-09-13T07:59:00.000Z',
+      endTime: '2026-09-14T07:59:00.000Z',
+      sortOrder: 'relevancy',
+    })
+    expect(await source.trending()).toEqual([])
+    const broken = new XTimelineSource({ searchPosts: vi.fn().mockRejectedValue(new Error('429')), trends: vi.fn().mockRejectedValue(new Error('403')) })
+    expect(await broken.pulse(TIMELINE_QUERIES[0]!, { hours: 24, limit: 10 })).toEqual([])
+    expect(await broken.trending()).toEqual([])
+  })
+
+  it('gathers every corner with its share, drops promotions and politics, and is off at zero', async () => {
+    const source: TimelineSource = {
+      trending: vi.fn().mockResolvedValue([{ name: 'gm', posts: 100 }, { name: 'OpenAI', posts: 5_000 }]),
+      pulse: vi.fn().mockImplementation(async (query: { label: string }) =>
+        query.label === 'ai memes'
+          ? [storyOf(MEME, TIMELINE_QUERIES[0]!), storyOf({ id: '1', text: 'AIRDROP live, dm me' }, TIMELINE_QUERIES[0]!)]
+          : [storyOf({ id: '2', text: 'the senate hearing on AI was wild' }, TIMELINE_QUERIES[1]!), storyOf(QUIET, TIMELINE_QUERIES[1]!)],
+      ),
+    }
+    const { posts, dropped, quiet, trends } = await gatherTimeline(source, { queries: TIMELINE_QUERIES, hours: 24, perQuery: 10 })
+    // The quiet one -- twelve likes, no replies -- is not a conversation to walk into.
+    expect(posts.map((s) => s.title)).toEqual([MEME.text.split('\n')[0]])
+    expect(dropped).toBe(2)
+    expect(quiet).toBe(1)
+    expect(source.pulse).toHaveBeenCalledWith(TIMELINE_QUERIES[0], { hours: 24, limit: 20 })
+    expect(source.pulse).toHaveBeenCalledWith(TIMELINE_QUERIES[1], { hours: 24, limit: 10 })
+    expect(renderTrends(trends)).toBe('- OpenAI (5,000 posts)\n- gm (100 posts)')
+    expect(await gatherTimeline(source, { queries: TIMELINE_QUERIES, hours: 24, perQuery: 0 })).toEqual({ posts: [], dropped: 0, quiet: 0, trends: [] })
+    // A contract address or somebody else's cashtag is a promotion whatever the words.
+    const shilling: TimelineSource = {
+      trending: vi.fn().mockResolvedValue([]),
+      pulse: vi.fn().mockResolvedValue([
+        storyOf({ id: '3', text: 'hear me out, ca: 0x7927cd547e644db657d95cb04ea678c5feb37777 could run', metrics: { likes: 500, replies: 40, reposts: 0, quotes: 0 } }, TIMELINE_QUERIES[0]!),
+        storyOf({ id: '4', text: '$DARWIN is not an agent, it rewrites itself', metrics: { likes: 500, replies: 40, reposts: 0, quotes: 0 } }, TIMELINE_QUERIES[0]!),
+        storyOf({ id: '5', text: '$TINY holders, the model said we are absolutely right again', metrics: { likes: 500, replies: 40, reposts: 0, quotes: 0 } }, TIMELINE_QUERIES[0]!),
+      ]),
+    }
+    const read = await gatherTimeline(shilling, { queries: [TIMELINE_QUERIES[0]!], hours: 24, perQuery: 10 })
+    expect(read.posts.map((s) => s.url)).toEqual(['https://x.com/i/status/5'])
+    expect(read.dropped).toBe(2)
+  })
+
+  it('numbers the timeline after the news, with the counters under each post', () => {
+    const rendered = renderStories([storyOf(MEME, TIMELINE_QUERIES[0]!)], 3)
+    expect(rendered).toContain('[3] the model said')
+    expect(rendered).toContain('@someone on X, 2026-09-14 (ai memes)')
+    expect(rendered).toContain('picture: a robot nodding')
+    expect(rendered).toContain('310 replies, 140 quotes, 90 reposts, 4.2k likes, 900k views')
+  })
+
+  it('reads corners from configuration, or falls back to the built-in ones', () => {
+    expect(parseTimelineQueries('')).toBe(TIMELINE_QUERIES)
+    expect(parseTimelineQueries('robots=(robot OR robots) -is:retweet; memes')).toEqual([
+      { label: 'robots', query: '(robot OR robots) -is:retweet', topic: 'robots' },
+      { label: 'memes', query: 'memes', topic: 'memes' },
+    ])
+  })
+})
+
 describe('the morning pipeline', () => {
   it('reads, picks, draws from a seed, scripts, films, captions, posts the clip, and remembers', async () => {
     const reference = {
@@ -367,8 +483,14 @@ describe('the morning pipeline', () => {
     expect(x.createPost).toHaveBeenCalledWith(expect.stringContaining('gm builders'), { mediaIds: ['m1'] })
     expect(result.caption).toContain("in today's clip")
 
-    // Memory on both sides: recalled before, written back after.
-    expect(memory.recall).toHaveBeenCalledTimes(2)
+    // Memory on both sides: recalled before (history, community, then the subject and the post by name), written back after.
+    expect(memory.recall).toHaveBeenCalledTimes(4)
+    expect(memory.recall).toHaveBeenCalledWith(expect.stringContaining('Headline: An agent runtime hit 40k stars'))
+    expect(memory.recall).toHaveBeenCalledWith(expect.stringContaining('gm builders'))
+    expect(result.freshness).toEqual({
+      subject: [{ said: '', reason: 'nothing like it in memory', verdict: 'fresh', story: 1, headline: 'An agent runtime hit 40k stars' }],
+      post: { said: '', reason: 'nothing like it in memory', verdict: 'fresh' },
+    })
     expect(memory.captureActivity).toHaveBeenCalledWith(
       'morning_post',
       '9001',
@@ -382,6 +504,49 @@ describe('the morning pipeline', () => {
         published: true,
       }),
     )
+  })
+
+  it('shows the picker the timeline after the news and the trends, and takes a post as the story', async () => {
+    const timeline: TimelineSource = {
+      trending: vi.fn().mockResolvedValue([{ name: 'gm', posts: 100 }]),
+      pulse: vi.fn().mockResolvedValue([storyOf(MEME, TIMELINE_QUERIES[0]!)]),
+    }
+    const text = stagedModel({
+      pick: '{"shortlist": [{"story": 3, "talk": "mine said it eleven times"}], "story": 3, "headline": "everybody is being told they are absolutely right", "topic": "ai", "hook": "the most sycophantic thing a model has said to you this week", "angle": "a model that agrees is not helping", "visual": "a robot nodding"}',
+    })
+    const { run, memory } = pipeline({ timeline, timelineQueries: [TIMELINE_QUERIES[0]!], postsPerQuery: 10, text })
+    const result = await run()
+    expect(result.posts).toHaveLength(1)
+    expect(result.story?.kind).toBe('x')
+    expect(result.problems).toEqual([])
+
+    const calls = (text.complete as ReturnType<typeof vi.fn>).mock.calls as Array<[{ system: string; prompt: string }]>
+    const pick = calls.find(([call]) => call.prompt.includes('"story": number'))![0]
+    expect(pick.prompt).toContain('[1] An open-source agent runtime crossed 40k stars')
+    expect(pick.prompt).toContain('[3] the model said')
+    expect(pick.prompt).toContain('310 replies')
+    expect(pick.prompt).toContain('- gm (100 posts)')
+    expect(pick.prompt).toContain('Strong preference for an AI meme')
+    // The post is its own article: the scene reads the text and the picture, and Exa is not asked.
+    const scene = calls.find(([call]) => call.prompt.includes('"storyCue": string'))![0]
+    expect(scene.prompt).toContain('@someone on X: the model said')
+    expect(scene.prompt).toContain('Their picture: a robot nodding')
+    expect(scene.prompt).toContain('The conversation the post starts: the most sycophantic')
+    const caption = calls.find(([call]) => call.prompt.includes('"text": string'))![0]
+    expect(caption.prompt).toContain('The conversation to start: the most sycophantic')
+    expect(memory.captureActivity).toHaveBeenCalledWith(
+      'morning_post',
+      '9001',
+      expect.objectContaining({ from: 'x', url: 'https://x.com/someone/status/77', hook: expect.stringContaining('sycophantic') }),
+    )
+  })
+
+  it('notes an empty timeline and chooses from the news', async () => {
+    const timeline: TimelineSource = { trending: vi.fn().mockResolvedValue([]), pulse: vi.fn().mockResolvedValue([]) }
+    const { run } = pipeline({ timeline, timelineQueries: TIMELINE_QUERIES })
+    const result = await run()
+    expect(result.outcome).toBe('posted')
+    expect(result.problems).toEqual(['the timeline gave nothing; chosen from the news alone'])
   })
 
   it('tells the picker what it already posted, and the caption who it is talking to', async () => {
@@ -672,6 +837,103 @@ describe('the morning pipeline', () => {
     expect(x.createPost).toHaveBeenCalled()
   })
 
+  describe('the freshness check', () => {
+    /** A model whose freshness answers come in order, everything else staged as usual. */
+    function checkingModel(answers: string[], picks: string[] = []): TextModel {
+      const base = stagedModel()
+      const fresh = [...answers]
+      const pick = [...picks]
+      return {
+        complete: vi.fn().mockImplementation(async (input: { system: string; prompt: string }) => {
+          if (input.prompt.includes('"verdict": "fresh"|"repeat"|"stale"')) return fresh.shift() ?? '{"said": "", "reason": "new", "verdict": "fresh"}'
+          if (input.prompt.includes('"story": number') && pick.length > 0) return pick.shift()!
+          return base.complete(input)
+        }),
+      }
+    }
+
+    it('asks memory about the chosen subject by name, turns down a repeat, and has the picker choose again with the reason in front of it', async () => {
+      const text = checkingModel(
+        [
+          '{"said": "2026-09-12: gm. an agent runtime crossed 40k stars overnight", "reason": "posted about this exact story two days ago", "verdict": "repeat"}',
+          '{"said": "", "reason": "the wallet story is new", "verdict": "fresh"}',
+        ],
+        [
+          '{"story": 1, "headline": "An agent runtime hit 40k stars", "topic": "ai", "angle": "open source wins", "visual": "a counter"}',
+          '{"story": 2, "headline": "A wallet shipped account abstraction", "topic": "crypto", "angle": "wallets grow up", "visual": "a wallet with training wheels"}',
+        ],
+      )
+      const { run, memory } = pipeline({ text })
+      const result = await run()
+      expect(result.outcome).toBe('posted')
+      expect(result.story?.title).toBe('A wallet shipped account abstraction')
+      expect(result.freshness.subject.map((check) => [check.story, check.verdict])).toEqual([[1, 'repeat'], [2, 'fresh']])
+      expect(result.problems).toEqual(['turned down [1] An agent runtime hit 40k stars: repeat, posted about this exact story two days ago'])
+
+      // The subject went to memory by name, with its source and date.
+      expect(memory.recall).toHaveBeenCalledWith(expect.stringMatching(/Has this account posted about this.*Headline: An agent runtime hit 40k stars.*Source: news.example/s))
+      // The second pick was told what was turned down and why, and the check read the memory's answer.
+      const calls = (text.complete as ReturnType<typeof vi.fn>).mock.calls as Array<[{ prompt: string }]>
+      const picks = calls.filter(([call]) => call.prompt.includes('"story": number'))
+      expect(picks).toHaveLength(2)
+      expect(picks[0]![0].prompt).not.toContain('TURNED DOWN')
+      expect(picks[1]![0].prompt).toContain('- [1] An agent runtime hit 40k stars: repeat, posted about this exact story two days ago')
+      const check = calls.find(([call]) => call.prompt.includes('"verdict": "fresh"'))![0]
+      expect(check.prompt).toContain('yesterday: a post about robots')
+      expect(check.prompt).toContain('was never posted and does not count')
+    })
+
+    it('takes the last pick as it is when every one comes back stale, and says so', async () => {
+      const stale = '{"said": "", "reason": "the story is three days old", "verdict": "stale"}'
+      const text = checkingModel([stale, stale, stale])
+      const { run } = pipeline({ text })
+      const result = await run()
+      expect(result.outcome).toBe('posted')
+      expect(result.freshness.subject).toHaveLength(3)
+      expect(result.problems.at(-1)).toBe('the subject was stale on the last try too (the story is three days old); going with it')
+    })
+
+    it('checks the finished post too, and rewrites a repeated joke around what was already said', async () => {
+      const text = checkingModel([
+        '{"said": "", "reason": "new", "verdict": "fresh"}',
+        '{"said": "2026-09-10: small robots, big repos", "reason": "the same line about small robots and big repos", "verdict": "repeat"}',
+        '{"said": "", "reason": "a different point now", "verdict": "fresh"}',
+      ])
+      const { run, memory } = pipeline({ text })
+      const result = await run()
+      expect(result.outcome).toBe('posted')
+      expect(result.freshness.post?.verdict).toBe('fresh')
+      expect(result.problems).toEqual(['the caption repeated what was already said (the same line about small robots and big repos); rewritten'])
+      expect(memory.recall).toHaveBeenCalledWith(expect.stringMatching(/already said this.*gm builders/s))
+      const calls = (text.complete as ReturnType<typeof vi.fn>).mock.calls as Array<[{ prompt: string }]>
+      const captions = calls.filter(([call]) => call.prompt.includes('"text": string'))
+      expect(captions).toHaveLength(2)
+      expect(captions[1]![0].prompt).toContain('YOU HAVE ALREADY SAID THIS')
+      expect(captions[1]![0].prompt).toContain('2026-09-10: small robots, big repos')
+    })
+
+    it('fails open: a memory that cannot be reached is a line in the problems and the pick stands', async () => {
+      const { run } = pipeline({
+        memory: {
+          captureActivity: vi.fn().mockResolvedValue(undefined),
+          captureMention: vi.fn(),
+          recall: vi.fn().mockImplementation(async (query: string) => {
+            if (query.startsWith('Has this account')) throw new Error('cortex down')
+            return ''
+          }),
+          captureReply: vi.fn(),
+        },
+      })
+      const result = await run()
+      expect(result.outcome).toBe('posted')
+      expect(result.freshness).toEqual({ subject: [] })
+      expect(result.problems).toEqual([
+        'could not check the subject against memory: cortex down',
+        'could not check the post against memory: cortex down',
+      ])
+    })
+  })
+
   describe('with the ranker\'s reader', () => {
     const read = (verdict: 'worthy' | 'flat', fixes: string[] = []): Critique => ({
       verdict,
@@ -753,8 +1015,11 @@ describe('the morning job', () => {
   function result(overrides: Partial<MorningResult> = {}): MorningResult {
     return {
       stories: STORIES,
+      posts: [],
+      trends: [],
+      freshness: { subject: [] },
       droppedAsPolitical: 1,
-      pick: { story: 1, headline: 'h', topic: 'ai', angle: 'a', visual: 'v' },
+      pick: { shortlist: [], story: 1, headline: 'h', topic: 'ai', hook: '', angle: 'a', visual: 'v' },
       story: STORIES[0]!,
       scene: { concepts: ['a gag'], scene: 's', storyCue: 'c', alt: 'alt' },
       caption: 'gm',

@@ -1,6 +1,12 @@
 import type { ExaSearch, ExaSearchHit } from '../agent/tools/exa.js'
+import type { XPostMetrics } from '../types.js'
 
-/** One story as the pipeline sees it: enough to choose from, not enough to quote. */
+/**
+ * One story as the pipeline sees it: enough to choose from, not enough to
+ * quote. A newsroom's article by default; a post from X's own timeline when
+ * `kind` says so, in which case the excerpt is the post and the counters say
+ * how much of a conversation it already is.
+ */
 export interface Story {
   title: string
   url: string
@@ -9,6 +15,10 @@ export interface Story {
   excerpt: string
   /** Which topic search found it, e.g. "AI". */
   topic: string
+  kind?: 'news' | 'x'
+  metrics?: XPostMetrics
+  /** What the picture on the post shows, when the post has one and X described it. */
+  media?: string
 }
 
 export interface NewsSource {
@@ -215,17 +225,41 @@ export async function gatherNews(
   return { stories, dropped }
 }
 
-/** The stories as the model reads them: numbered from one, with the number being the handle. */
-export function renderStories(stories: Story[]): string {
+/**
+ * The stories as the model reads them: numbered from one, with the number
+ * being the handle. `from` starts the numbering elsewhere, so two lists can
+ * be shown as one. A post from X carries its counters, which is the reader's
+ * evidence of what is already a conversation.
+ */
+export function renderStories(stories: Story[], from = 1): string {
   return stories
     .map((story, index) =>
       [
-        `[${index + 1}] ${story.title}`,
+        `[${index + from}] ${story.title}`,
         `    ${story.source}${story.publishedAt ? `, ${story.publishedAt.slice(0, 10)}` : ''} (${story.topic})`,
-        story.excerpt ? `    ${story.excerpt}` : undefined,
+        story.excerpt && story.excerpt !== story.title ? `    ${story.excerpt}` : undefined,
+        story.media ? `    picture: ${story.media}` : undefined,
+        story.metrics ? `    ${renderMetrics(story.metrics)}` : undefined,
       ]
         .filter(Boolean)
         .join('\n'),
     )
     .join('\n')
+}
+
+export function renderMetrics(metrics: XPostMetrics): string {
+  const parts = [
+    `${compact(metrics.replies)} replies`,
+    `${compact(metrics.quotes)} quotes`,
+    `${compact(metrics.reposts)} reposts`,
+    `${compact(metrics.likes)} likes`,
+  ]
+  if (metrics.impressions !== undefined) parts.push(`${compact(metrics.impressions)} views`)
+  return parts.join(', ')
+}
+
+function compact(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}m`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, '')}k`
+  return String(n)
 }

@@ -8,6 +8,8 @@ import type { SafetyGate } from '../safety/gate.js'
 import { renderCritique, type Critic, type Critique } from '../critic/algo.js'
 import type { Memory, XTools } from '../types.js'
 import { gatherNews, renderStories, type NewsSource, type Story } from './news.js'
+import { gatherTimeline, renderTrends, type TimelineQuery, type TimelineSource } from './timeline.js'
+import type { XTrend } from '../types.js'
 import {
   askJson,
   captionPrompt,
@@ -15,6 +17,8 @@ import {
   checkQuestion,
   checkSchema,
   extractJson,
+  freshnessPrompt,
+  freshnessSchema,
   pickPrompt,
   pickSchema,
   scenePrompt,
@@ -23,6 +27,7 @@ import {
   scriptSchema,
   seedBriefPrompt,
   seedBriefSchema,
+  type Freshness,
   type Pick,
   type Scene,
   type Script,
@@ -31,6 +36,16 @@ import {
 
 export interface MorningPipelineOptions {
   news: NewsSource
+  /**
+   * X's own timeline, read next to the news: what people are already joking
+   * and arguing about, with the counters that say so. Absent, the morning
+   * is chosen from the news alone.
+   */
+  timeline?: TimelineSource
+  timelineQueries?: TimelineQuery[]
+  /** How far back the timeline is read, and how many posts each corner may contribute (0 turns it off). */
+  timelineHours?: number
+  postsPerQuery?: number
   text: TextModel
   images: ImageGenerator
   /** Absent: the post carries the picture instead of a clip. */
@@ -92,8 +107,14 @@ const ARTICLE_CHARACTERS = 3_000
 const IMAGE_ATTEMPTS = 2
 const VIDEO_ATTEMPTS = 2
 
+/** How many subjects are chosen and checked against memory before the last one is taken as it is. */
+const PICK_ATTEMPTS = 3
+
 export interface MorningResult {
   stories: Story[]
+  /** What the timeline offered, numbered after the news in what the model saw. */
+  posts: Story[]
+  trends: XTrend[]
   droppedAsPolitical: number
   pick: Pick
   story?: Story
@@ -111,6 +132,11 @@ export interface MorningResult {
   problems: string[]
   /** The ranker's reader on the script and the caption, when there is one. The last read of each. */
   critiques?: { script?: Critique; caption?: Critique }
+  /**
+   * The freshness checks: one per subject chosen (the last is the one kept),
+   * and one on the finished post. Absent when the check could not be made.
+   */
+  freshness: { subject: Array<Freshness & { story: number; headline: string }>; post?: Freshness }
   recalled: { history: string; community: string }
 }
 
@@ -158,25 +184,75 @@ export class MorningPipeline {
       ),
     ])
 
-    // 2. The news, minus politics.
-    const { stories, dropped } = await gatherNews(options.news, {
-      topics: options.topics,
-      days: options.newsDays,
-      perTopic: options.storiesPerTopic,
-    })
-    log('news gathered', { stories: stories.length, droppedAsPolitical: dropped })
+    // 2. The news, minus politics, and the timeline next to it: what X is
+    // already talking about, best conversations first.
+    const [{ stories, dropped: droppedNews }, { posts, dropped: droppedPosts, quiet, trends }] = await Promise.all([
+      gatherNews(options.news, {
+        topics: options.topics,
+        days: options.newsDays,
+        perTopic: options.storiesPerTopic,
+      }),
+      options.timeline
+        ? gatherTimeline(options.timeline, {
+            queries: options.timelineQueries ?? [],
+            hours: options.timelineHours ?? 24,
+            perQuery: options.postsPerQuery ?? 10,
+          })
+        : Promise.resolve({ posts: [] as Story[], dropped: 0, quiet: 0, trends: [] as XTrend[] }),
+    ])
+    const dropped = droppedNews + droppedPosts
+    log('news gathered', { stories: stories.length, posts: posts.length, quiet, trends: trends.length, dropped })
+    if (options.timeline && posts.length === 0) problems.push('the timeline gave nothing; chosen from the news alone')
 
-    // 3. Choose the story.
-    const pick = await askJson(options.text, {
-      ...pickPrompt(context, { stories: renderStories(stories), history }),
-      schema: pickSchema,
-    })
-    const story = pick.story > 0 ? stories[pick.story - 1] : undefined
-    if (pick.story > 0 && !story) {
-      problems.push(`the model chose story ${pick.story} of ${stories.length}; using its headline alone`)
+    // 3. Choose the subject, from both lists as one, and check it against
+    // memory before anything is drawn: the broad recall above says what was
+    // posted lately, but a story can be a repeat in other words, and a story
+    // can be two days old with its conversation already over. So the chosen
+    // subject is looked up by name and a model reads the answer; a repeat or
+    // a stale pick is turned down and the picker chooses again, told why.
+    const candidates = [...stories, ...posts]
+    const freshness: MorningResult['freshness'] = { subject: [] }
+    const rejected: NonNullable<Parameters<typeof pickPrompt>[1]['rejected']> = []
+    let pick!: Pick
+    let story: Story | undefined
+    for (let attempt = 1; attempt <= PICK_ATTEMPTS; attempt += 1) {
+      pick = await askJson(options.text, {
+        ...pickPrompt(context, {
+          stories: renderStories(stories),
+          timeline: renderStories(posts, stories.length + 1),
+          trends: renderTrends(trends),
+          history,
+          ...(rejected.length > 0 ? { rejected } : {}),
+        }),
+        schema: pickSchema,
+      })
+      story = pick.story > 0 ? candidates[pick.story - 1] : undefined
+      if (pick.story > 0 && !story) {
+        problems.push(`the model chose story ${pick.story} of ${candidates.length}; using its headline alone`)
+      }
+      if (!story && pick.fallback) pick.angle = `${pick.angle} (${pick.fallback})`
+      log('story chosen', {
+        attempt,
+        story: pick.story,
+        from: story?.kind === 'x' ? 'timeline' : story ? 'news' : 'own',
+        topic: pick.topic,
+        headline: pick.headline,
+        hook: pick.hook,
+        shortlist: pick.shortlist,
+      })
+
+      const fresh = await this.freshness(context, 'subject', subjectOf(pick, story), problems)
+      if (!fresh) break
+      freshness.subject.push({ ...fresh, story: pick.story, headline: pick.headline })
+      log('freshness checked', { attempt, verdict: fresh.verdict, reason: fresh.reason })
+      if (fresh.verdict === 'fresh') break
+      if (attempt === PICK_ATTEMPTS) {
+        problems.push(`the subject was ${fresh.verdict} on the last try too (${fresh.reason}); going with it`)
+        break
+      }
+      problems.push(`turned down [${pick.story}] ${pick.headline}: ${fresh.verdict}, ${fresh.reason}`)
+      rejected.push({ story: pick.story, headline: pick.headline, verdict: fresh.verdict, reason: fresh.reason })
     }
-    if (!story && pick.fallback) pick.angle = `${pick.angle} (${pick.fallback})`
-    log('story chosen', { story: pick.story, topic: pick.topic, headline: pick.headline })
 
     // 4. A seed picture and the scene, then the picture itself. The seed's
     // description is an illustrator's brief of a whole picture, a thousand
@@ -195,10 +271,14 @@ export class MorningPipeline {
     }
     // The article itself, for the scene: the excerpt is two sentences and a
     // picture built from two sentences is a picture of a desk. Unreadable is
-    // fine; the headline and the picked visual carry it.
-    const article = story
-      ? await options.news.read(story.url, { maxCharacters: ARTICLE_CHARACTERS }).catch(() => '')
-      : ''
+    // fine; the headline and the picked visual carry it. A post from the
+    // timeline is its own article: the text, and what its picture showed.
+    const article =
+      story?.kind === 'x'
+        ? [`${story.source}: ${story.excerpt}`, story.media ? `Their picture: ${story.media}` : undefined].filter(Boolean).join('\n')
+        : story
+          ? await options.news.read(story.url, { maxCharacters: ARTICLE_CHARACTERS }).catch(() => '')
+          : ''
     const scene = await askJson(options.text, {
       ...scenePrompt({ pick, article, seedLook: seed?.look }),
       schema: sceneSchema,
@@ -302,8 +382,24 @@ export class MorningPipeline {
 
     // 6. The caption. It knows something is attached only so it does not
     // narrate it: the clip is the joke, the words are the good morning.
+    // Written, then checked against memory as a post -- the subject was
+    // fresh, but the joke on it may be one the account has made -- and
+    // rewritten once around what was already said; then the ranker's reader.
     const attached: MorningResult['attached'] = video ? 'video' : image ? 'image' : 'none'
     let caption = await this.caption(context, { pick, attached, community })
+    if (attached !== 'none') {
+      const fresh = await this.freshness(context, 'post', caption, problems)
+      if (fresh) {
+        freshness.post = fresh
+        if (fresh.verdict !== 'fresh') {
+          problems.push(`the caption repeated what was already said (${fresh.reason}); rewritten`)
+          caption = await this.caption(context, { pick, attached, community, avoid: { said: fresh.said, reason: fresh.reason } })
+          const again = await this.freshness(context, 'post', caption, problems)
+          if (again) freshness.post = again
+          log('caption rewritten as a repeat', { was: fresh.verdict, now: again?.verdict ?? 'unread' })
+        }
+      }
+    }
     if (attached !== 'none') {
       const shows = video && script ? script.summary : scene.alt
       const read = await this.critique('caption', { kind: 'caption', text: caption, media: shows, context: about(pick) }, problems)
@@ -344,6 +440,8 @@ export class MorningPipeline {
 
     const base: Omit<MorningResult, 'outcome' | 'postedId'> = {
       stories,
+      posts,
+      trends,
       droppedAsPolitical: dropped,
       pick,
       ...(story ? { story } : {}),
@@ -356,6 +454,7 @@ export class MorningPipeline {
       attached,
       problems,
       ...(critiques.script || critiques.caption ? { critiques } : {}),
+      freshness,
       recalled: { history, community },
     }
 
@@ -392,11 +491,13 @@ export class MorningPipeline {
       community: string
       /** The previous draft and the ranker's read of it, when this is the rewrite. */
       rewrite?: { draft: string; critique: Critique }
+      /** What memory says was already said, when the first draft repeated it. */
+      avoid?: { said: string; reason: string }
     },
   ): Promise<string> {
     const { maxEmoji } = this.options
-    const { rewrite, ...rest } = input
-    const ask = captionPrompt(context, { ...rest, maxEmoji, maxLength: MAX_POST_LENGTH })
+    const { rewrite, avoid, ...rest } = input
+    const ask = captionPrompt(context, { ...rest, maxEmoji, maxLength: MAX_POST_LENGTH, ...(avoid ? { avoid } : {}) })
     if (rewrite) ask.prompt = rewriteWith(ask.prompt, rewrite.draft, rewrite.critique)
     let { text } = await askJson(this.options.text, { ...ask, schema: captionSchema })
     if (text.length > MAX_POST_LENGTH || countEmoji(text) > maxEmoji) {
@@ -464,6 +565,32 @@ export class MorningPipeline {
     }
   }
 
+  /**
+   * The freshness check: memory asked, by name, what the account already
+   * said about this, and a model reading the answer. Fails open the way the
+   * critic does -- a check that cannot be made is a line in the problems and
+   * the pick stands -- because a missing morning is the worse outcome and
+   * the broad recall before the pick still did its part.
+   */
+  private async freshness(
+    context: StageContext,
+    kind: 'subject' | 'post',
+    text: string,
+    problems: string[],
+  ): Promise<Freshness | undefined> {
+    try {
+      const recalled = await this.options.memory.recall(
+        kind === 'subject'
+          ? `Has this account posted about this, or made this point, in the last two weeks? Quote what it said and when:\n${text}`
+          : `Has this account already said this, or made this same joke or point in other words? Quote what it said and when:\n${text}`,
+      )
+      return await askJson(this.options.text, { ...freshnessPrompt(context, { kind, text, recalled }), schema: freshnessSchema })
+    } catch (error) {
+      problems.push(`could not check the ${kind} against memory: ${messageOf(error)}`)
+      return undefined
+    }
+  }
+
   private async recall(query: string): Promise<string> {
     return this.options.memory.recall(query).catch(() => '')
   }
@@ -482,7 +609,8 @@ export class MorningPipeline {
         topic: result.pick.topic,
         headline: result.pick.headline,
         angle: result.pick.angle,
-        ...(result.story ? { source: result.story.source, url: result.story.url } : {}),
+        ...(result.pick.hook ? { hook: result.pick.hook } : {}),
+        ...(result.story ? { source: result.story.source, url: result.story.url, from: result.story.kind ?? 'news' } : {}),
         ...(result.seed ? { seed: result.seed.url } : {}),
         scene: result.scene.scene,
         storyCue: result.scene.storyCue,
@@ -504,9 +632,22 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** The subject as the freshness check reads it: what was chosen, where it came from, and how old it is. */
+function subjectOf(pick: Pick, story: Story | undefined): string {
+  return [
+    `Headline: ${pick.headline}`,
+    pick.hook ? `Hook: ${pick.hook}` : undefined,
+    `Angle: ${pick.angle}`,
+    story ? `Source: ${story.source}${story.publishedAt ? `, ${story.publishedAt.slice(0, 10)}` : ''} (${story.url})` : 'Source: our own, no story',
+    story?.kind === 'x' ? `The post: ${story.excerpt}` : undefined,
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
 /** The story as the critic hears it: enough to judge the caption's subject, not the article. */
 function about(pick: Pick): string {
-  return `Story: ${pick.headline}\nAngle: ${pick.angle}`
+  return [`Story: ${pick.headline}`, `Angle: ${pick.angle}`, pick.hook ? `Hook: ${pick.hook}` : undefined].filter(Boolean).join('\n')
 }
 
 /**

@@ -214,6 +214,19 @@ const schema = z.object({
     .transform((value) => value.split(',').map((entry) => entry.trim()).filter(Boolean)),
   MORNING_NEWS_DAYS: z.coerce.number().int().min(1).max(7).default(2),
   MORNING_STORIES_PER_TOPIC: z.coerce.number().int().min(1).max(20).default(8),
+  // The timeline next to the news: X's recent search over a few corners (AI
+  // memes first, then AI, then crypto builders), and the trends list where
+  // the tier has it. Each corner may bring this many posts (the meme corner
+  // twice that); X bills every post read and floors a page at 10. Twenty is
+  // about eighty posts a morning, of which a third survive the quiet-post
+  // floor; 0 turns the timeline off.
+  MORNING_X_POSTS_PER_QUERY: z.coerce.number().int().min(0).max(100).default(20),
+  MORNING_X_HOURS: z.coerce.number().int().min(1).max(168).default(24),
+  // `label=query;label=query` to replace the built-in corners; X search syntax.
+  MORNING_X_QUERIES: z.string().default(''),
+  // Whose trends: a Yahoo WOEID. The United States by default; 1 is the world,
+  // which is mostly K-pop and cricket by the time it is morning in UTC.
+  MORNING_X_TRENDS_WOEID: z.coerce.number().int().min(0).default(23_424_977),
   // How long a clip is scripted for. Passed to the generator as a hint;
   // Sora rounds it to 4, 8 or 12, and a ladder rung may render its own.
   MORNING_VIDEO_SECONDS: z.coerce.number().int().min(4).max(20).default(10),
