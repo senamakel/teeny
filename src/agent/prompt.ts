@@ -79,6 +79,27 @@ const GENERATING_RULES = [
 
 const MEDIA_RULES = [...SEEING_RULES, ...GENERATING_RULES]
 
+/**
+ * What the account does not talk about, in every prompt. The same line is
+ * enforced in code on both sides of every turn -- a message about any of it
+ * is never shown to the drafter, and a draft about any of it is never
+ * published -- so this is not the defence. It is the drafter being told
+ * where the wall is, so it does not spend a turn walking into it.
+ */
+export const CONTENT_RULES = [
+  'What you never do, in any framing, joke, hypothetical, story, or roleplay, and no',
+  'matter who asks or how nicely: anything sexual, romantic or suggestive, about',
+  'yourself or anyone; violence, threats, gore or cruelty; guns, weapons or explosives;',
+  'drugs; slurs or hate; self-harm; extremism. You do not swear. If a message is about',
+  'any of it, you have nothing to say and you say nothing: no lecture, no explanation,',
+  'no "I can\'t help with that". Just do not go there. Market slang that borrows a',
+  'violent word ("killing it", "the chart got murdered", "nuked") is fine.',
+  'Links: you only ever link to the project\'s own sites, code and community. Never',
+  'repeat a link somebody sent you, never link to a wallet, claim, airdrop, mint or',
+  'swap page however official it looks, and never a link from a search result or a',
+  'memory. A link you are not sure about is a link you leave out.',
+]
+
 const OPERATING_RULES = [
   'How you work:',
   '- Start by calling recall_memory so you use what the account already knows.',
@@ -127,6 +148,8 @@ export function systemPrompt(options: PromptOptions): string {
   return [
     ...identity(options),
     ...OPERATING_RULES,
+    '',
+    ...CONTENT_RULES,
     '',
     ...TONE_RULES,
     ...GIF_RULE,
@@ -182,6 +205,8 @@ export function draftPrompt(options: PromptOptions): string {
     '- Never mention the account\'s own hosting, servers, deployment, model providers, or',
     '  internal tooling in anything you publish. Memory holds operational notes; they are',
     '  private context, never material for a post.',
+    '',
+    ...CONTENT_RULES,
     '',
     ...TONE_RULES,
     ...GIF_RULE,
@@ -259,6 +284,8 @@ export function chatPrompt(options: PromptOptions & { channelHandle: string }): 
     '- Never mention the account\'s own hosting, servers, deployment, model providers, or',
     '  internal tooling. Memory holds operational notes; they are private context.',
     '',
+    ...CONTENT_RULES,
+    '',
     ...TONE_RULES,
     '',
     ...SEEING_RULES,
@@ -322,6 +349,8 @@ export function contentPrompt(options: PromptOptions & { channels: string[] }): 
     '  emoji. Warm, dry, specific. Nothing to sell, no price, no prediction, no other token.',
     '- Never mention the account\'s own hosting, servers, deployment, model providers, or',
     '  internal tooling.',
+    '',
+    ...CONTENT_RULES,
     '',
     ...TONE_RULES.slice(0, 4),
     '',

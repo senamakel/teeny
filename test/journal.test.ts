@@ -128,6 +128,7 @@ describe('the reply job journals every mention', () => {
       ]),
       markReplied: vi.fn().mockResolvedValue(undefined),
       markFailed: vi.fn().mockResolvedValue(undefined),
+    requeueApproved: vi.fn().mockResolvedValue(true),
       counts: vi.fn(),
       close: vi.fn(),
     }
@@ -246,6 +247,7 @@ describe('GET /mind', () => {
         takePending: vi.fn(),
         markReplied: vi.fn(),
         markFailed: vi.fn(),
+        requeueApproved: vi.fn(),
         counts: vi.fn().mockResolvedValue({ pending: 2, replied: 40, failed: 1, skipped: 3 }),
         close: vi.fn(),
       },

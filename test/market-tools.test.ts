@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { lexicalGate } from '../src/safety/gate.js'
 import { createMarketTools } from '../src/agent/tools/market.js'
 import type { ChartRenderer } from '../src/chart/renderer.js'
 import type { TokenMarket } from '../src/market/market.js'
@@ -317,5 +318,21 @@ describe('market tools', () => {
     expect(output).toContain('bullish score:')
     expect(output).toContain('Below 40 the short-term tape is weak')
     expect(output).toContain('TRUE POSITIVES YOU CAN LEAD WITH')
+  })
+})
+
+describe('post_chart content filter', () => {
+  it('refuses a caption the filter holds', async () => {
+    const { tools, x } = build({ safety: lexicalGate() })
+    const output = (await tools.get('post_chart')!.invoke({ text: 'the chart is fucking green' } as never)) as string
+    expect(output).toContain('Refused')
+    expect(x.createPost).not.toHaveBeenCalled()
+  })
+
+  it('refuses a caption linking off the allowlist', async () => {
+    const { tools, x } = build({ safety: lexicalGate() })
+    const output = (await tools.get('post_chart')!.invoke({ text: 'chart at https://evil.xyz/x' } as never)) as string
+    expect(output).toContain('not on the allowlist')
+    expect(x.createPost).not.toHaveBeenCalled()
   })
 })

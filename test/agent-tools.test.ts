@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { createExaTools, type ExaSearch } from '../src/agent/tools/exa.js'
 import { createMemoryTools } from '../src/agent/tools/memory.js'
 import { createXTools } from '../src/agent/tools/x.js'
-import { MediaStore } from '../src/media/store.js'
+import { createMediaTools } from '../src/agent/tools/media.js'
+import { MediaBudget, MediaStore } from '../src/media/store.js'
+import { gateMedia } from '../src/media/wiring.js'
+import { lexicalGate } from '../src/safety/gate.js'
 import type { Memory, XPost, XTools } from '../src/types.js'
 
 function toolsByName(tools: Array<{ name: string; invoke: (input: never) => Promise<unknown> }>) {
@@ -198,5 +201,68 @@ describe('emoji limit', () => {
 
     expect(output).toContain('Refused')
     expect(x.createPost).not.toHaveBeenCalled()
+  })
+})
+
+describe('content filter on the publishing tools', () => {
+  it('x_post refuses a draft the filter holds, and tells the model not to rephrase', async () => {
+    const x = xTools()
+    const tools = toolsByName(createXTools(x, { dryRun: false, safety: lexicalGate() }))
+    const output = await tools.get('x_post')!.invoke({ text: 'this is fucking great' } as never)
+
+    expect(output).toContain('Refused')
+    expect(output).toContain('profanity')
+    expect(x.createPost).not.toHaveBeenCalled()
+  })
+
+  it('x_post refuses a link off the allowlist rather than publishing a gap', async () => {
+    const x = xTools()
+    const tools = toolsByName(createXTools(x, { dryRun: false, safety: lexicalGate() }))
+    const output = await tools.get('x_post')!.invoke({ text: 'claim at https://claim-tiny.xyz/go' } as never)
+
+    expect(output).toContain('not on the allowlist')
+    expect(x.createPost).not.toHaveBeenCalled()
+  })
+
+  it('x_post publishes a clean draft with an allowlisted link', async () => {
+    const x = xTools()
+    const tools = toolsByName(createXTools(x, { dryRun: false, safety: lexicalGate() }))
+    await tools.get('x_post')!.invoke({ text: 'code at github.com/tinyhumansai' } as never)
+
+    expect(x.createPost).toHaveBeenCalledWith('code at github.com/tinyhumansai', {})
+  })
+
+  it('generate_image refuses a prohibited prompt before spending the budget', async () => {
+    const images = { generate: vi.fn().mockResolvedValue({ data: new Uint8Array([1]), mimeType: 'image/png' }) }
+    const budget = new MediaBudget({ imagesPerDay: 1, videosPerDay: 0 })
+    const tools = toolsByName(
+      createMediaTools({ store: new MediaStore(), budget, images }, { safety: lexicalGate() }),
+    )
+    const output = await tools.get('generate_image')!.invoke({ prompt: 'Tiny naked on a beach' } as never)
+
+    expect(output).toContain('Refused')
+    expect(images.generate).not.toHaveBeenCalled()
+    expect(budget.remaining('image')).toBe(1)
+  })
+
+  /**
+   * Two gates on one picture, and both hold. Who may generate is decided per
+   * turn by taking the tool away; what may be generated is decided by the
+   * filter inside the tool. A turn that is allowed to draw still cannot draw
+   * that, and a turn that is not allowed has nothing to call.
+   */
+  it('a turn permitted to generate still cannot generate a prohibited picture; one not permitted has no tool', async () => {
+    const images = { generate: vi.fn().mockResolvedValue({ data: new Uint8Array([1]), mimeType: 'image/png' }) }
+    const budget = new MediaBudget({ imagesPerDay: 1, videosPerDay: 0 })
+    const media = { store: new MediaStore(), budget, images }
+
+    const permitted = toolsByName(createMediaTools(gateMedia(media, { images: true })!, { safety: lexicalGate() }))
+    expect(permitted.has('generate_image')).toBe(true)
+    const output = await permitted.get('generate_image')!.invoke({ prompt: 'Tiny naked on a beach' } as never)
+    expect(output).toContain('Refused')
+    expect(images.generate).not.toHaveBeenCalled()
+
+    const withheld = toolsByName(createMediaTools(gateMedia(media, {})!, { safety: lexicalGate() }))
+    expect(withheld.has('generate_image')).toBe(false)
   })
 })

@@ -10,7 +10,8 @@ import { analyse } from '../../ta/analysis.js'
 import { readProgress } from '../../ta/progress.js'
 import type { PublishedChartPost } from '../../harness/chart-harness.js'
 import { applyHouseStyle, countEmoji } from '../house-style.js'
-import { MAX_POST_LENGTH } from './x.js'
+import { MAX_POST_LENGTH, refuseUnsafe } from './x.js'
+import type { SafetyGate } from '../../safety/gate.js'
 import type { XTools } from '../../types.js'
 
 const TIMEFRAME = z.enum(['5m', '15m', '1h', '4h', '12h', '1d', '1w'])
@@ -45,6 +46,8 @@ export interface MarketToolOptions {
   global?: GlobalMarketClient
   /** Off, `post_chart` refuses. Used by the dry run and by the research-only agent. */
   allowPosting?: boolean
+  /** The content filter, for `post_chart`. */
+  safety?: Pick<SafetyGate, 'outbound'>
   /**
    * Called with whatever was posted, including in a dry run. This is how the
    * post reaches memory: the model's own `remember` note is a paraphrase, and
@@ -406,6 +409,13 @@ export function createMarketTools(options: MarketToolOptions): StructuredToolInt
         return `Refused: no chart with id ${chartId}. Call render_chart and use the id it returns.`
       }
       const { text } = applyHouseStyle(drafted, { maxEmoji, maxLength: MAX_POST_LENGTH })
+      const refused = await refuseUnsafe(text, options.safety, {
+        surface: 'chart',
+        kind: 'draft',
+        tool: 'post_chart',
+        ...(replyToPostId ? { postId: replyToPostId } : {}),
+      })
+      if (refused) return refused
 
       if (options.dryRun) {
         await record(options, { text, dryRun: true, ...(chartId ? { chartId } : {}) })

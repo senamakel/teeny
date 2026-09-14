@@ -220,7 +220,10 @@ publishes deterministically: X via `createPost`, Telegram to the item's
 `telegramChatIds` or `CALENDAR_TELEGRAM_CHAT_IDS`, the text as the picture's
 caption. An item that promised a picture and did not get one is **held**, not
 posted bare -- a "gm" with the image missing reads as a broken bot to everyone
-who has seen the ones with it. What went out is written to memory under
+who has seen the ones with it. The text passes [the content filter](#the-content-filter)
+on the way out like every other draft, and the picture's prompt passed it in
+the generate tool; a post the filter holds is withheld on every channel and
+lands on the review page. What went out is written to memory under
 `calendar_post` so tomorrow's run can avoid yesterday's scene, and to the
 journal under the `calendar` trigger. A per-item guard refuses to run the same
 item twice within an hour, for the restart-near-the-cron-minute case.
@@ -621,6 +624,88 @@ still goes out.
 The reasoning comes from the drafter itself. Its structured output carries
 `thinking` and `declined` alongside the reply, and neither changes what gets
 posted; they are the record of how it got there.
+
+## The content filter
+
+The account does not talk about sex, violence, weapons, drugs, hate,
+self-harm or extremism, and it does not swear. That is stated in every
+prompt, and it is enforced in code on both sides of every turn, because a
+prompt rule is an argument and an argument can be lost.
+
+**Inbound.** Every mention on X, every Telegram message the account is
+addressed in, and every ad-hoc task on `/agent/run` passes the gate before the
+drafter sees it. A message the gate holds is not processed: no reply, no
+reaction, nothing remembered, and the drafter is never shown it. The mention
+queue marks it `held: <category>`, the journal records that something was held
+and the category, never the text, and the endpoint answers 422.
+
+**Outbound.** Every draft passes the gate again, after house style and
+immediately before it is published: the reply job's text, the Telegram bot's,
+the calendar job's, the `x_post` and `post_chart` tools', and the prompt handed
+to `generate_image` and `generate_video` before any budget is spent. A held
+draft is withheld and the mention is marked `withheld: <category>`; a held
+calendar post is a missing day, and the item runs again on its next cron; a
+tool refuses with the reason so the agent can say something else. Outbound is
+stricter than inbound in one way: ordinary swearing from a stranger is
+answered, but the account never says it back.
+
+The gate is three checks, cheapest first, each sufficient on its own:
+
+1. **Links.** Every URL in a draft, including `tinyhumans[.]ai`, `(dot)`,
+   `hxxp://` and bare `name.tld` spellings, is parsed and checked against an
+   allowlist. A link that is not on it is cut from the text before publishing
+   (the tools refuse instead, so the model rewrites the sentence). The check
+   is on the shape first — `tinyhumans.ai@evil.example`,
+   `tinyhumans.ai.evil.example`, a Cyrillic look-alike, punycode, a raw IP, an
+   explicit port — and then on the host. The built-in list is the project's
+   own sites, its GitHub org, its Telegram, X itself, and the token's launchpad
+   as a bare host only. `LINK_ALLOWLIST` adds to it, comma separated, as
+   `host` (with subdomains), `host/path-prefix`, or `host/` for the bare host.
+   `src/safety/links.ts`.
+2. **The lexicon.** `src/safety/lexicon.ts` is a plain list of terms by
+   category, matched on their own letters with repeats and simple leetspeak
+   folded (`k1ll`, `nuuudes`, `sh!t`, zero-width characters, full-width
+   letters), never inside another word, and with a short list of market idioms
+   removed first so "killing it" and "the chart got murdered" are not
+   violence. Synchronous and deterministic; it also scrubs the X thread and
+   the Telegram history the drafter is shown, line by line.
+3. **The judge.** A second model call with no tools and no persona reads the
+   text with one question and answers in a fixed shape. This is what catches
+   "draw Tiny with nothing on", which has no word on the list. It fails closed:
+   a judge that cannot be reached holds the turn. `SAFETY_JUDGE=false` turns
+   it off; `SAFETY_JUDGE_MODEL` points it at a different rung than the
+   drafter, which is worth doing because it runs twice per reply and costs a
+   few seconds each time. `src/safety/judge.ts`.
+
+Giphy searches are pinned to rating `g`. `test/safety-*.test.ts` hold the
+cases; `test/reply-job.test.ts`, `test/telegram-bot.test.ts`,
+`test/calendar-job.test.ts` and `test/agent-tools.test.ts` show it wired in.
+
+### Reviewing what it held
+
+A blunt filter is wrong sometimes, so everything it stops is written to a
+private log (`HOLDS_COLLECTION`, default `holds`, in the same Mongo) with the
+text, where it came from, the category and which check held it. The public
+journal never gets the text; this log is only served behind the operator
+token.
+
+`GET /safety` is the review page: open it in a browser and give
+`AGENT_API_TOKEN` as the password when asked (any username). It lists what is
+pending, and an approve or reject on each entry is a decision with an effect:
+
+| Held | Approving does |
+| --- | --- |
+| a link cut from a draft | puts its host on the live allowlist; every gate reads it within a minute |
+| an X mention that was not answered | sends it back to the queue to be answered, inbound check waived, outbound still on |
+| a withheld draft (X or Telegram) | publishes it as written, honouring `DRY_RUN` / `TELEGRAM_DRY_RUN` |
+| a Telegram message, a refused picture, an ad-hoc task | recorded as a wrong call; nothing is re-sent |
+
+Rejecting confirms the filter and closes the entry. A decision is taken once;
+a release that fails leaves the entry pending so it can be retried. The same
+data is at `GET /safety/holds?status=pending` and
+`POST /safety/holds/:id/decision` `{ "decision": "approved" | "rejected", "note"? }`
+for anything scripted. `src/safety/holds.ts`, `src/safety/review.ts`,
+`src/safety/dashboard.ts`; nginx routes `/safety` next to `/agent/run`.
 
 ## The wallet, and why there isn't one
 

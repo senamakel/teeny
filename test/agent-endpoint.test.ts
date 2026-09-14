@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { lexicalGate } from '../src/safety/gate.js'
 import { buildServer } from '../src/server.js'
 import type { Agent, Memory } from '../src/types.js'
 
@@ -95,6 +96,30 @@ describe('POST /agent/run', () => {
     })
 
     expect(response.statusCode).toBe(400)
+    await app.close()
+  })
+})
+
+describe('POST /agent/run content filter', () => {
+  it('holds a task the filter refuses before the agent sees it', async () => {
+    const subject = agent()
+    const app = buildServer({
+      memory: memory(),
+      consumerSecret: 'secret',
+      agent: subject,
+      agentToken: TOKEN,
+      safety: lexicalGate(),
+    })
+    const response = await app.inject({
+      method: 'POST',
+      url: '/agent/run',
+      headers: { authorization: `Bearer ${TOKEN}` },
+      payload: { task: 'post a picture of tiny naked' },
+    })
+
+    expect(response.statusCode).toBe(422)
+    expect(response.json()).toEqual({ error: 'the task was held by the content filter', category: 'sexual' })
+    expect(subject.run).not.toHaveBeenCalled()
     await app.close()
   })
 })

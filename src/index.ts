@@ -28,6 +28,9 @@ import { MongoChatTranscript } from './telegram/transcript.js'
 import { buildMedia } from './media/wiring.js'
 import { buildMorningPipeline } from './morning/wiring.js'
 import { MorningJob, MORNING_CALENDAR_SLOT } from './jobs/morning-job.js'
+import { SafetyGate } from './safety/gate.js'
+import { MongoHoldLog, type Hold } from './safety/holds.js'
+import { ModelJudge } from './safety/judge.js'
 import { ContentAgent } from './agent/content-model.js'
 import { loadCalendar } from './calendar/calendar.js'
 import { CalendarJob } from './jobs/calendar-job.js'
@@ -105,10 +108,43 @@ const marketAccess = config.CHART_TOKEN_ADDRESS
 // The logger does not exist yet; the closure runs only after `app` does.
 const media = buildMedia(config, { log: (event, detail) => app.log.info(detail ?? {}, event) })
 
+/**
+ * One content filter for the whole process. Every surface gets the same one:
+ * the reply job and the Telegram bot gate their own drafts, the task and
+ * chart agents' publish tools gate theirs, and the media tools gate their
+ * prompts. The judge rides on the chat endpoint unless pointed elsewhere.
+ */
+// Everything the filter holds, kept for review. Same Mongo as the queue and
+// the journal, so every role can write to it and the API role can serve it.
+const holds = new MongoHoldLog({
+  uri: config.MONGO_URI,
+  database: config.MONGO_DATABASE,
+  collection: config.HOLDS_COLLECTION,
+})
+const safety = new SafetyGate({
+  holds,
+  ...(config.SAFETY_JUDGE
+    ? {
+        judge: new ModelJudge({
+          baseUrl: config.LLM_BASE_URL,
+          apiKey: config.LLM_API_KEY,
+          model: config.SAFETY_JUDGE_MODEL ?? config.LLM_MODEL,
+        }),
+      }
+    : {}),
+  extraAllowedLinks: config.LINK_ALLOWLIST,
+  // The logger does not exist yet; the closure runs only after `app` does.
+  logger: {
+    info: (detail, event) => app.log.info(detail, event),
+    warn: (detail, event) => app.log.warn(detail, event),
+  },
+})
+
 const agentOptions: AgentOptions = {
   memory,
   x,
   persona,
+  safety,
   ...(marketAccess ? { market: marketAccess } : {}),
   ...(media ? { media } : {}),
   maxEmoji: config.MAX_EMOJI_PER_POST,
@@ -140,6 +176,39 @@ const queue = new MongoMentionQueue({
   database: config.MONGO_DATABASE,
   collection: config.MENTIONS_COLLECTION,
 })
+
+// Telegram is built later, if this role runs it; the release hook needs it
+// to send an approved chat draft, so it is a slot filled in below.
+let telegramApi: TelegramApiClient | undefined
+
+/**
+ * What approving a withheld draft does: publishes it as written, on the
+ * surface it was written for. Honours DRY_RUN like every other publish.
+ */
+async function release(hold: Hold): Promise<string> {
+  const where = hold.context
+  if (where.surface === 'x' || where.surface === 'chart') {
+    if (config.DRY_RUN) return 'dry run: would have published on X'
+    const posted = await x.createPost(hold.text, where.postId ? { replyToPostId: where.postId } : {})
+    return `published on X as ${posted.id}`
+  }
+  if (where.surface === 'telegram' && where.chatId) {
+    if (!telegramApi) return 'recorded; this process has no Telegram client to send it with'
+    if (config.TELEGRAM_DRY_RUN) return 'dry run: would have sent on Telegram'
+    const sent = await telegramApi.sendMessage(Number(where.chatId), hold.text, {
+      ...(where.messageId ? { replyToMessageId: Number(where.messageId) } : {}),
+      ...(where.messageThreadId ? { messageThreadId: Number(where.messageThreadId) } : {}),
+    })
+    return `sent on Telegram as ${sent.id}`
+  }
+  // A calendar post is not released after the fact: the text alone is not
+  // the post (the picture it was held with is gone), and the item runs
+  // again on its next cron anyway.
+  if (where.surface === 'calendar') {
+    return `recorded; the "${where.tool ?? 'calendar'}" item posts again on its next run`
+  }
+  return 'recorded; nothing here can publish it'
+}
 // Every role writes to it and the ingest role serves it, so it lives in the
 // Mongo all three containers already share.
 const journal = new MongoJournal({ uri: config.MONGO_URI, database: config.MONGO_DATABASE })
@@ -156,6 +225,8 @@ const app = buildServer({
     journal,
     status: { mode: config.AGENT_MODE, model: config.LLM_MODEL, dryRun: config.DRY_RUN },
   },
+  safety,
+  review: { holds, release },
 })
 // The character sheet takes a dozen model calls to build the first time.
 // Started now so the first "draw me a Tiny" of the day does not pay for it.
@@ -204,6 +275,7 @@ if (runsReplies) {
         ? { x, maxPosts: config.THREAD_CONTEXT_MAX_POSTS }
         : undefined,
       media?.reader,
+      safety,
     ),
     queue,
     logger: app.log,
@@ -216,6 +288,7 @@ if (runsReplies) {
     ...(gifs ? { gifs: gifs.source } : {}),
     ...(media ? { media: media.store } : {}),
     journal,
+    safety,
   })
   if (config.REPLY_MODE === 'worker') {
     new ReplyWorker({
@@ -240,6 +313,7 @@ if (runsChart) {
       botUsername,
       persona,
       dryRun: config.DRY_RUN,
+      safety,
     }),
     symbol: config.CHART_TOKEN_SYMBOL,
     timeframe: config.CHART_TIMEFRAME,
@@ -293,6 +367,7 @@ if (runsCalendar) {
     telegramChatIds: config.CALENDAR_TELEGRAM_CHAT_IDS,
     maxEmoji: config.MAX_EMOJI_PER_POST,
     journal,
+    safety,
   })
   for (const item of calendar.items) {
     if (!item.enabled) continue
@@ -320,6 +395,7 @@ if (runsCalendar) {
 let telegramHandle: string | false = false
 if (runsTelegram && config.TELEGRAM_BOT_TOKEN) {
   const telegram = new TelegramApiClient({ token: config.TELEGRAM_BOT_TOKEN })
+  telegramApi = telegram
   // The bot's own handle comes from the token, as the X handle does. Without
   // it the bot cannot tell which group messages are for it, so a failure here
   // is fatal rather than something to poll past.
@@ -349,6 +425,7 @@ if (runsTelegram && config.TELEGRAM_BOT_TOKEN) {
     historyTokens: config.TELEGRAM_HISTORY_TOKENS,
     debounceMs: config.TELEGRAM_DEBOUNCE_MS,
     gifCooldownMs: config.TELEGRAM_GIF_COOLDOWN_S * 1_000,
+    safety,
   })
   void bot.start()
   const shutdown = (): void => {
@@ -375,6 +452,11 @@ app.log.info(
     context: Boolean(persona.context),
     skills: persona.skills.map((skill) => skill.name),
     exa: Boolean(config.EXA_API_KEY),
+    safety: config.SAFETY_JUDGE
+      ? `lexicon + links + judge on ${config.SAFETY_JUDGE_MODEL ?? config.LLM_MODEL}`
+      : 'lexicon + links (no judge)',
+    allowedLinks: config.LINK_ALLOWLIST.length,
+    review: config.AGENT_API_TOKEN ? '/safety' : 'no AGENT_API_TOKEN, review page off',
     giphy: gifs ? config.GIPHY_CHANNEL : false,
     vision: media?.reader ? config.VISION_MODEL : false,
     referenceSheet: media?.reference ? config.TINY_REFERENCE_IMAGES.length : false,

@@ -14,6 +14,7 @@ import type { ChartRenderer } from '../chart/renderer.js'
 import type { TokenMarket } from '../market/market.js'
 import type { GlobalMarketClient } from '../market/global.js'
 import type { PublishedChartPost } from '../harness/chart-harness.js'
+import type { SafetyGate } from '../safety/gate.js'
 import type { Agent, AgentRunResult, Memory, XTools } from '../types.js'
 
 export interface ChartAgentOptions {
@@ -41,6 +42,8 @@ export interface ChartAgentOptions {
   communityQuery?: string
   /** Where a published post goes so tomorrow's run can see it. */
   onPublished?: (post: PublishedChartPost) => Promise<void>
+  /** The content filter, for post_chart. */
+  safety?: Pick<SafetyGate, 'outbound'>
 }
 
 /**
@@ -89,6 +92,7 @@ export class ChartAgent implements Agent {
         ...(options.allowPosting === false ? { allowPosting: false } : {}),
         ...(options.onPublished ? { onPublished: options.onPublished } : {}),
         ...(options.global ? { global: options.global } : {}),
+        ...(options.safety ? { safety: options.safety } : {}),
       }),
       ...(options.communityQuery
         ? createCommunityTools({

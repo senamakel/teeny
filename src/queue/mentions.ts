@@ -13,6 +13,8 @@ export interface QueuedMention {
   replyId?: string
   replyText?: string
   error?: string
+  /** Set when an operator approved a held mention; the inbound content check is waived. */
+  filterApproved?: boolean
 }
 
 export interface MentionQueue {
@@ -22,6 +24,11 @@ export interface MentionQueue {
   takePending(limit: number): Promise<QueuedMention[]>
   markReplied(postId: string, reply: { id?: string; text: string }): Promise<void>
   markFailed(postId: string, error: string): Promise<void>
+  /**
+   * Puts a held mention back to be answered, with the inbound content check
+   * waived. Resolves false when there is no such mention.
+   */
+  requeueApproved(postId: string): Promise<boolean>
   counts(): Promise<Record<MentionStatus, number>>
   close(): Promise<void>
 }
@@ -117,6 +124,18 @@ export class MongoMentionQueue implements MentionQueue {
         $inc: { attempts: 1 },
       },
     )
+  }
+
+  async requeueApproved(postId: string): Promise<boolean> {
+    await this.ready()
+    const result = await this.mentions.updateOne(
+      { postId },
+      {
+        $set: { status: 'pending', filterApproved: true, updatedAt: new Date().toISOString() },
+        $unset: { error: '' },
+      },
+    )
+    return result.matchedCount > 0
   }
 
   async counts(): Promise<Record<MentionStatus, number>> {

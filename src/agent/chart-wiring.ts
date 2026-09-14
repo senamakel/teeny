@@ -6,6 +6,7 @@ import { ChartAgent } from './chart-agent.js'
 import { captureChartPost, ChartHarness } from '../harness/chart-harness.js'
 import type { Persona } from './soul.js'
 import type { Memory, XTools } from '../types.js'
+import type { SafetyGate } from '../safety/gate.js'
 
 /**
  * Builds the chart agent from configuration.
@@ -23,6 +24,7 @@ export function buildChartAgent(
     persona?: Persona
     dryRun: boolean
     allowPosting?: boolean
+    safety?: Pick<SafetyGate, 'outbound'>
   },
 ): ChartHarness {
   const address = config.CHART_TOKEN_ADDRESS
@@ -58,6 +60,7 @@ export function buildChartAgent(
     watermark: config.CHART_WATERMARK ?? `@${options.botUsername}`,
     outputDir: config.CHART_OUTPUT_DIR,
     ...(options.allowPosting === false ? { allowPosting: false } : {}),
+    ...(options.safety ? { safety: options.safety } : {}),
     ...(config.CHART_COMMUNITY_QUERY ? { communityQuery: config.CHART_COMMUNITY_QUERY } : {}),
     onPublished: (post) => captureChartPost(options.memory, config.CHART_TOKEN_SYMBOL, post),
   })

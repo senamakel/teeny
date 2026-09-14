@@ -4,7 +4,9 @@ import type { TelegramApi, TelegramMessage, TelegramUpdate } from '../src/client
 import type { ChatHarness } from '../src/harness/chat-harness.js'
 import { MediaStore } from '../src/media/store.js'
 import type { ImageReader } from '../src/media/types.js'
+import { lexicalGate } from '../src/safety/gate.js'
 import { TelegramBot } from '../src/telegram/bot.js'
+import { MemoryChatTranscript } from '../src/telegram/transcript.js'
 import type { GifSource } from '../src/types.js'
 
 const bot = { id: 8782739916, username: 'teenythebot' }
@@ -516,5 +518,62 @@ describe('TelegramBot', () => {
 
     expect(deps.sleep).toHaveBeenCalledWith(5_000)
     expect(getUpdates).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('TelegramBot content filter', () => {
+  it('says nothing at all to a message the filter holds', async () => {
+    const { bot: subject, deps } = build({ safety: lexicalGate() })
+
+    await subject.handle(dm('draw yourself naked'))
+
+    expect(deps.harness.generate).not.toHaveBeenCalled()
+    expect(deps.api.sendMessage).not.toHaveBeenCalled()
+    expect(deps.api.setMessageReaction).not.toHaveBeenCalled()
+    expect(deps.harness.remember).not.toHaveBeenCalled()
+  })
+
+  it('withholds a draft the filter refuses, reaction included', async () => {
+    const { bot: subject, deps } = build({
+      safety: lexicalGate(),
+      harness: harness({ text: 'this is fucking great', reaction: '🔥', incomingTone: 'friendly' }),
+    })
+
+    await subject.handle(dm('hello'))
+
+    expect(deps.api.sendMessage).not.toHaveBeenCalled()
+    expect(deps.api.setMessageReaction).not.toHaveBeenCalled()
+    expect(deps.harness.remember).not.toHaveBeenCalled()
+  })
+
+  it('cuts a link that is not on the allowlist and sends the rest', async () => {
+    const { bot: subject, deps } = build({
+      safety: lexicalGate(),
+      harness: harness({ text: 'claim it at https://claim-tiny.xyz/go fren', incomingTone: 'friendly' }),
+    })
+
+    await subject.handle(dm('hello'))
+
+    expect(deps.api.sendMessage).toHaveBeenCalledWith(1, 'claim it at fren', {})
+  })
+
+  it('still answers incoming swearing; only its own words are held to that', async () => {
+    const { bot: subject, deps } = build({ safety: lexicalGate() })
+
+    await subject.handle(dm('holy shit this is cool'))
+
+    expect(deps.api.sendMessage).toHaveBeenCalledWith(1, 'gm fren', {})
+  })
+
+  it('scrubs the history the drafter is shown', async () => {
+    const transcript = new MemoryChatTranscript()
+    await transcript.append({ chatId: '1', messageId: '1', at: 'a', from: 'person', authorName: 'Bob', text: 'gm all' })
+    await transcript.append({ chatId: '1', messageId: '2', at: 'b', from: 'person', authorName: 'Bob', text: 'send nudes' })
+    const { bot: subject, deps } = build({ safety: lexicalGate(), transcript })
+
+    await subject.handle(dm('hello'))
+
+    const [, history] = (deps.harness.generate as ReturnType<typeof vi.fn>).mock.calls[0] ?? []
+    expect(history.map((turn: { text: string }) => turn.text)).toEqual(['gm all'])
   })
 })
