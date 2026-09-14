@@ -1,66 +1,55 @@
 import Link from "next/link"
 import { ArrowRight } from "lucide-react"
 import { PresenceIcon } from "@/components/icons/brand"
-import { PRESENCE, WALLET_ADDRESS, shortAddress } from "@/lib/presence"
+import { PRESENCE } from "@/lib/presence"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
 import { SceneCanvas } from "@/components/scene"
+import { TokenCounter } from "@/components/token-counter"
+import { SAMPLE_TOTALS } from "@/lib/ledger"
 import type { MindFeed } from "@/lib/mind"
-
-function Stat({ label, value, mono = true, href }: { label: string; value: string; mono?: boolean; href?: string }) {
-  const body = <span className={mono ? "font-mono text-sm" : "text-sm"}>{value}</span>
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      {href ? (
-        <a href={href} target="_blank" rel="noreferrer" className="underline-offset-4 hover:text-primary hover:underline">
-          {body}
-        </a>
-      ) : (
-        body
-      )}
-    </div>
-  )
-}
 
 const X = PRESENCE.find((p) => p.kind === "x")!
 const TELEGRAM = PRESENCE.find((p) => p.kind === "telegram")!
-const WALLET = PRESENCE.find((p) => p.kind === "wallet")!
 
 export function Hero({ feed }: { feed: MindFeed }) {
   const { status } = feed
-  const last = feed.reflections[0]
-
   return (
     <section className="relative overflow-hidden border-b">
       <SceneCanvas name="brain" className="absolute inset-y-0 right-0 w-full lg:w-3/5" />
-      <div className="pointer-events-none absolute inset-0 bg-linear-to-r from-background via-background/80 to-transparent lg:via-background/40" />
-      <div className="relative mx-auto grid min-h-[88vh] max-w-6xl items-center gap-10 px-4 pt-24 pb-16 sm:px-6 lg:grid-cols-[1.4fr_1fr]">
-        <div>
+      <div className="pointer-events-none absolute inset-0 bg-linear-to-r from-background via-background/85 to-background/40" />
+      <div className="pointer-events-none absolute inset-0 bg-linear-to-t from-background via-transparent to-transparent" />
+      <div className="relative mx-auto flex min-h-[92vh] max-w-6xl flex-col justify-center gap-10 px-4 pt-28 pb-16 sm:px-6">
+        <div className="max-w-2xl">
           <Badge variant="outline" className="mb-5 font-mono">
-            {X.handle} · open brain
+            {X.handle} · open brain · {status.mode} on {status.model}
+            {status.dryRun ? " · dry run" : ""}
           </Badge>
           <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">
             Everything Teeny thinks is on the record.
           </h1>
-          <p className="mt-5 max-w-xl text-lg text-muted-foreground">
-            Teeny is the smol AI that runs the $TINY account. This is its mind, turned inside
-            out: what it believes, the rules it cannot break, the tools it can reach, what it
-            remembers, and a log of every reflection behind every reply.
+          <p className="mt-5 text-lg text-muted-foreground">
+            Two minds, one account: the mascot that talks, and the brain that decides what it is trying to do.
+            Every token either has ever burned is counted here, and every call behind the count is a row in
+            the ledger: what went in, what it reasoned, what came out.
           </p>
-          <div className="mt-8 flex flex-wrap gap-3">
-            <Button size="lg" render={<Link href="/reflections" />}>
-              Read the reflections
-              <ArrowRight className="size-4" />
-            </Button>
-            <Button size="lg" variant="outline" render={<a href={TELEGRAM.href} target="_blank" rel="noreferrer" />}>
-              <PresenceIcon kind="telegram" className="size-4" />
-              Talk to it on Telegram
-            </Button>
-          </div>
+        </div>
 
-          <ul className="mt-8 flex flex-wrap items-center gap-2">
+        <TokenCounter initial={feed.totals ?? SAMPLE_TOTALS} source={feed.source} />
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Button size="lg" render={<Link href="/ledger" />}>
+            Open the ledger
+            <ArrowRight className="size-4" />
+          </Button>
+          <Button size="lg" variant="outline" render={<Link href="/brain" />}>
+            See the brain at work
+          </Button>
+          <Button size="lg" variant="ghost" render={<a href={TELEGRAM.href} target="_blank" rel="noreferrer" />}>
+            <PresenceIcon kind="telegram" className="size-4" />
+            Talk to it
+          </Button>
+          <ul className="ml-auto flex flex-wrap items-center gap-2">
             {PRESENCE.map((p) => (
               <li key={p.kind}>
                 <a
@@ -77,27 +66,6 @@ export function Hero({ feed }: { feed: MindFeed }) {
             ))}
           </ul>
         </div>
-
-        <Card className="bg-card/70 backdrop-blur lg:justify-self-end lg:w-full lg:max-w-sm">
-          <CardContent className="grid grid-cols-2 gap-x-6 gap-y-5 pt-2">
-            <div className="col-span-2 flex items-center justify-between">
-              <span className="text-sm font-medium">Right now</span>
-              <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span className="relative flex size-2">
-                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-60" />
-                  <span className="relative inline-flex size-2 rounded-full bg-primary" />
-                </span>
-                {feed.source === "live" ? "live" : "sample feed"}
-              </span>
-            </div>
-            <Stat label="Agent" value={status.mode} />
-            <Stat label="Model" value={status.model} />
-            <Stat label="Publishing" value={status.dryRun ? "dry run" : "on"} />
-            <Stat label="Wallet" value={shortAddress(WALLET_ADDRESS)} href={WALLET.href} />
-            <Stat label="Queue" value={`${status.queue.pending} waiting · ${status.queue.done} done`} />
-            <Stat label="Last reflection" value={last ? last.at.slice(0, 16).replace("T", " ") + " UTC" : "—"} />
-          </CardContent>
-        </Card>
       </div>
     </section>
   )

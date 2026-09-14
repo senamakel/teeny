@@ -18,6 +18,8 @@ import {
 } from './webhooks/activity.js'
 import type { People } from './cadence/people.js'
 import type { WebhookForwarder } from './webhooks/forward.js'
+import { redactInference, type InferenceLedger, type Lane } from './ledger/ledger.js'
+import type { BrainReader } from './ledger/brain.js'
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -86,6 +88,13 @@ export function buildServer(options: {
     journal: Journal
     status: { mode: string; model: string; dryRun: boolean }
   }
+  /**
+   * The inference ledger, served at GET /ledger: every model call, and the
+   * running token count, for the page's counter. Same network as /mind.
+   */
+  ledger?: InferenceLedger
+  /** The brain's checkout, served at GET /brain: roster, workflows, the latest runs. */
+  brain?: BrainReader
   /** The content filter. An ad-hoc task it holds is refused before the agent sees it. */
   safety?: Pick<SafetyGate, 'inbound' | 'refreshApprovedLinks'>
   /**
@@ -130,9 +139,10 @@ export function buildServer(options: {
     if (!options.mind) return reply.code(503).send({ error: 'no journal is configured' })
     const query = request.query as { limit?: string }
     const limit = Math.min(Math.max(Number(query.limit) || 40, 1), 200)
-    const [reflections, counts] = await Promise.all([
+    const [reflections, counts, totals] = await Promise.all([
       options.mind.journal.recent(limit),
       options.queue ? options.queue.counts().catch(() => undefined) : Promise.resolve(undefined),
+      options.ledger ? options.ledger.totals().catch(() => undefined) : Promise.resolve(undefined),
     ])
     return {
       source: 'live',
@@ -145,8 +155,36 @@ export function buildServer(options: {
           failed: counts?.failed ?? 0,
         },
       },
+      ...(totals ? { totals } : {}),
       reflections: reflections.map(redactReflection),
     }
+  })
+
+  app.get('/ledger', async (request, reply) => {
+    if (!options.ledger) return reply.code(503).send({ error: 'no inference ledger is configured' })
+    const query = request.query as { limit?: string; lane?: string; before?: string }
+    const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 200)
+    const lane = query.lane === 'mascot' || query.lane === 'brain' ? (query.lane as Lane) : undefined
+    const before = typeof query.before === 'string' && query.before ? query.before : undefined
+    const [totals, entries] = await Promise.all([
+      options.ledger.totals(),
+      options.ledger.recent(limit, { ...(lane ? { lane } : {}), ...(before ? { before } : {}) }),
+    ])
+    return {
+      source: 'live',
+      generatedAt: new Date().toISOString(),
+      totals,
+      entries: entries.map(redactInference),
+    }
+  })
+
+  app.get('/brain', async (request, reply) => {
+    if (!options.brain) return reply.code(503).send({ error: 'no brain is mounted' })
+    const query = request.query as { runs?: string; steps?: string }
+    return options.brain.snapshot({
+      runs: Math.min(Math.max(Number(query.runs) || 40, 1), 200),
+      steps: Math.min(Math.max(Number(query.steps) || 300, 1), 1000),
+    })
   })
 
   app.get('/webhooks/x', async (request, reply) => {

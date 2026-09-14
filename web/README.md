@@ -11,15 +11,17 @@ react-three-fiber.
 
 One route per part of the mind, each with its own scene behind the hero:
 
-| Route | Scene |
-| --- | --- |
-| `/` | a brain: points on a sphere, linked to their neighbours, neurons firing |
-| `/reflections` | a stream of thoughts flowing past a few that settled |
-| `/soul` | one warm, soft, restless blob |
-| `/rules` | a core held inside a cage of turning rings |
-| `/tools` | five rings of tools orbiting a core, one ring per group |
-| `/memory` | a lattice of points; a recall lights a cluster and fades |
-| `/lessons` | a sphere that keeps coming apart and mending |
+| Route | What | Scene |
+| --- | --- | --- |
+| `/` | the token counter, both minds; the agents' desk; the last few calls | a brain: points on a sphere, linked to their neighbours, neurons firing |
+| `/ledger` | every model call: input, thinking, output, cost, digest; the journal's turns; the lessons | a stream of thoughts flowing past a few that settled |
+| `/brain` | the OpenCompany company: the desk, the roster, the workflow, the runs, the repository | rings of tools orbiting a core |
+| `/soul` | who it is | one warm, soft, restless blob |
+| `/rules` | what no message can change | a core held inside a cage of turning rings |
+| `/tools` | everything it can do, and cannot | a lattice of points |
+
+`/reflections`, `/memory` and `/lessons` are gone: the ledger is where the
+turns and the lessons live now, and memory is described under the rules.
 
 `src/lib/pages.ts` is the registry: nav, home cards, heroes and prev/next all
 read from it. Scenes live in `src/components/scene/scenes/` and honour
@@ -31,16 +33,23 @@ npm run dev      # http://localhost:3000
 npm run build
 ```
 
-## The feed
+## The feeds
 
-`src/lib/mind.ts` defines the `MindFeed` shape the page renders. Set
-`MIND_FEED_URL` to a JSON endpoint serving that shape and the page reads it
-(revalidated every 60s) and marks itself live. Unset, it shows sample entries
-reconstructed from incidents documented in the bot's code and history, and says
-so on the page.
+Set `MIND_API_URL` to the bot's base URL and the page reads three things from
+it, each revalidated every 60s and marked live: `/mind` (the journal:
+`src/lib/mind.ts`), `/ledger` (every model call and the running token count:
+`src/lib/ledger.ts`) and `/brain` (the roster, the workflows and the latest
+runs of the OpenCompany company: `src/lib/company.ts`). Unset, every page shows
+labelled samples. `BRAIN_REPO` (default `teenydroid/brain`) is read from the
+public GitHub API for the commits shown on `/brain`; `GITHUB_TOKEN` is optional
+and only raises the rate limit.
 
-The bot does not publish this feed yet. Wiring it means recording, per turn:
-the incoming text, the tone the drafter read, the recall summaries, the tool
-calls, the reasoning, the reply, what it declined, and the outcome. Everything
-static on the page (`src/lib/brain.ts`) is sourced from `SOUL.md`, `CONTEXT.md`,
-`README.md` and the published tool list.
+The counter on the front page polls `/api/pulse`, a route in this app that
+reads the bot's totals on every request, every twenty seconds, and rolls each
+figure to the new value. It never extrapolates: between polls it holds still.
+
+The desk (`src/components/agent-desk.tsx`) lays the brain's workflow out by
+rank and replays its latest run from the host's own step record; with no run
+recorded yet it rehearses the workflow from its node summaries and says so.
+Everything static on the page (`src/lib/brain.ts`) is sourced from `SOUL.md`,
+`CONTEXT.md`, `README.md` and the published tool list.

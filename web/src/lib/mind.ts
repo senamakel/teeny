@@ -6,6 +6,9 @@
  * an invented one.
  */
 
+import { readApi } from './api'
+import { SAMPLE_TOTALS, type Totals } from './ledger'
+
 export type Trigger = 'mention' | 'chart' | 'morning' | 'moon' | 'calendar' | 'task'
 export type Tone = 'friendly' | 'neutral' | 'negative' | 'hostile' | 'confused'
 export type Outcome = 'posted' | 'dry-run' | 'skipped' | 'held' | 'failed'
@@ -54,6 +57,8 @@ export interface MindFeed {
     model: string
     queue: { pending: number; done: number; failed: number }
   }
+  /** The running token count, when the bot has a ledger. */
+  totals?: Totals
   reflections: Reflection[]
 }
 
@@ -315,21 +320,11 @@ export const LESSONS: Lesson[] = [
   },
 ]
 
-/**
- * The live feed is GET /mind on the bot, reached over the compose network.
- * Anything short of a good answer falls back to the samples, which the page
- * labels as such, so a bot that is down never takes the page with it.
- */
+/** The live feed is GET /mind on the bot; short of a good answer, the samples. */
 export async function loadMind(): Promise<MindFeed> {
-  const url = process.env.MIND_FEED_URL
-  if (!url) return SAMPLE
-  try {
-    const response = await fetch(url, { next: { revalidate: 60 }, signal: AbortSignal.timeout(5_000) })
-    if (!response.ok) return SAMPLE
-    const feed = (await response.json()) as MindFeed
-    if (!Array.isArray(feed.reflections)) return SAMPLE
-    return { ...feed, source: 'live' }
-  } catch {
-    return SAMPLE
-  }
+  const feed = await readApi<MindFeed>('/mind', {
+    check: (body) => Array.isArray((body as MindFeed).reflections),
+  })
+  if (!feed) return { ...SAMPLE, totals: SAMPLE_TOTALS }
+  return { ...feed, source: 'live', totals: feed.totals ?? SAMPLE_TOTALS }
 }

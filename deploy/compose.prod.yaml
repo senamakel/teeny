@@ -48,10 +48,14 @@ services:
       # and the container crash-looped (2026-09-14, node:22-alpine at 22.23),
       # while wget from the same container reached it over v4 at once.
       NODE_OPTIONS: --dns-result-order=ipv4first
+      # The brain's checkout, read-only: the agents' token spend is folded
+      # into the ledger from it, and /brain serves the roster and the runs.
+      BRAIN_DATA_DIR: /brain
     ports:
       - "127.0.0.1:${BOT_PORT:-3110}:3001"
     volumes:
       - bot-data:/app/data
+      - ${BRAIN_DIR:?set BRAIN_DIR in deploy/.env}:/brain:ro
     depends_on:
       mongo:
         condition: service_healthy
@@ -65,16 +69,19 @@ services:
   # The landing page at teeny.enamakel.com: Teeny's mind, turned inside out.
   # Its own image from ./web, nothing shared with the agent, and the host nginx
   # vhost in deploy/nginx/teeny.enamakel.com.conf is what puts it on the
-  # internet. MIND_FEED_URL is where it will read the live reflection feed
-  # from once the bot publishes one; unset, it shows labelled samples.
+  # internet. MIND_API_URL is the bot, which serves the journal at /mind,
+  # the inference ledger at /ledger and the brain at /brain; unset, the page
+  # shows labelled samples.
   web:
     image: teeny-web:current
     build:
       context: ../web
     restart: unless-stopped
     environment:
-      # The bot's ingest container serves the journal; both sit on teeny_default.
-      MIND_FEED_URL: ${MIND_FEED_URL:-http://bot:3001/mind}
+      # The bot's ingest container serves the feeds; both sit on teeny_default.
+      MIND_API_URL: ${MIND_API_URL:-http://bot:3001}
+      # The brain's public repository, for the commits shown on /brain.
+      BRAIN_REPO: ${BRAIN_REPO:-teenydroid/brain}
     ports:
       - "127.0.0.1:${WEB_PORT:-3120}:3000"
     healthcheck:

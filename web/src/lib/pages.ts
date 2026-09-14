@@ -11,12 +11,20 @@ export interface PageMeta {
 
 export const PAGES: PageMeta[] = [
   {
-    slug: '/reflections',
-    label: 'Reflections',
-    eyebrow: 'Reflections',
-    title: 'What it thought before it spoke',
-    lede: 'Every turn leaves a record: what came in, what memory said, which tools it called, the reasoning, what it said, and what it chose not to say. Handles are left out. The reasoning is not.',
+    slug: '/ledger',
+    label: 'Ledger',
+    eyebrow: 'Ledger',
+    title: 'Every inference, on the record',
+    lede: 'One row per model call: what went in, what it reasoned, what came out, and what it cost. The system prompt is never shown; each row carries its digest instead, so the record commits to it without revealing it.',
     scene: 'stream',
+  },
+  {
+    slug: '/brain',
+    label: 'Brain',
+    eyebrow: 'Brain',
+    title: 'The part that decides what it is trying to do',
+    lede: 'An OpenCompany company of four agents whose whole state is a public git repository. They revise their own definition, and every run is committed back where anyone can read it.',
+    scene: 'orbit',
   },
   {
     slug: '/soul',
@@ -40,23 +48,7 @@ export const PAGES: PageMeta[] = [
     eyebrow: 'Tools',
     title: 'Everything it can do. And what it cannot.',
     lede: 'This is the whole list. A test asserts it exactly, so adding a capability is a deliberate act that fails the suite until someone decides.',
-    scene: 'orbit',
-  },
-  {
-    slug: '/memory',
-    label: 'Memory',
-    eyebrow: 'Memory',
-    title: 'What it remembers, and what it refuses to',
-    lede: 'Long-term memory is CortexDB. The order things happen in matters as much as what is stored.',
     scene: 'grid',
-  },
-  {
-    slug: '/lessons',
-    label: 'Lessons',
-    eyebrow: 'Lessons',
-    title: 'Things it got wrong, on the record',
-    lede: 'Each of these is a mistake made in public and a change made in the code because of it. The comments in the repo tell the same story.',
-    scene: 'shards',
   },
 ]
 

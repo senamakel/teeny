@@ -1,3 +1,5 @@
+import { recordCompletion } from '../ledger/completion.js'
+import type { InferenceLedger } from '../ledger/ledger.js'
 import type { ImageInput, ImageMimeType, ImageReader } from './types.js'
 
 /** Past this a picture is a file, not a message, and the model would refuse it anyway. */
@@ -99,6 +101,8 @@ export class OpenAIVisionReader implements ImageReader {
       model: string
       timeoutMs?: number
       fetch?: typeof fetch
+      /** Where the call is written down. The image itself is not: the row carries the question. */
+      ledger?: InferenceLedger
     },
   ) {}
 
@@ -108,6 +112,7 @@ export class OpenAIVisionReader implements ImageReader {
     if (resolved.data.byteLength > MAX_IMAGE_BYTES) {
       throw new Error(`image is ${resolved.data.byteLength} bytes, over the ${MAX_IMAGE_BYTES} limit`)
     }
+    const startedAt = Date.now()
     const response = await doFetch(
       `${this.options.baseUrl.replace(/\/$/, '')}/chat/completions`,
       {
@@ -147,6 +152,13 @@ export class OpenAIVisionReader implements ImageReader {
     if (!response.ok) {
       throw new Error(`vision request failed (${response.status}): ${body.error?.message ?? 'no detail'}`)
     }
+    await recordCompletion(this.options.ledger, {
+      source: 'vision',
+      model: this.options.model,
+      messages: [{ role: 'user', content: [{ type: 'text', text: question?.trim() || DEFAULT_QUESTION }, { type: 'image_url' }] }],
+      response: body,
+      startedAt,
+    })
     const content = body.choices?.[0]?.message?.content
     const text =
       typeof content === 'string'

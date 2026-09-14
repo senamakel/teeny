@@ -69,7 +69,7 @@ export class ChartAgent implements Agent {
   constructor(options: ChartAgentOptions) {
     this.maxSteps = options.maxSteps ?? 20
     this.graph = createReactAgent({
-      llm: createChatModel(options.llm),
+      llm: createChatModel({ source: 'chart', ...options.llm }),
       tools: this.buildTools(options),
       prompt: chartPrompt({
         botUsername: options.botUsername,
