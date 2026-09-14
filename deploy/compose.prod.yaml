@@ -42,6 +42,12 @@ services:
       LLM_API_KEY: ${LADDER_API_KEY:?set LADDER_API_KEY in deploy/.env}
       MONGO_URI: mongodb://${MONGO_ROOT_USERNAME:-teeny}:${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD}@mongo:27017/${MONGO_DATABASE:-teeny}?authSource=admin
       MONGO_DATABASE: ${MONGO_DATABASE:-teeny}
+      # api.telegram.org publishes an AAAA record and this network has no v6
+      # route. Node's fetch tried the v6 address first and sat in a connect
+      # timeout rather than falling back, so every `getMe` at startup failed
+      # and the container crash-looped (2026-09-14, node:22-alpine at 22.23),
+      # while wget from the same container reached it over v4 at once.
+      NODE_OPTIONS: --dns-result-order=ipv4first
     ports:
       - "127.0.0.1:${BOT_PORT:-3110}:3001"
     volumes:
