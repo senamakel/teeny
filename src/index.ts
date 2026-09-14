@@ -28,6 +28,8 @@ import { MongoChatTranscript } from './telegram/transcript.js'
 import { buildMedia } from './media/wiring.js'
 import { buildMorningPipeline } from './morning/wiring.js'
 import { MorningJob, MORNING_CALENDAR_SLOT } from './jobs/morning-job.js'
+import { buildMoonPipeline } from './moon/wiring.js'
+import { MoonJob } from './jobs/moon-job.js'
 import { SafetyGate } from './safety/gate.js'
 import { MongoHoldLog, type Hold } from './safety/holds.js'
 import { ModelJudge } from './safety/judge.js'
@@ -212,6 +214,10 @@ async function release(hold: Hold): Promise<string> {
   if (where.surface === 'morning') {
     return 'recorded; the morning post runs again tomorrow'
   }
+  // Nor the moon chart: the picture was drawn from that minute's prices.
+  if (where.surface === 'moon') {
+    return 'recorded; the moon chart runs again tomorrow'
+  }
   return 'recorded; nothing here can publish it'
 }
 // Every role writes to it and the ingest role serves it, so it lives in the
@@ -245,6 +251,8 @@ const runsReplies = role === 'all' || role === 'reply'
 const runsChart = config.CHART_ENABLED && (role === 'all' || role === 'chart')
 // The morning post too: one timer, one process, or it says good morning twice.
 const runsMorning = config.MORNING_ENABLED && (role === 'all' || role === 'morning')
+// And the moon chart, for the same reason.
+const runsMoon = config.MOON_ENABLED && (role === 'all' || role === 'moon')
 // The content calendar publishes on its own timers and, with the morning
 // post, is where the account generates media unasked. Opt-in and
 // single-homed, like the chart.
@@ -350,6 +358,25 @@ if (runsMorning) {
     void morningJob
       .run()
       .catch((error: unknown) => app.log.error({ err: error }, 'morning job failed'))
+  })
+}
+
+if (runsMoon) {
+  const moonJob = new MoonJob({
+    pipeline: buildMoonPipeline(config, {
+      memory,
+      x,
+      persona,
+      botUsername,
+      dryRun: config.DRY_RUN,
+      logger: app.log,
+      safety,
+    }),
+    logger: app.log,
+    journal,
+  })
+  cron.schedule(config.MOON_CRON, () => {
+    void moonJob.run().catch((error: unknown) => app.log.error({ err: error }, 'moon job failed'))
   })
 }
 
@@ -488,6 +515,7 @@ app.log.info(
     morning: runsMorning
       ? `at "${config.MORNING_CRON}", ${media?.videos ? 'video' : 'image'}, ${config.MORNING_NEWS_TOPICS.length} topics`
       : false,
+    moon: runsMoon ? `${config.MOON_COIN_ID} against ${config.MOON_CATEGORY} at "${config.MOON_CRON}"` : false,
     calendar: runsCalendar ? calendarItems : false,
   },
   'teeny started',

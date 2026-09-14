@@ -6,7 +6,7 @@
  * an invented one.
  */
 
-export type Trigger = 'mention' | 'chart' | 'morning' | 'calendar' | 'task'
+export type Trigger = 'mention' | 'chart' | 'morning' | 'moon' | 'calendar' | 'task'
 export type Tone = 'friendly' | 'neutral' | 'negative' | 'hostile' | 'confused'
 export type Outcome = 'posted' | 'dry-run' | 'skipped' | 'held' | 'failed'
 

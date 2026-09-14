@@ -1,4 +1,4 @@
-import { AlertCircle, BarChart3, CalendarDays, MessageCircle, Sunrise, Terminal } from "lucide-react"
+import { AlertCircle, BarChart3, CalendarDays, MessageCircle, Moon, Sunrise, Terminal } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
@@ -11,11 +11,12 @@ const TRIGGER_ICON: Record<Trigger, typeof MessageCircle> = {
   chart: BarChart3,
   task: Terminal,
   morning: Sunrise,
+  moon: Moon,
   calendar: CalendarDays,
 }
 
 /** Triggers that publish rather than answer: the chart, the morning post, a calendar item. */
-const POSTS = new Set<Trigger>(["chart", "morning", "calendar"])
+const POSTS = new Set<Trigger>(["chart", "morning", "moon", "calendar"])
 
 const TONE_STYLE: Record<Tone, string> = {
   friendly: "border-primary/40 text-primary",

@@ -60,6 +60,7 @@ export function dashboardHtml(): string {
     if (c.surface === 'chart') return 'chart agent' + (c.tool ? ' · ' + c.tool : '');
     if (c.surface === 'calendar') return 'calendar' + (c.tool ? ' · ' + c.tool : '');
     if (c.surface === 'morning') return 'morning post' + (c.tool ? ' · ' + c.tool : '');
+    if (c.surface === 'moon') return 'moon chart';
     return c.surface || '';
   };
   const whatApprovingDoes = (h) => {
@@ -67,6 +68,7 @@ export function dashboardHtml(): string {
     if (h.kind === 'message' && h.context && h.context.surface === 'x') return 'approve = answer this mention after all';
     if (h.kind === 'draft' && h.context && h.context.surface === 'calendar') return 'approve = mark the filter wrong; the item posts again on its next run';
     if (h.kind === 'draft' && h.context && h.context.surface === 'morning') return 'approve = mark the filter wrong; the morning post runs again tomorrow';
+    if (h.kind === 'draft' && h.context && h.context.surface === 'moon') return 'approve = mark the filter wrong; the moon chart runs again tomorrow';
     if (h.kind === 'draft') return 'approve = publish this draft as written';
     return 'approve = mark the filter wrong; nothing is re-sent';
   };

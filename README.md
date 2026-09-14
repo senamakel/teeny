@@ -619,6 +619,88 @@ everything it made to `MEDIA_OUTPUT_DIR` so it can be looked at.
 Every generation prompt is capped at 2000 characters, which is Surplus's limit
 on the video surface; over it, the seed is the part that goes.
 
+## The moon chart
+
+"$TINY with the market cap of X", once a day, at 20:00 UTC by default. Like
+the morning post it is a fixed pipeline rather than an agent: read the board,
+pick a yardstick, do the arithmetic, draw it, write two lines under it, post.
+Nothing in it wants a model's judgement about whether to run.
+
+It is off by default (`MOON_ENABLED=false`), because it publishes. It needs
+nothing beyond the chat model: CoinGecko answers without a key and the picture
+is drawn here, so it spends no generation budget.
+
+```sh
+npm run moon-dry-run              # read the board, draw, caption; post nothing
+npm run moon-dry-run -- --publish # actually posts, if DRY_RUN=false
+```
+
+The picture is written to `MOON_OUTPUT_DIR` (`data/moon`) either way.
+
+### The numbers
+
+Two CoinGecko reads per run, both from `/coins/markets`: the token's own row
+by id (`MOON_COIN_ID`, `tiny-humans-ai`) and the category leaderboard
+(`MOON_CATEGORY`, `ai-meme-coins` -- the table at
+coingecko.com/en/categories/ai-meme-coins, largest cap first, `MOON_BOARD_SIZE`
+rows). The token is looked up rather than found in the list because it is not
+on the first page of it, and the whole point of the post is where it would be.
+
+The arithmetic is in `src/moon/ladder.ts` and is one line: the token's price
+at the yardstick's cap is the yardstick's cap over the token's circulating
+supply, which is the same as today's price times the multiple. It is a
+statement about today's supply, not a forecast, and both the picture and the
+caption say so.
+
+The yardstick is picked at random from the coins between `MOON_MIN_MULTIPLE`
+(2) and `MOON_MAX_MULTIPLE` (2000) times the token's own cap: below the floor
+it is a neighbour, not a moon; above the ceiling the number stops meaning
+anything to a reader. Before picking, the run recalls what this series already
+posted and reads the tickers out of it, so yesterday's yardstick is skipped;
+when every candidate has been used the list resets rather than the day being
+skipped. That is what `moon_post` in memory carries the yardstick's symbol for.
+
+### The picture
+
+`src/moon/svg.ts`, rasterised through the same resvg path as the candlestick
+chart, so it needs the same fonts and nothing else. Left, the headline: the
+yardstick with its logo, the implied price, the multiple, and two cards with
+both market caps. Right, the climb: a track from the token's cap at the bottom
+to the moon at the top, on a log scale, with `MOON_RUNGS` (7) coins from the
+board spread along it and today's yardstick lit. The rungs are picked evenly
+in log space, since one board spans three orders of magnitude, and pushed
+apart on the track so two coins a few percent apart do not overprint.
+
+Logos come from CoinGecko and are embedded in the SVG as data URIs; only PNG
+and JPEG are, because those are what resvg reads, and a coin without one gets
+a disc with its initial. A logo that cannot be fetched is not a reason to
+miss the day.
+
+`CHART_RENDERER=screenshot` does not apply here: there is no page to
+photograph, and drawing the numbers ourselves is the point -- every figure
+on the picture is one this service computed from CoinGecko's row a minute
+earlier, not one a model drew.
+
+### The caption
+
+The persona says never a price and never a target, and this is the one post
+where the account states a number for the future. It is allowed to because
+the number is arithmetic on two public caps, the picture says so in its fine
+print, and the prompt makes the caption say the same. What the caption may
+not do is turn it into a promise, a target or a reason to buy: no "will", no
+"wen", no "soon", no count-down. The yardstick is somebody else's token, so it
+is named as the ruler and nothing more -- no praise, no dig -- and no other
+token is named at all. At most two numbers in the text; the picture is the
+spreadsheet, the caption is the aside. Then the house style, the emoji cap,
+and [the content filter](#the-content-filter) like every other draft; a held
+caption is a missing day, and tomorrow's runs on its own.
+
+Memory on both sides, as the chart and the morning have it: what the series
+already said is recalled so a joke is not told twice, and what went out is
+written back as a `moon_post` with the yardstick, the multiple and the
+implied price. The turn is journaled with `trigger: moon` for the mind page.
+The job refuses to run twice inside 20 hours, like the others.
+
 ## The journal, and the mind page
 
 Every turn the account takes is written to a journal, and the journal is what
@@ -656,15 +738,15 @@ and the category, never the text, and the endpoint answers 422.
 
 **Outbound.** Every draft passes the gate again, after house style and
 immediately before it is published: the reply job's text, the Telegram bot's,
-the calendar job's, the morning post's caption, the `x_post` and `post_chart`
-tools', and the prompt handed to `generate_image` and `generate_video` before
+the calendar job's, the morning post's and the moon chart's captions, the
+`x_post` and `post_chart` tools', and the prompt handed to `generate_image` and `generate_video` before
 any budget is spent. The morning pipeline holds the generators directly rather
 than through the tools, so it reads the gate where the tools would: on the
 scene before the picture is drawn and on the script before the clip is filmed.
 A held draft is withheld and the mention is marked `withheld: <category>`; a
 held calendar post is a missing day, and the item runs again on its next cron;
 a held morning caption is a missing morning, the picture is not posted bare,
-and tomorrow's runs on its own; a tool refuses with the reason so the agent can
+and tomorrow's runs on its own; a held moon caption is the same, a missing day; a tool refuses with the reason so the agent can
 say something else. Outbound is stricter than inbound in one way: ordinary
 swearing from a stranger is answered, but the account never says it back.
 
@@ -721,7 +803,7 @@ pending, and an approve or reject on each entry is a decision with an effect:
 | a link cut from a draft | puts its host on the live allowlist; every gate reads it within a minute |
 | an X mention that was not answered | sends it back to the queue to be answered, inbound check waived, outbound still on |
 | a withheld draft (X or Telegram) | publishes it as written, honouring `DRY_RUN` / `TELEGRAM_DRY_RUN` |
-| a withheld calendar or morning post | recorded as a wrong call; the item posts again on its next run, the morning post tomorrow |
+| a withheld calendar, morning or moon post | recorded as a wrong call; the item posts again on its next run, the morning post and the moon chart tomorrow |
 | a Telegram message, a refused picture, an ad-hoc task | recorded as a wrong call; nothing is re-sent |
 
 Rejecting confirms the filter and closes the entry. A decision is taken once;
@@ -1019,6 +1101,7 @@ npm run build
 npm run webhook     # read or move the X Account Activity registration
 npm run chart-dry-run   # rehearse the daily chart post without publishing
 npm run morning-dry-run # rehearse the good-morning post: reads, draws, films, captions, no post
+npm run moon-dry-run    # rehearse the moon chart: reads the board, draws, captions, no post
 npm run calendar-dry-run -- gm   # draft one calendar item, generate its media, publish nothing
 npm run telegram-dry-run -- "hi"            # one Telegram DM through the real drafter, printed not sent
 npm run telegram-dry-run -- --group "@teenythebot gm"   # the same, as a group mention
