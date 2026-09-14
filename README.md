@@ -155,11 +155,13 @@ the log and the draft goes out.
 
 It reaches the account three ways:
 
-- **`x_critique`**, a tool on every agent's belt. The task and content agents
-  are told to call it on any standalone or quote post, caption, or script
-  before publishing, rewrite a flat or risky draft with its fixes, and ask
-  once more. A reply to a person is already a conversation and is exempt
-  unless the drafter is unsure it leaves the door open.
+- **`x_critique`**, a tool on the belt of the agents that generate timeline
+  posts: the task agent, the content agent behind the calendar, and the chart
+  agent, which gets it as a numbered step before `post_chart`. Each is told to
+  call it on the exact text, rewrite a flat or risky draft with its fixes, and
+  ask once more. The reply drafter and the Telegram bot never get it: a reply
+  is already a conversation, and a reader that scores it for the timeline
+  would pull it toward being a post.
 - **The morning pipeline** shows it the script and then the caption; each is
   rewritten once when the read is flat or risky, with the previous draft and
   the critique appended to the same stage prompt. The last read of each is
@@ -181,18 +183,26 @@ story behind a caption.
 
 ```text
 ALGO_CRITIC=true          # off: no tool, no pipeline read, /critique is 503
-ALGO_CRITIC_MODEL=        # blank: the chat model
+ALGO_CRITIC_MODEL=flash   # the ladder's fast rung; blank spells the same
 ```
 
-A read is one structured model call and takes as long as the model takes: on
-the local ladder's `reasoning` rung, thirty to sixty seconds each, which the
-morning pipeline can afford (at most four) and an agent turn may not. Point
-`ALGO_CRITIC_MODEL` at a faster rung if `x_critique` is slowing replies down.
+A read is one structured model call and takes as long as the model takes. On
+the `reasoning` rung it was thirty to sixty seconds, which the morning
+pipeline can afford (at most four) and an agent turn cannot, so the default
+is the fast rung.
 
-Checked against the `conversation` skill's own examples on that rung: the
-flat post and flat caption read FLAT (-0.33 and 0.21), their conversation
-versions WORTHY (2.47 and 2.36), a political insult with a cashtag bolted on
-RISKY (cost -5.5), and an engagement-bait price call RISKY (-15.35).
+Checked against the `conversation` skill's own examples. On the `reasoning`
+rung: the flat post and flat caption read FLAT (-0.33 and 0.21), their
+conversation versions WORTHY (2.47 and 2.36), a political insult with a
+cashtag bolted on RISKY (-9.54), an engagement-bait price call RISKY
+(-15.35). On `flash`, after the brief gained calibration anchors (dull is
+flat, not risky; the daily chart is not a price call): a flat gm caption
+FLAT (-0.79), its conversation version WORTHY (2.66), a flat chart caption
+FLAT (0.44), a conversation one 1.82, an mcap stance WORTHY (2.17), the bait
+post RISKY (-29.83). The fast rung is a coarser reader and its fixes are
+plainer; the brief tells it not to invent a number or touch the media, and
+the schema trims rather than refuses a line that runs long, with one retry
+when it stops halfway through the object.
 
 ## Pictures
 
