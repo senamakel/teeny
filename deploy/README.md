@@ -36,9 +36,9 @@ that has the `.env` files.
 | ------------------ | ----------------------------------------- | ----------------- |
 | `teeny-bot-1`      | the agent: X ingest, the webhook, `/agent/run`, replies, the daily chart, the moon chart, Telegram | `127.0.0.1:3110`  |
 | `teeny-web-1`      | the landing page, teeny.enamakel.com       | `127.0.0.1:3120`  |
-| `cortex`           | long-term memory, **not this stack's**: the shared CortexDB, joined to `teeny_default` as `cortexdb` | `127.0.0.1:3141` |
+| `cortex`           | long-term memory, **not this stack's**: the shared CortexDB, reached as `cortexdb` | `127.0.0.1:3141`, `172.17.0.1:3141` |
 | `teeny-mongo-1`    | the mention queue                          | `127.0.0.1:27020` |
-| `ladder`           | the model endpoint, owned by no project    | `127.0.0.1:6969`  |
+| `ladder`           | the model endpoint, owned by no project    | `127.0.0.1:6969`, `172.17.0.1:6969` |
 | `teeny-opencompany-1` | the brain: the OpenCompany host + console over the public brain checkout | `127.0.0.1:3130` |
 | `teeny-brain-sync-1`  | commits the brain after every run and pushes it to GitHub | — |
 
@@ -51,6 +51,26 @@ daily for a flexibility used never. `SERVICE_ROLE` still exists in the code,
 so the split is a compose change if it is ever wanted again; the constraint to
 remember then is that the chart cron and the Telegram poller must each run in
 exactly one place.
+
+## The two shared containers
+
+`ladder` and `cortex` are not this stack's, and they are not on its network.
+Each publishes on the host's docker0 address as well as loopback, and
+`compose.prod.yaml` pins the names `ladder` and `cortexdb` to that address
+with `extra_hosts` (`host-gateway`, 172.17.0.1). The mapping is in the
+container's `/etc/hosts`, so it is fixed at `up` and does not care whether
+the container behind it is restarted, recreated or replaced. Whoever starts
+either one has to keep the docker0 bind: `-p 172.17.0.1:6969:6969` for the
+ladder, `-p 172.17.0.1:3141:3141` for cortex.
+
+They used to be reached by `docker network connect teeny_default <name>`
+instead -- once, by hand or by `deploy.sh`. That is runtime state on the old
+container: `ladder-up --pull` recreated the ladder on 2026-09-15 and the new
+one was on no network but `bridge`, so `ladder` stopped resolving from the
+bot. Every morning post and the chart failed on `getaddrinfo EAI_AGAIN
+ladder` for three days while every container stayed healthy and the page
+stayed up. `deploy.sh` now proves the ladder answers from a container wired
+like the bot before it releases, and refuses to deploy when it does not.
 
 ## The morning post
 
@@ -178,13 +198,10 @@ the agent's deploy: the health step reports the page rather than gating on it.
 Teeny's memory lives in the shared CortexDB on the box: the container named
 `cortex`, published on `127.0.0.1:3141` and `172.17.0.1:3141`, with its data
 in the `cortex-data` volume. It is nobody's compose project here and it is
-not this stack's to start or stop. It is attached to `teeny_default` with the
-alias `cortexdb`, which is how `http://cortexdb:3141` resolves from the agent.
-If it is ever recreated it has to be re-joined:
-
-```sh
-docker network connect --alias cortexdb teeny_default cortex
-```
+not this stack's to start or stop. The agent reaches it as
+`http://cortexdb:3141` through the `extra_hosts` entry that maps `cortexdb`
+to the docker0 address ("The two shared containers" above); recreating it
+needs nothing on this side as long as it keeps the `172.17.0.1:3141` bind.
 
 `CORTEX_TOKEN` in `.env` and `CORTEX_API_KEY` in `deploy/.env` are the key
 that container was started with; `deploy.sh` refuses to deploy while the two

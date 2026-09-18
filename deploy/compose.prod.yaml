@@ -8,8 +8,15 @@
 # worker, the chart cron, Telegram and /agent/run, all on node-cron and one
 # event loop -- over a Mongo mention cache, plus the landing page. CortexDB
 # for long-term memory is shared and lives outside this file, and the ladder
-# is a container this project does not own, joined to this network by
-# deploy.sh.
+# is a container this project does not own. Neither is on this network:
+# both publish on the host's docker0 address (172.17.0.1, what compose calls
+# `host-gateway`), and `extra_hosts` below pins `ladder` and `cortexdb` to it,
+# so the names resolve from /etc/hosts and survive either container being
+# recreated. They used to be reached by `docker network connect`, which is
+# runtime state: `ladder-up --pull` recreated the ladder on 2026-09-15 and
+# the new container was not on the network, `getaddrinfo EAI_AGAIN ladder`
+# failed every morning post and the chart for three days, and nothing else
+# looked wrong (2026-09-18).
 
 name: teeny
 
@@ -33,8 +40,9 @@ services:
       - path: ../.env
         format: raw
     # These win over ../.env, which carries the same keys pointed at whatever
-    # the developer runs locally. On the droplet everything is on this network,
-    # so services are reached by name and none is published where a browser
+    # the developer runs locally. On the droplet everything is reached by
+    # name -- this stack's services over the compose network, the two shared
+    # containers through extra_hosts -- and none is published where a browser
     # could get to it.
     environment:
       CORTEX_API_URL: http://cortexdb:3141
@@ -51,6 +59,9 @@ services:
       # The brain's checkout, read-only: the agents' token spend is folded
       # into the ledger from it, and /brain serves the roster and the runs.
       BRAIN_DATA_DIR: /brain
+    extra_hosts:
+      - "${LADDER:-ladder}:host-gateway"
+      - "cortexdb:host-gateway"
     ports:
       - "127.0.0.1:${BOT_PORT:-3110}:3001"
     volumes:
@@ -126,6 +137,8 @@ services:
       OPENCOMPANY_ADMIN_EMAIL: ${BRAIN_ADMIN_EMAIL:?set BRAIN_ADMIN_EMAIL in deploy/.env}
       # A non-passwd uid has no home; git, ssh and the runtime all want one.
       HOME: /tmp
+    extra_hosts:
+      - "${LADDER:-ladder}:host-gateway"
     volumes:
       - ${BRAIN_DIR:?set BRAIN_DIR in deploy/.env}:/data
       - ./opencompany/entrypoint.sh:/opt/brain/entrypoint.sh:ro
@@ -181,8 +194,8 @@ services:
   # box rather than a second copy living inside a database.
   #
   # Behind a profile because on the box today CortexDB is NOT this stack's: it
-  # is the shared `cortex` container, joined to teeny_default under the alias
-  # `cortexdb` (deploy/README.md, "The memory tier is external"). A plain `up`
+  # is the shared `cortex` container, reached as `cortexdb` through the bot's
+  # extra_hosts (deploy/README.md, "The memory tier is external"). A plain `up`
   # must not try to create a second one -- it did once, the port was taken,
   # and the agent sat in Created until somebody noticed. `--profile memory`
   # brings these up on a box that has no CortexDB of its own.
@@ -235,10 +248,15 @@ services:
       CORTEX_ARTIFACT_WORKERS: "2"
       CORTEX_DOCUMENT_PROVIDER: tika
       CORTEX_DOCUMENT_API_URL: http://tika:9998
+    extra_hosts:
+      - "${LADDER:-ladder}:host-gateway"
     volumes:
       - cortexdb-data:/data
+    # The bot resolves `cortexdb` to host-gateway (its extra_hosts above), so
+    # this one has to answer there, the same way the shared container does.
     ports:
       - "127.0.0.1:${CORTEX_PORT:-3142}:3141"
+      - "172.17.0.1:3141:3141"
     depends_on:
       tika:
         condition: service_healthy
