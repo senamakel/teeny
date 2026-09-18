@@ -21,12 +21,13 @@
 #
 # Two things a compose file cannot express, and the reason this script exists:
 #
-#  1. The ladder is a container this project does not own. It publishes on the
-#     host's loopback only, so `host.docker.internal` cannot reach it from a
-#     container — it has to be joined to this project's network for
-#     `http://ladder:6969` to resolve, and compose cannot adopt a container it
-#     did not create. Set LADDER_URL in deploy/.env instead when the ladder
-#     lives on another box.
+#  1. The ladder is a container this project does not own. Compose reaches it
+#     through `extra_hosts` (`ladder` -> host-gateway, the docker0 address it
+#     publishes on), which is static and survives the ladder being recreated;
+#     what a compose file cannot do is prove that the address answers. This
+#     script does, from a throwaway container wired exactly like the bot,
+#     before anything is released. Set LADDER_URL in deploy/.env instead when
+#     the ladder lives on another box.
 #  2. .env files are excluded from the rsync and copied explicitly, so a
 #     missing local file can never wipe a working one on the box.
 #  3. The brain checkout (BRAIN_DIR) is a live git working tree the
@@ -49,7 +50,6 @@ DEPLOY_HOST="${DEPLOY_HOST:-droid@174.138.35.76}"
 DEPLOY_KEY="${DEPLOY_KEY:-$HOME/.ssh/id_rsa}"
 REMOTE_DIR="${REMOTE_DIR:-/home/droid/teeny}"
 PROJECT="teeny"
-NETWORK="${NETWORK:-${PROJECT}_default}"
 LADDER="${LADDER:-ladder}"
 
 SKIP_CHECKS=0
@@ -207,31 +207,27 @@ fi
 
 # --- the model endpoint ----------------------------------------------------
 # Without one, the agent boots and then fails every turn, which looks like a
-# healthy deploy from the outside. Prove it is reachable before releasing.
+# healthy deploy from the outside: the container is healthy, the page is up,
+# and the morning post and the chart just never appear. Prove it is reachable
+# before releasing -- and prove it the way the bot will reach it, from a
+# container with the same extra_hosts, not from the host's shell. The ladder
+# used to be joined to the compose network at deploy time instead; a
+# `ladder-up --pull` between deploys recreated it off the network and every
+# scheduled post failed for three days (2026-09-15..18) before anyone looked.
 LADDER_URL="$(cfg LADDER_URL deploy/.env)"
+LADDER_URL="${LADDER_URL:-http://$LADDER:6969/v1}"
 say "Checking the model endpoint"
-# Created here rather than by compose because the ladder has to be attached
-# before anything starts. Compose refuses to adopt a network it cannot
-# recognise as its own, so it is created wearing compose's own labels.
-remote "docker network inspect $NETWORK >/dev/null 2>&1 || docker network create \
-  --label com.docker.compose.project=$PROJECT \
-  --label com.docker.compose.network=default \
-  $NETWORK" >/dev/null
-if [ -z "$LADDER_URL" ] || [ "$LADDER_URL" = "http://$LADDER:6969/v1" ]; then
-  if remote "docker inspect $LADDER >/dev/null 2>&1"; then
-    remote "docker network connect $NETWORK $LADDER 2>/dev/null || true"
-    say "Joined the '$LADDER' container to $NETWORK"
-  else
-    die "no container named '$LADDER' on $DEPLOY_HOST and no LADDER_URL in deploy/.env.
-       The agent has no model endpoint, so every reply and every memory write
-       would fail. Either start the ladder on this box, or point LADDER_URL at
-       the box that runs it (it must be reachable from a container here)."
-  fi
-else
-  remote "curl -fsS --max-time 5 -o /dev/null -H 'authorization: Bearer $(cfg LADDER_API_KEY deploy/.env)' ${LADDER_URL%/}/models" \
-    || die "the box cannot reach LADDER_URL ($LADDER_URL); fix that before deploying"
-  say "Reached the ladder at $LADDER_URL"
+if ! remote "docker run --rm --add-host $LADDER:host-gateway alpine:3 \
+      wget -q -O /dev/null -T 5 --header 'authorization: Bearer $(cfg LADDER_API_KEY deploy/.env)' \
+      '${LADDER_URL%/}/models'" >/dev/null 2>&1; then
+  die "a container on $DEPLOY_HOST cannot reach the ladder at $LADDER_URL.
+       The agent has no model endpoint, so every reply, every post and every
+       memory write would fail. On this box the ladder must publish on the
+       docker0 address, 172.17.0.1:6969, which is what '$LADDER' resolves to
+       inside the stack (\`docker port $LADDER\` shows the bindings); on another
+       box, point LADDER_URL at a URL reachable from a container here."
 fi
+say "Reached the ladder at $LADDER_URL"
 
 # --- the brain -------------------------------------------------------------
 # The checkout is live state: cloned once, then owned by the containers.
