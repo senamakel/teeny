@@ -4,7 +4,7 @@ import { applyHouseStyle, countEmoji } from '../agent/house-style.js'
 import { MAX_POST_LENGTH } from '../agent/tools/x.js'
 import { svgToPng } from '../chart/png.js'
 import type { TextModel } from '../media/reference.js'
-import { askJson } from '../morning/stages.js'
+import { askJson, asksTheReader, withoutTheAsk } from '../morning/stages.js'
 import type { SafetyGate } from '../safety/gate.js'
 import type { Memory, XTools } from '../types.js'
 import { ladder as buildLadder, pickTarget, rung, usedSymbols, type Rung } from './ladder.js'
@@ -221,6 +221,17 @@ export class MoonPipeline {
       maxLength: MAX_POST_LENGTH,
     })
     let { text } = await askJson(this.options.text, { ...ask, schema: moonCaptionSchema })
+    if (asksTheReader(text)) {
+      // The post ends on the aside, not on an ask. Once more with that said, then the question is cut.
+      const retry = await askJson(this.options.text, {
+        system: ask.system,
+        prompt:
+          `${ask.prompt}\n\nYour draft:\n${text}\n\nIt ends by asking the reader something. Rewrite it to end on the aside,` +
+          ' with no question in it, keeping everything else.',
+        schema: moonCaptionSchema,
+      })
+      text = asksTheReader(retry.text) ? withoutTheAsk(retry.text) : retry.text
+    }
     if (text.length > MAX_POST_LENGTH || countEmoji(text) > maxEmoji) {
       const retry = await askJson(this.options.text, {
         system: ask.system,
