@@ -162,10 +162,12 @@ export class SafetyGate {
     }
     const cleaned = links.text
 
-    // The serial's own posts are read under the narrative profile; every
-    // other outbound draft under the strict one. The hold, if any, is still
-    // recorded as outbound: it is the account's text either way.
-    const direction: Direction = context?.surface === 'narrative' ? 'narrative' : 'outbound'
+    // The serial's own posts, and the articles written from its lore, are
+    // read under the narrative profile; every other outbound draft under the
+    // strict one. The hold, if any, is still recorded as outbound: it is the
+    // account's text either way.
+    const direction: Direction =
+      context?.surface === 'narrative' ? 'narrative' : context?.surface === 'article' ? 'article' : 'outbound'
     const result = await this.outboundDecision(cleaned, links.removed.length > 0, direction)
     if (context) {
       if (!result.ok) {

@@ -86,7 +86,7 @@ const schema = z.object({
   X_SEARCH_MAX_RESULTS: z.coerce.number().int().min(10).max(100).default(10),
   // `all` runs every role in one process. Split them to scale or restart the
   // reply side without pausing ingestion, which is the half with a deadline.
-  SERVICE_ROLE: z.enum(['all', 'ingest', 'reply', 'api', 'chart', 'morning', 'moon', 'calendar', 'narrative', 'quote']).default('all'),
+  SERVICE_ROLE: z.enum(['all', 'ingest', 'reply', 'api', 'chart', 'morning', 'moon', 'calendar', 'narrative', 'article', 'quote']).default('all'),
   INGEST_CRON: z.string().default('*/5 * * * *'),
   // The X Activity API's stream, `GET /2/activity/stream`, read next to the
   // webhook. On because the webhook stopped delivering `post.*` events in
@@ -391,6 +391,36 @@ const schema = z.object({
     .string()
     .default('g,x,sci,biz')
     .transform((value) => value.split(',').map((entry) => entry.trim()).filter(Boolean)),
+
+  // --- the article ---------------------------------------------------------
+  // A long piece of the serial's lore, twice a week, published as an X
+  // Article. The backrooms find the idea; the piece is planned, written,
+  // proof-read and drawn, and the whole run is saved under ARTICLES_DIR.
+  // Off by default, and a rehearsal even when on: nothing reaches X until
+  // ARTICLE_PUBLISH is set, so the job can run on the box and its output be
+  // read on the site before a single article goes out. X allows articles on
+  // a Premium+ account only.
+  ARTICLE_ENABLED: offByDefault,
+  ARTICLE_PUBLISH: offByDefault,
+  // Wednesday and Saturday at 23:00 UTC: clear of the chart (15:00), the
+  // morning (07:00), the serial (Tue/Fri 18:00) and, most days, the moon
+  // (20:00) by the post gap.
+  ARTICLE_CRON: z.string().default('0 23 * * 3,6'),
+  ARTICLES_DIR: z.string().default('data/articles'),
+  // How many rooms are opened on the same seed; the best-scored one is written up.
+  ARTICLE_ROOMS: z.coerce.number().int().min(1).max(4).default(2),
+  ARTICLE_SECTIONS_MAX: z.coerce.number().int().min(3).max(5).default(4),
+  ARTICLE_WORDS: z.coerce.number().int().min(600).max(3_000).default(1_500),
+  // What the room is seeded with: a story from the wire on one of these.
+  ARTICLE_NEWS_TOPICS: z
+    .string()
+    .default('artificial intelligence news,robots and automation,crypto and web3 news')
+    .transform((value) => value.split(',').map((entry) => entry.trim()).filter(Boolean)),
+  // The proof-reader's checklist.
+  ARTICLE_HUMANIZER_PATH: z.string().default('skills/humanizer/SKILL.md'),
+  ARTICLE_WRITER_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.8),
+  // Refuses to publish again inside this window, on disk, so a restart at the cron minute cannot post twice.
+  ARTICLE_MIN_INTERVAL_HOURS: z.coerce.number().min(1).max(168).default(48),
 
   // --- the content calendar ------------------------------------------------
   // Scheduled posts from a JSON file: a "gm" every morning, a Friday post, a

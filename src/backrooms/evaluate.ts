@@ -24,7 +24,8 @@ export interface RunStats {
   winks: number
 }
 
-const PRICE = /\$\s?\d[\d,]*(?:\.\d+)?\s*(?:[kmb]\b|million|billion)?|\b(?:market\s?cap|mcap)\b|\bnfa\b|\b(?:buy|sell)\s+(?:now|the\s+dip|\$?tiny)\b/i
+/** A price, a market cap, "nfa", or a buy/sell: the words the lore never says. */
+export const PRICE = /\$\s?\d[\d,]*(?:\.\d+)?\s*(?:[kmb]\b|million|billion)?|\b(?:market\s?cap|mcap)\b|\bnfa\b|\b(?:buy|sell)\s+(?:now|the\s+dip|\$?tiny)\b/i
 const WINK = /\b(?:lol|lmao|haha|jk|obviously|just kidding)\b|😂|🤣/i
 
 export function stats(run: BackroomsRun): RunStats {

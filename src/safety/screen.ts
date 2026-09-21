@@ -13,7 +13,7 @@ import { IDIOMS, LEXICON, type ProhibitedCategory } from './lexicon.js'
  * exactly as strictly, and only the entries marked outbound-only (profanity)
  * are let through, because the serial swears and the reply voice does not.
  */
-export type Direction = 'inbound' | 'outbound' | 'narrative'
+export type Direction = 'inbound' | 'outbound' | 'narrative' | 'article'
 
 export interface ScreenMatch {
   category: ProhibitedCategory

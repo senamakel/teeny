@@ -290,6 +290,16 @@ describe('the narrative safety profile', () => {
     const morning = await gate.outbound('fuck it, the door was never locked', { surface: 'morning', kind: 'draft', tool: 'morning_post' })
     expect(morning.decision).toMatchObject({ ok: false, category: 'profanity' })
   })
+
+  it('reads an article under its own direction, which is the narrative one', async () => {
+    expect(screenText('fuck the chart', 'article')).toBeUndefined()
+    expect(screenText('teeny brings a gun', 'article')).toMatchObject({ category: 'weapons' })
+    const judge: Judge = { judge: vi.fn().mockResolvedValue({ verdict: 'clean', reason: '' }) }
+    const gate = new SafetyGate({ judge })
+    const piece = await gate.outbound('fuck it, the door was never locked', { surface: 'article', kind: 'draft', tool: 'article_publish' })
+    expect(piece.decision).toEqual({ ok: true })
+    expect(judge.judge).toHaveBeenCalledWith({ text: 'fuck it, the door was never locked', direction: 'article' })
+  })
 })
 
 // --- the model ----------------------------------------------------------------------
@@ -377,6 +387,7 @@ function pipeline(overrides: Partial<NarrativePipelineOptions> = {}): {
     uploadMedia: vi.fn().mockResolvedValue({ mediaId: 'm1' }),
     likePost: vi.fn().mockResolvedValue(undefined),
     postMetrics: vi.fn().mockResolvedValue([]),
+    publishArticle: vi.fn().mockResolvedValue({ articleId: 'a1', postId: '9002' }),
   }
   const memory: Memory = {
     captureActivity: vi.fn().mockResolvedValue(undefined),

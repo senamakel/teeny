@@ -70,6 +70,22 @@ describe('the cadence', () => {
     expect(raw.createPost).toHaveBeenCalledTimes(2)
     expect(ledger.posts.size).toBe(1)
   })
+
+  it('wraps an article the same way: claimed, published, recorded as an own post', async () => {
+    const { cadence, ledger, clock } = subject(T0)
+    const raw = {
+      createPost: vi.fn(),
+      publishArticle: vi.fn().mockResolvedValue({ articleId: 'a1', postId: '88' }),
+    } as unknown as XTools
+    const x = paced(raw, cadence)
+    const draft = { title: 'the inch', contentState: { blocks: [], entities: [] } }
+    await expect(cadence.within('article', () => x.publishArticle(draft))).resolves.toEqual({ articleId: 'a1', postId: '88' })
+    expect(raw.publishArticle).toHaveBeenCalledWith(draft)
+    expect((await ledger.get('88'))?.kind).toBe('article')
+    clock.now = T0 + HOUR
+    await expect(x.publishArticle(draft)).rejects.toBeInstanceOf(CadenceHeld)
+    expect(raw.publishArticle).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('the heat job', () => {

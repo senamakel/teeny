@@ -45,6 +45,8 @@ export interface RunOptions {
   budget?: number
   maxToolCalls?: number
   driftEvery?: number
+  /** What tonight is about, one of the lore's engines; drawn at random when absent. */
+  engine?: string
   score?: boolean
   /** Whether the transcript is read down to one thought at the end. On unless asked otherwise. */
   distill?: boolean
@@ -141,7 +143,9 @@ export function buildBackrooms(config: Config, deps: BackroomsDeps): Backrooms {
         driftEvery: options.driftEvery ?? 4,
         maxToolCalls: options.maxToolCalls ?? config.BACKROOMS_TOOL_CALLS,
       }
-      const id = runId(new Date(), seed.title ?? seed.text.slice(0, 40))
+      // The rng goes into the id: two rooms opened on the same seed in the
+      // same minute would otherwise share a name and one would overwrite the other.
+      const id = `${runId(new Date(), seed.title ?? seed.text.slice(0, 40))}-${settings.rng.toString(36)}`
       const random = rng(settings.rng)
       const contexts: AgentContext[] = []
       for (const spec of specs) {
@@ -150,6 +154,7 @@ export function buildBackrooms(config: Config, deps: BackroomsDeps): Backrooms {
         const context = await builder.build(spec, seed, draw, {
           budget: settings.budget,
           tools: settings.maxToolCalls > 0 ? spec.tools : [],
+          ...(options.engine ? { engine: options.engine } : {}),
         })
         contexts.push(context)
         deps.logger?.info(

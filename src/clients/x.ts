@@ -1,7 +1,8 @@
 import { fitImageForX } from '../media/fit.js'
-import { Client, OAuth1 } from '@xdevplatform/xdk'
+import { ApiError, Client, OAuth1 } from '@xdevplatform/xdk'
 import type {
   MentionWindow,
+  XArticleDraft,
   XClient,
   XCreateOptions,
   XMedia,
@@ -372,6 +373,33 @@ export class XApiClient implements XClient, XTools {
     const finalized = await this.writeClient.media.finalizeUpload(mediaId)
     await this.awaitProcessing(mediaId, finalized.data?.processingInfo)
     return { mediaId }
+  }
+
+  /**
+   * An X Article: a draft first, then published, which is what puts the post
+   * on the timeline. Both calls sign with the same user token as a post. X
+   * gates the endpoint on Premium+ and answers with a 4xx otherwise; that
+   * answer is rethrown with its status so the journal says why.
+   */
+  async publishArticle(draft: XArticleDraft): Promise<{ articleId: string; postId: string }> {
+    try {
+      const created = await this.writeClient.articles.articleCreateDraft({
+        title: draft.title,
+        contentState: draft.contentState,
+        ...(draft.coverMediaId ? { coverMedia: { mediaCategory: 'tweet_image', mediaId: draft.coverMediaId } } : {}),
+      })
+      const articleId = created.data?.id
+      if (!articleId) throw new Error(`X did not return an article id: ${JSON.stringify(created.errors)}`)
+      const published = await this.writeClient.articles.articlePublish(articleId)
+      const postId = published.data?.postId
+      if (!postId) throw new Error(`X did not return a post for article ${articleId}: ${JSON.stringify(published.errors)}`)
+      return { articleId, postId }
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw new Error(`X refused the article (${error.status}): ${error.message}`, { cause: error })
+      }
+      throw error
+    }
   }
 
   private async awaitProcessing(

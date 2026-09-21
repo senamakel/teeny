@@ -33,6 +33,10 @@ import { MoonJob } from './jobs/moon-job.js'
 import { buildQuotePipeline } from './quote/wiring.js'
 import { QuoteJob } from './jobs/quote-job.js'
 import { NarrativeJob } from './jobs/narrative-job.js'
+import { ArticleJob } from './jobs/article-job.js'
+import { buildArticlePipeline } from './article/wiring.js'
+import { FileArticleStore } from './article/store.js'
+import { readFile } from 'node:fs/promises'
 import { createExaClient } from './agent/tools/exa.js'
 import { buildNarrativePipeline } from './narrative/wiring.js'
 import { SafetyGate } from './safety/gate.js'
@@ -288,6 +292,10 @@ async function release(hold: Hold): Promise<string> {
   if (where.surface === 'narrative') {
     return 'recorded; the serial writes its next episode on schedule'
   }
+  // Nor an article: the next one is written from a fresh room.
+  if (where.surface === 'article') {
+    return 'recorded; the next article is written on schedule'
+  }
   // Nor the moon chart: the picture was drawn from that minute's prices.
   if (where.surface === 'moon') {
     return 'recorded; the moon chart runs again tomorrow'
@@ -336,11 +344,15 @@ const intake = new ActivityIntake({
   botUsername,
   people,
 })
+// The articles on disk are served whichever role this is: the site reads
+// them from the api process, and the article role writes them.
+const articles = new FileArticleStore(config.ARTICLES_DIR)
 const app = buildServer({
   memory,
   consumerSecret: config.X_API_SECRET,
   ledger: inferences,
   ...(brain ? { brain } : {}),
+  articles,
   ...(forwarder ? { forwarder } : {}),
   people,
   intake,
@@ -391,6 +403,9 @@ const runsMoon = config.MOON_ENABLED && (role === 'all' || role === 'moon')
 const runsQuote = config.QUOTE_ENABLED && (role === 'all' || role === 'quote')
 // And the serial, which publishes an episode on its own schedule.
 const runsNarrative = config.NARRATIVE_ENABLED && (role === 'all' || role === 'narrative')
+// And the article, twice a week. A rehearsal until ARTICLE_PUBLISH is on.
+const runsArticle = config.ARTICLE_ENABLED && (role === 'all' || role === 'article')
+const publishesArticles = runsArticle && config.ARTICLE_PUBLISH && !config.DRY_RUN
 // The content calendar publishes on its own timers and, with the morning
 // post, is where the account generates media unasked. Opt-in and
 // single-homed, like the chart.
@@ -441,6 +456,7 @@ if (runsReplies) {
         : undefined,
       media?.reader,
       safety,
+      articles,
     ),
     queue,
     logger: app.log,
@@ -617,6 +633,33 @@ if (runsNarrative) {
   })
 }
 
+if (runsArticle) {
+  const articleJob = new ArticleJob({
+    pipeline: buildArticlePipeline(config, {
+      memory,
+      x,
+      media,
+      ...(config.EXA_API_KEY ? { exa: createExaClient(config.EXA_API_KEY) } : {}),
+      botUsername,
+      publish: publishesArticles,
+      logger: app.log,
+      safety,
+      ...(critic ? { critic } : {}),
+      ledger: inferences,
+      articles,
+    }),
+    articles,
+    logger: app.log,
+    journal,
+    cadence,
+    minIntervalMs: config.ARTICLE_MIN_INTERVAL_HOURS * 60 * 60 * 1_000,
+    readRun: (path) => readFile(path, 'utf8').then((text) => JSON.parse(text)),
+  })
+  cron.schedule(config.ARTICLE_CRON, () => {
+    void articleJob.run().catch((error: unknown) => app.log.error({ err: error }, 'article job failed'))
+  })
+}
+
 const calendarItems: string[] = []
 if (runsCalendar) {
   const calendar = loadCalendar(config.CALENDAR_PATH)
@@ -764,6 +807,9 @@ app.log.info(
     quote: runsQuote ? `at "${config.QUOTE_CRON}", ${config.QUOTE_POSTS_PER_SEARCH} posts a search over ${config.QUOTE_HOURS}h` : false,
     narrative: runsNarrative
       ? `${config.NARRATIVE_BRANCHES} rooms of ${config.NARRATIVE_TURNS} exchanges at "${config.NARRATIVE_CRON}"`
+      : false,
+    article: runsArticle
+      ? `${config.ARTICLE_ROOMS} room(s), ~${config.ARTICLE_WORDS} words at "${config.ARTICLE_CRON}"${publishesArticles ? '' : ' (rehearsal: nothing publishes until ARTICLE_PUBLISH=true)'}`
       : false,
     rota: runsChart || runsMoon ? `${config.POST_ROTA_DAYS} days from ${config.POST_ROTA_ANCHOR}` : false,
     cadence: `${config.POST_MIN_GAP_HOURS}h between own posts, ${config.POST_GAP_TOLERANCE_MINUTES}m tolerance`,

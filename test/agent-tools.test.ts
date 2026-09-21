@@ -27,6 +27,7 @@ function xTools(): XTools {
     uploadMedia: vi.fn().mockResolvedValue({ mediaId: 'media-1' }),
     likePost: vi.fn().mockResolvedValue(undefined),
     postMetrics: vi.fn().mockResolvedValue([]),
+    publishArticle: vi.fn().mockResolvedValue({ articleId: 'a1', postId: '9002' }),
   }
 }
 
