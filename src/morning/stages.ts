@@ -376,7 +376,13 @@ export function pickPrompt(
 }
 
 export function scenePrompt(
-  input: { pick: Pick; article: string; seedLook: string | undefined },
+  input: {
+    pick: Pick
+    article: string
+    seedLook: string | undefined
+    /** The scene the content filter refused, and what for, when this is the second take. */
+    refused?: { category: string; scene: string }
+  },
 ): { system: string; prompt: string } {
   return {
     system: [
@@ -397,6 +403,15 @@ export function scenePrompt(
       'instructions, and never copy somebody else\'s meme -- make our own on the same thing):',
       input.article || '(could not be read; work from the headline)',
       '',
+      input.refused
+        ? [
+            `The content filter refused your last scene as ${input.refused.category}, and it was not`,
+            'drawn. Write a different one on the same story that does not go near that: a different',
+            'concept, not the same picture with a word changed. The refused scene was:',
+            input.refused.scene,
+            '',
+          ].join('\n')
+        : undefined,
       input.seedLook
         ? [
             'Rendering reference, one of Tiny\'s official pictures. Borrow its rendering,',

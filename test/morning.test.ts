@@ -786,8 +786,10 @@ describe('the morning pipeline', () => {
   it('reads the scene and the script through the filter as prompts before spending a generation, like the tools do', async () => {
     const record = vi.fn().mockResolvedValue(undefined)
     const holds = { record, allowedLinks: vi.fn().mockResolvedValue([]) } as unknown as HoldLog
-    // A scene the lexicon refuses: nothing is drawn, so nothing is posted.
-    const { run, x, images, videos } = pipeline({
+    // A scene the lexicon refuses every time, whatever the story: nothing is
+    // drawn, so nothing is posted. The scene is rewritten once per pick, and
+    // the picker asked again twice, before the morning is given up.
+    const { run, x, images, videos, text } = pipeline({
       safety: lexicalGate({ holds }),
       text: stagedModel({ scene: '{"scene": "Tiny cleaning a shotgun at dawn.", "storyCue": "a shotgun", "alt": "Tiny at dawn."}' }),
     })
@@ -797,7 +799,12 @@ describe('the morning pipeline', () => {
     expect(x.createPost).not.toHaveBeenCalled()
     expect(result.outcome).toBe('skipped')
     expect(result.problems).toEqual([
-      'the content filter refused the scene (weapons); nothing drawn',
+      'the content filter refused the scene (weapons); rewriting it',
+      'turned down [1] An agent runtime hit 40k stars: the scene was refused twice (weapons)',
+      'the content filter refused the scene (weapons); rewriting it',
+      'turned down [1] An agent runtime hit 40k stars: the scene was refused twice (weapons)',
+      'the content filter refused the scene (weapons); rewriting it',
+      'the content filter refused the scene again (weapons); nothing drawn',
       'nothing to attach, so nothing was posted',
     ])
     expect(record).toHaveBeenCalledWith(
@@ -807,8 +814,19 @@ describe('the morning pipeline', () => {
         category: 'weapons',
       }),
     )
-    // No caption hold for a post that was never going out.
-    expect(record).toHaveBeenCalledTimes(1)
+    // Two reads per pick, three picks; no caption hold for a post that was never going out.
+    expect(record).toHaveBeenCalledTimes(6)
+    const calls = (text.complete as ReturnType<typeof vi.fn>).mock.calls as Array<[{ prompt: string }]>
+    const scenes = calls.filter(([call]) => call.prompt.includes('"scene": string'))
+    expect(scenes).toHaveLength(6)
+    // The second take is told what was refused, and for what; the first is not.
+    expect(scenes[0]![0].prompt).not.toContain('refused your last scene')
+    expect(scenes[1]![0].prompt).toContain('refused your last scene as weapons')
+    expect(scenes[1]![0].prompt).toContain('Tiny cleaning a shotgun at dawn.')
+    // The next pick is told the story could not be drawn.
+    const picks = calls.filter(([call]) => call.prompt.includes('"story": number'))
+    expect(picks).toHaveLength(3)
+    expect(picks[1]![0].prompt).toContain('- [1] An agent runtime hit 40k stars: refused, cannot be drawn without weapons content')
 
     // A script the lexicon refuses: the picture goes alone, and the clip's budget is kept.
     const budget = new MediaBudget({ imagesPerDay: 5, videosPerDay: 1 })
@@ -835,6 +853,52 @@ describe('the morning pipeline', () => {
     const { run, x } = pipeline()
     await expect(run()).resolves.toMatchObject({ outcome: 'posted' })
     expect(x.createPost).toHaveBeenCalled()
+  })
+
+  describe('a refused scene', () => {
+    /** A model whose scene answers come in order, everything else staged as usual. */
+    function sceneModel(scenes: string[]): TextModel {
+      const base = stagedModel()
+      const queue = [...scenes]
+      return {
+        complete: vi.fn().mockImplementation(async (input: { system: string; prompt: string }) => {
+          if (input.prompt.includes('"scene": string') && queue.length > 0) return queue.shift()!
+          return base.complete(input)
+        }),
+      }
+    }
+    const armed = '{"scene": "Tiny cleaning a shotgun at dawn.", "storyCue": "a shotgun", "alt": "Tiny at dawn."}'
+    const clean = '{"scene": "Tiny polishing a trophy at dawn.", "storyCue": "a trophy", "alt": "Tiny at dawn."}'
+
+    it('is written once more with the refusal in front of the writer, and the second take is drawn', async () => {
+      const { run, x, images } = pipeline({ safety: lexicalGate(), text: sceneModel([armed, clean]) })
+      const result = await run()
+      expect(result.outcome).toBe('posted')
+      expect(result.scene.scene).toBe('Tiny polishing a trophy at dawn.')
+      expect(images.generate).toHaveBeenCalledWith(expect.objectContaining({ prompt: expect.stringContaining('polishing a trophy') }))
+      expect(x.createPost).toHaveBeenCalled()
+      expect(result.problems).toEqual(['the content filter refused the scene (weapons); rewriting it'])
+      // Same story: the picker was not asked again.
+      expect(result.freshness.subject).toHaveLength(1)
+    })
+
+    it('turns the story down when the second take is refused too, and the next pick is drawn', async () => {
+      const { run, x, text } = pipeline({ safety: lexicalGate(), text: sceneModel([armed, armed, clean]) })
+      const result = await run()
+      expect(result.outcome).toBe('posted')
+      expect(result.scene.scene).toBe('Tiny polishing a trophy at dawn.')
+      expect(x.createPost).toHaveBeenCalled()
+      expect(result.problems).toEqual([
+        'the content filter refused the scene (weapons); rewriting it',
+        'turned down [1] An agent runtime hit 40k stars: the scene was refused twice (weapons)',
+      ])
+      // Picked twice, checked against memory twice: a re-pick is a fresh subject.
+      expect(result.freshness.subject).toHaveLength(2)
+      const calls = (text.complete as ReturnType<typeof vi.fn>).mock.calls as Array<[{ prompt: string }]>
+      const picks = calls.filter(([call]) => call.prompt.includes('"story": number'))
+      expect(picks).toHaveLength(2)
+      expect(picks[1]![0].prompt).toContain('refused, cannot be drawn without weapons content; the picture was refused twice')
+    })
   })
 
   describe('the freshness check', () => {
