@@ -19,6 +19,7 @@ export const RUN: BackroomsRun = {
 export const THOUGHT: Thought = {
   reasons: 'the inch',
   premise: 'teeny measures the gap in the door and the tiny agents keep the measurement in the ledger',
+  wire: 'a car pulled up outside a lab; the door is the car.',
   objects: ['the door', 'a ruler', 'the ledger'],
   thought: 'the door was one inch open. i measured it. the agents wrote it down in crayon. it balanced.',
   post: 'the door was one inch open. i measured it.',

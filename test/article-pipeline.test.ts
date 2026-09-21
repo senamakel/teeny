@@ -40,7 +40,7 @@ const JUDGE = { reasons: '', scores: { novelty: 3, surprise: 3, escalation: 3, v
 
 function room(id: string, total: number, thought = THOUGHT): RunResult {
   const scores = { ...JUDGE.scores, novelty: total - 18 }
-  return { run: { ...RUN, id }, stats: {} as RunResult['stats'], judge: { ...JUDGE, scores }, thought, saved: { json: `data/backrooms/${id}.json`, markdown: `data/backrooms/${id}.md` } }
+  return { run: { ...RUN, id }, stats: {} as RunResult['stats'], judge: { ...JUDGE, scores }, thought, problems: [], saved: { json: `data/backrooms/${id}.json`, markdown: `data/backrooms/${id}.md` } }
 }
 
 /** A text model that answers by which shape the prompt asks for. */
