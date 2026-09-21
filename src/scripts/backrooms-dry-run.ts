@@ -74,9 +74,10 @@ const backrooms = buildBackrooms(config, {
   logger: { info: log },
 })
 
-const printThought = (thought: { premise: string; thought: string; post: string; objects: string[] }): void => {
+const printThought = (thought: { premise: string; wire?: string; thought: string; post: string; objects: string[] }): void => {
   console.log('\nTHE THOUGHT')
   console.log(`  ${thought.premise}`)
+  if (thought.wire) console.log(`  the wire: ${thought.wire}`)
   console.log('')
   for (const line of thought.thought.split('\n')) console.log(`  ${line}`)
   console.log('\n  as a post:')
@@ -84,10 +85,11 @@ const printThought = (thought: { premise: string; thought: string; post: string;
   if (thought.objects.length > 0) console.log(`\n  objects: ${thought.objects.join(' · ')}`)
 }
 
-const printGm = (post: { text: string; continues: string; reasons: string }, problems: string[]): void => {
+const printGm = (post: { text: string; continues: string; wire: string; reasons: string }, problems: string[]): void => {
   console.log('\nGOOD MORNING')
   for (const line of post.text.split('\n')) console.log(`  > ${line}`)
   console.log(`\n  ${post.text.length} chars`)
+  console.log(`  the wire: ${post.wire || '(not in the post)'}`)
   if (post.continues) console.log(`  continues: ${post.continues}`)
   console.log(`  ${post.reasons}`)
   for (const problem of problems) console.log(`  problem: ${problem}`)

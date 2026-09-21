@@ -58,6 +58,8 @@ export interface BackroomsTurn {
   text: string
   /** Set on the turn where the mood shifted, to what. */
   tone?: string
+  /** Set on the turn where the wire was put back in front of the speaker. */
+  wire?: true
   tools: ToolUse[]
 }
 

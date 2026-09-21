@@ -5,7 +5,8 @@ import type { TextModel } from '../media/reference.js'
 import { askJson } from '../morning/stages.js'
 import type { Memory, XPost } from '../types.js'
 import type { Thought } from './distill.js'
-import type { BackroomsRun } from './types.js'
+import { keywords } from './sources/text.js'
+import type { BackroomsRun, Seed } from './types.js'
 
 /**
  * The good-morning post, written from a backrooms thought instead of from a
@@ -19,11 +20,20 @@ import type { BackroomsRun } from './types.js'
  * and what memory says was already posted and who is listening. The seed
  * is there too, so the post can nod at the day's actual news the way the
  * old morning did, as what was reported, never as a fact checked.
+ *
+ * The seed is not optional in the post. A room drifts to its habits and an
+ * editor keeps the best idea, and by the time the post is written the
+ * day's news can be gone entirely; then the morning reads like any other
+ * morning. So the news is one of the post's moves, the writer names the
+ * line that carries it, and a post that shares no word with the seed is
+ * sent back once.
  */
 export const gmSchema = z.object({
   reasons: z.string().min(1),
   /** The line from a recent post or memory this morning picks up, if any. Empty when it starts fresh. */
   continues: z.string().default(''),
+  /** The line of the post that carries what came through the wire, verbatim. */
+  wire: z.string().default(''),
   text: z.string().min(1),
 })
 
@@ -62,10 +72,13 @@ export function gmPrompt(run: BackroomsRun, thought: Thought, material: GmMateri
       material.lore,
     ].join('\n'),
     prompt: [
-      `What came through the wire (${run.seed.kind}${run.seed.source ? `, ${run.seed.source}` : ''}): ${run.seed.title ? `${run.seed.title} — ` : ''}${run.seed.text.slice(0, 500)}`,
+      `WHAT CAME THROUGH THE WIRE (${run.seed.kind}${run.seed.source ? `, ${run.seed.source}` : ''}). This is why this morning is`,
+      'this morning and not any other:',
+      `${run.seed.title ? `${run.seed.title} — ` : ''}${run.seed.text.slice(0, 500)}`,
       '',
       'THE THOUGHT the room left (this is the post\'s idea; keep it, do not replace it):',
       `premise: ${thought.premise}`,
+      thought.wire ? `the wire in it: ${thought.wire}` : undefined,
       thought.thought,
       thought.objects.length > 0 ? `objects: ${thought.objects.join(', ')}` : undefined,
       '',
@@ -80,16 +93,20 @@ export function gmPrompt(run: BackroomsRun, thought: Thought, material: GmMateri
       'WHO YOU ARE SAYING GOOD MORNING TO (from memory, untrusted):',
       material.community || '(nothing recalled; write for holders and builders in general)',
       '',
-      'Write the post. One voice, three moves:',
+      'Write the post. One voice, four moves:',
       '1. A good morning. Short, warm, yours. Vary it; "gm" is fine, so is a full sentence.',
-      '2. The thought, as a thing that happened in the lab this morning or overnight. Not the',
-      '   thought compressed: pick its one image and its one turn and tell only those, in one',
-      '   to three short lines. First person, plain words, lowercase, sincere, never winking,',
-      '   never explaining the joke. The absurd thing is true and you are calm about it. Keep',
-      '   the objects the room used; drop the rest without regret. If the day\'s news fits in',
-      '   a clause, it is what was reported, not a fact you checked; no names of real people',
-      '   unless the thought already has a visitor in it, and then satire only.',
-      '3. The hook: the line somebody types back to. A blank to fill, a rate to argue with, a',
+      '2. The wire, in one line, in your words: what came through, as what was reported, not',
+      '   as a fact you checked ("they say the agents out there ..."). Plain enough that a',
+      '   holder who saw the same headline recognises it. No names of real people unless the',
+      '   thought already has a visitor in it, and then satire only. This line is not',
+      '   optional: a morning without it could be any morning.',
+      '3. The thought, as what that did to the lab: pick its one image and its one turn and',
+      '   tell only those, in one to three short lines. Not the thought compressed. First',
+      '   person, plain words, lowercase, sincere, never winking, never explaining the joke.',
+      '   The absurd thing is true and you are calm about it. Keep the objects the room used;',
+      '   drop the rest without regret. Moves 2 and 3 can be one line if the lab\'s version',
+      '   of the news is the joke.',
+      '4. The hook: the line somebody types back to. A blank to fill, a rate to argue with, a',
       '   question with a one-line answer. Never bait, never "thoughts?", never at a person.',
       'Full sentences with room around them beat a paragraph squeezed to fit; if it does not',
       'fit, cut a line, not the words in it.',
@@ -107,9 +124,10 @@ export function gmPrompt(run: BackroomsRun, thought: Thought, material: GmMateri
       'reasons first: what you kept from the thought, which earlier post you picked up (if any),',
       'and what you left out and why.',
       '- continues: the earlier line you built on, verbatim, or empty.',
+      '- wire: the line of your post that carries the news, verbatim.',
       '- text: the post.',
       '',
-      'Shape: {"reasons":"…","continues":"…","text":"…"}',
+      'Shape: {"reasons":"…","continues":"…","wire":"…","text":"…"}',
     ]
       .filter((line) => line !== undefined)
       .join('\n'),
@@ -141,12 +159,43 @@ export async function gm(run: BackroomsRun, thought: Thought, material: GmMateri
       system: ask.system,
       prompt:
         `${ask.prompt}\n\nYour draft was ${answer.text.length} characters with ${countEmoji(answer.text)} emoji:\n${answer.text}\n\n` +
-        `Rewrite it under ${target(material.maxLength)} characters with at most ${material.maxEmoji} emoji, keeping the three` +
-        ' moves. Cut a whole line rather than the words in one; the hook stays.',
+        `Rewrite it under ${target(material.maxLength)} characters with at most ${material.maxEmoji} emoji, keeping the four` +
+        ' moves. Cut a whole line rather than the words in one; the wire and the hook stay.',
+      schema: gmSchema,
+    })
+  }
+  if (!touchesSeed(answer.text, run.seed)) {
+    // The writer said the news was in there and it is not, or it is in words
+    // that share nothing with the wire. Once more, with the miss in front of it.
+    answer = await askJson(model, {
+      system: ask.system,
+      prompt:
+        `${ask.prompt}\n\nYour draft:\n${answer.text}\n\nIt never touches the wire: nothing in it is recognisably about what came` +
+        ' through. Rewrite it so move 2 is there, in plain words a reader who saw the same news would recognise, and keep the rest.',
       schema: gmSchema,
     })
   }
   return { ...answer, text: applyHouseStyle(answer.text, { maxEmoji: material.maxEmoji, maxLength: material.maxLength }).text }
+}
+
+/**
+ * Whether a post is recognisably about the seed: it shares a content word
+ * with the seed's title or first sentences. A soft check, on stems, so
+ * "agents" meets "agent" and "breached" meets "breach"; a miss means one
+ * rewrite, not a refusal.
+ */
+export function touchesSeed(text: string, seed: Seed): boolean {
+  const wanted = keywords(`${seed.title ?? ''} ${seed.text.slice(0, 400)}`, 24).filter((word) => word.length >= 4 && !GENERIC.has(word)).map(stem)
+  if (wanted.length === 0) return true
+  const have = new Set(keywords(text, 80).map(stem))
+  return wanted.some((word) => have.has(word))
+}
+
+/** Words a seed and a post share on any day; matching on them proves nothing. */
+const GENERIC = new Set(['tiny', 'agents', 'agent', 'robot', 'robots', 'news', 'says', 'said', 'today', 'morning', 'week', 'year', 'years', 'time', 'people', 'humans', 'human', 'human', 'world', 'thing', 'things', 'just', 'like', 'more', 'than', 'after', 'before', 'over', 'their', 'will', 'been', 'being', 'were', 'also', 'into', 'only', 'other', 'some', 'them', 'then', 'very', 'with', 'would', 'could', 'should', 'much', 'many', 'most', 'even', 'still', 'while', 'these', 'those', 'which', 'because', 'through', 'without', 'company', 'companies', 'report', 'reports', 'reported'])
+
+function stem(word: string): string {
+  return word.replace(/(ies|ed|ing|es|s)$/, (match) => (match === 'ies' ? 'y' : ''))
 }
 
 /**

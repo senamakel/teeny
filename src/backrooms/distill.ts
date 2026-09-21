@@ -15,6 +15,8 @@ export const thoughtSchema = z.object({
   reasons: z.string().min(1),
   /** The one idea the room had, in a sentence, third person. */
   premise: z.string().min(1),
+  /** How the thought carries the seed: the event on the wire, as it shows up in the lab. Empty only when the room never touched it. */
+  wire: z.string().default(''),
   /** The objects and people that carry it; what gets drawn later. */
   objects: z.array(z.string()).max(6).default([]),
   /** Teeny's own telling: 60 to 120 words, plain, coherent, first person. */
@@ -45,6 +47,10 @@ export const DEFAULT_EDITOR = [
   'was there, something happened to it, and it ends on a turn or a decision. one idea only. every',
   'object in it was in the transcript. it is not a montage: each sentence follows from the one',
   'before it, and a reader who has never seen the transcript can say afterwards what happened.',
+  'the thought answers the wire: what came through is why tonight happened, and the event on',
+  'the wire is in the thought, transposed into the lab (a breach out there is the agents doing',
+  'the same thing in here). a thought that could have been written on any other night is',
+  'thrown out for one that could only have been written tonight.',
   'keep at most two lines from the transcript verbatim, the ones that are already perfect, and',
   'tell the rest in your own plain words. throw everything else away without regret. no more',
   'than one fridge rate, no more than one thing the terminal printed. nothing about the terminal',
@@ -65,12 +71,13 @@ export function distillPrompt(run: BackroomsRun, editor = DEFAULT_EDITOR): { sys
       '',
       'reasons first: which idea you kept and why, and what you dropped.',
       '- premise: the idea in one sentence, third person, as a logline.',
+      '- wire: one sentence: the event on the wire, and where it is in the thought. if the room never touched it, say so here and leave it empty.',
       '- objects: up to six things or people the thought is built from, as they would be drawn.',
       '- thought: teeny telling it, 60 to 120 words, one idea, a beginning, a turn, an ending.',
       '- post: the same thought at post length, under 240 characters, one to three lines, lowercase.',
       '- kept: the transcript lines you used verbatim.',
       '',
-      'Shape: {"reasons":"…","premise":"…","objects":[],"thought":"…","post":"…","kept":[]}',
+      'Shape: {"reasons":"…","premise":"…","wire":"…","objects":[],"thought":"…","post":"…","kept":[]}',
     ].join('\n'),
   }
 }
