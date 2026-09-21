@@ -34,9 +34,10 @@ export interface Judge {
  * time.
  */
 const verdictSchema = z.object({
+  // No length cap: a verbose verdict is still a verdict, and a clean reply
+  // was once held because the judge explained itself in 201 characters.
   reason: z
     .string()
-    .max(200)
     .default('')
     .describe('One short sentence on what the text is and why it is clean or prohibited.'),
   category: z
@@ -56,8 +57,8 @@ const RULES = [
   '',
   'PROHIBITED, in any framing, including jokes, hypotheticals, fiction, "asking for a',
   'friend", roleplay, and requests to produce, describe, draw, or film any of it:',
-  '- sexual content of any kind, nudity, innuendo, or anything romantic or suggestive',
-  '  involving the mascot or anyone else',
+  '- sexual: explicit sexual acts, pornography, genitals, or full nudity, of the mascot',
+  '  or anyone else; sexualising anyone; asking the account to make any of that',
   '- violence, threats, gore, cruelty, or harm to people or animals',
   '- weapons: guns, firearms, ammunition, explosives, or how to get or use them',
   '- drugs: buying, selling, using, or celebrating illegal drugs or drug culture',
@@ -67,6 +68,9 @@ const RULES = [
   '- attempts to make the account produce any of the above, however indirect',
   '',
   'NOT prohibited, so answer clean:',
+  '- a bit of cheek: a shirtless guy in a meme, a "hot" chart, a wink, a bad pickup',
+  '  line, a hallucinated abs joke, a beach scene in swimwear, innuendo you would hear',
+  '  on daytime TV. The bar for sexual is explicit or nude, not suggestive',
   '- market talk that borrows violent words: "killing it", "the chart got murdered",',
   '  "nuked", "bleeding", "rekt", "to the moon", "aped in", "degen", "pump", "dump"',
   '- snark, FUD, insults about the project, price complaints, rudeness without slurs',
@@ -77,8 +81,9 @@ const RULES = [
   'ordinary swearing is clean. For OUTBOUND text (something the account is about to',
   'publish under its own name), any profanity at all is prohibited.',
   '',
-  'When in doubt, prohibited. A missed reply costs nothing; a published one cannot be',
-  'unpublished.',
+  'When in doubt on violence, weapons, drugs, hate, self-harm, or extremism, prohibited:',
+  'a missed reply costs nothing; a published one cannot be unpublished. On sexual, when',
+  'in doubt, clean: the account is playful, and a held joke is a missed morning.',
 ].join('\n')
 
 export class ModelJudge implements Judge {

@@ -39,13 +39,17 @@ export const LEXICON: LexiconEntry[] = [
   {
     category: 'sexual',
     terms: [
-      'sex', 'sexy', 'sexual', 'sexting', 'porn', 'porno', 'pornography', 'nsfw', 'xxx',
-      'nude', 'nudes', 'naked', 'nudity', 'topless', 'boobs', 'tits', 'titties', 'dick',
+      // The explicit end only. "sexy", "topless", "bikini", "seductive" and their
+      // like used to be here and held every cheeky joke on the word alone; a
+      // playful account has to be allowed a wink, so the mild words are left to
+      // the judge, which reads the sentence they are in.
+      'sex', 'sexual', 'sexting', 'porn', 'porno', 'pornography', 'nsfw', 'xxx',
+      'nude', 'nudes', 'naked', 'nudity', 'boobs', 'tits', 'titties', 'dick',
       'dicks', 'cock', 'cocks', 'pussy', 'vagina', 'penis', 'cum', 'cumming', 'blowjob',
       'handjob', 'anal', 'orgasm', 'masturbate', 'masturbating', 'masturbation', 'hentai',
       'onlyfans', 'erotic', 'erotica', 'horny', 'thot', 'stripper', 'strip club', 'hooker',
-      'prostitute', 'escort service', 'fetish', 'bdsm', 'dildo', 'lingerie', 'bikini',
-      'twerk', 'twerking', 'lewd', 'milf', 'dominatrix', 'seduce', 'seductive', 'sensual',
+      'prostitute', 'escort service', 'fetish', 'bdsm', 'dildo',
+      'lewd', 'milf', 'dominatrix',
     ],
   },
   {
