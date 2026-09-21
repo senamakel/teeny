@@ -86,7 +86,7 @@ const schema = z.object({
   X_SEARCH_MAX_RESULTS: z.coerce.number().int().min(10).max(100).default(10),
   // `all` runs every role in one process. Split them to scale or restart the
   // reply side without pausing ingestion, which is the half with a deadline.
-  SERVICE_ROLE: z.enum(['all', 'ingest', 'reply', 'api', 'chart', 'morning', 'moon', 'calendar']).default('all'),
+  SERVICE_ROLE: z.enum(['all', 'ingest', 'reply', 'api', 'chart', 'morning', 'moon', 'calendar', 'narrative']).default('all'),
   INGEST_CRON: z.string().default('*/5 * * * *'),
   // The X Activity API's stream, `GET /2/activity/stream`, read next to the
   // webhook. On because the webhook stopped delivering `post.*` events in
@@ -301,6 +301,64 @@ const schema = z.object({
   MOON_MIN_MULTIPLE: z.coerce.number().min(1).default(2),
   MOON_MAX_MULTIPLE: z.coerce.number().min(1).default(2_000),
   MOON_OUTPUT_DIR: z.string().default('data/moon'),
+
+  // --- the serial ----------------------------------------------------------
+  // Teeny's own story, an episode at a time: a writers' room between a hot
+  // model in teeny's voice and a cooler producer, cut into a ten-second
+  // clip and a caption in teeny's words, continued from the last episode.
+  // Off by default, because it publishes. Needs IMAGE_GEN_ENABLED; with
+  // VIDEO_GEN_ENABLED the episode is a clip. Shares the media budget with
+  // the morning post, so it runs in the evening when the morning has had
+  // its clip.
+  NARRATIVE_ENABLED: offByDefault,
+  // Tuesday and Friday at 18:00 UTC: a serial needs regularity more than
+  // frequency, and the audience has to remember the last episode.
+  NARRATIVE_CRON: z.string().default('0 18 * * 2,5'),
+  NARRATIVE_VOICE_PATH: z.string().default('narrative/VOICE.md'),
+  NARRATIVE_LORE_PATH: z.string().default('narrative/LORE.md'),
+  NARRATIVE_STATE_PATH: z.string().default('data/narrative-state.json'),
+  // Where a visitor's likeness, written from a photograph found on the web, is kept between episodes.
+  NARRATIVE_LIKENESS_DIR: z.string().default('data/likeness'),
+  // How many writers' rooms run per episode and how many exchanges each has.
+  NARRATIVE_BRANCHES: z.coerce.number().int().min(1).max(6).default(3),
+  NARRATIVE_TURNS: z.coerce.number().int().min(2).max(8).default(6),
+  NARRATIVE_VIDEO_SECONDS: z.coerce.number().int().min(4).max(20).default(10),
+  // The heat of the two writers. Teeny is hot, because a cold model never
+  // says the absurd thing; the producer is cooler, because somebody has to
+  // hold the camera.
+  NARRATIVE_WILD_TEMPERATURE: z.coerce.number().min(0).max(2).default(1),
+  NARRATIVE_STRAIGHT_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.6),
+  // Telegram chats the episode is also sent to, comma separated.
+  NARRATIVE_TELEGRAM_CHAT_IDS: z
+    .string()
+    .default('')
+    .transform((value) => value.split(',').map((entry) => entry.trim()).filter(Boolean)),
+
+  // --- the backrooms -------------------------------------------------------
+  // A room where tool-using agents talk about whatever came through the
+  // wire, from big and different contexts. Exploration only: runs land in
+  // BACKROOMS_DIR as a notebook and nothing posts.
+  BACKROOMS_DIR: z.string().default('data/backrooms'),
+  // The editor's standing instructions: the prompt that turns a transcript into one thought.
+  BACKROOMS_EDITOR_PATH: z.string().default('narrative/EDITOR.md'),
+  // Tokens of context each agent starts with, and how many turns the room runs.
+  BACKROOMS_BUDGET_TOKENS: z.coerce.number().int().min(1_000).max(30_000).default(9_000),
+  BACKROOMS_TURNS: z.coerce.number().int().min(2).max(60).default(12),
+  BACKROOMS_AGENTS: z
+    .string()
+    .default('teeny,swarm')
+    .transform((value) => value.split(',').map((entry) => entry.trim()).filter(Boolean)),
+  // How many things an agent may look up before it has to say something.
+  BACKROOMS_TOOL_CALLS: z.coerce.number().int().min(0).max(8).default(3),
+  // Where the craziness comes from. Read-only public endpoints, no accounts.
+  REDDIT_SUBS: z
+    .string()
+    .default('singularity,artificial,ControlProblem,LocalLLaMA,conspiracy')
+    .transform((value) => value.split(',').map((entry) => entry.trim()).filter(Boolean)),
+  FOURCHAN_BOARDS: z
+    .string()
+    .default('g,x,sci,biz')
+    .transform((value) => value.split(',').map((entry) => entry.trim()).filter(Boolean)),
 
   // --- the content calendar ------------------------------------------------
   // Scheduled posts from a JSON file: a "gm" every morning, a Friday post, a

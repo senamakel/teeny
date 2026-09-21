@@ -152,7 +152,7 @@ export function buildTools(options: AgentOptions): StructuredToolInterface[] {
   ]
 }
 
-function lastText(messages: BaseMessage[]): string {
+export function lastText(messages: BaseMessage[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]
     if (!message || !isAIMessage(message)) continue

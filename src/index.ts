@@ -30,6 +30,9 @@ import { buildMorningPipeline } from './morning/wiring.js'
 import { MorningJob, MORNING_CALENDAR_SLOT } from './jobs/morning-job.js'
 import { buildMoonPipeline } from './moon/wiring.js'
 import { MoonJob } from './jobs/moon-job.js'
+import { NarrativeJob } from './jobs/narrative-job.js'
+import { createExaClient } from './agent/tools/exa.js'
+import { buildNarrativePipeline } from './narrative/wiring.js'
 import { SafetyGate } from './safety/gate.js'
 import { MongoHoldLog, type Hold } from './safety/holds.js'
 import { ModelJudge } from './safety/judge.js'
@@ -278,6 +281,11 @@ async function release(hold: Hold): Promise<string> {
   if (where.surface === 'morning') {
     return 'recorded; the morning post runs again tomorrow'
   }
+  // Nor an episode of the serial: the next one is written against the world
+  // as it is then, and the story has moved on.
+  if (where.surface === 'narrative') {
+    return 'recorded; the serial writes its next episode on schedule'
+  }
   // Nor the moon chart: the picture was drawn from that minute's prices.
   if (where.surface === 'moon') {
     return 'recorded; the moon chart runs again tomorrow'
@@ -372,6 +380,8 @@ const rota = { days: config.POST_ROTA_DAYS, anchor: config.POST_ROTA_ANCHOR }
 const runsMorning = config.MORNING_ENABLED && (role === 'all' || role === 'morning')
 // And the moon chart, for the same reason.
 const runsMoon = config.MOON_ENABLED && (role === 'all' || role === 'moon')
+// And the serial, which publishes an episode on its own schedule.
+const runsNarrative = config.NARRATIVE_ENABLED && (role === 'all' || role === 'narrative')
 // The content calendar publishes on its own timers and, with the morning
 // post, is where the account generates media unasked. Opt-in and
 // single-homed, like the chart.
@@ -548,6 +558,35 @@ if (runsMoon) {
   })
 }
 
+if (runsNarrative) {
+  const telegram = config.TELEGRAM_BOT_TOKEN
+    ? new TelegramApiClient({ token: config.TELEGRAM_BOT_TOKEN })
+    : undefined
+  const narrativeJob = new NarrativeJob({
+    pipeline: buildNarrativePipeline(config, {
+      memory,
+      x,
+      media,
+      ...(config.EXA_API_KEY ? { exa: createExaClient(config.EXA_API_KEY) } : {}),
+      ...(telegram ? { telegram } : {}),
+      botUsername,
+      dryRun: config.DRY_RUN,
+      logger: app.log,
+      safety,
+      ...(critic ? { critic } : {}),
+      ledger: inferences,
+    }),
+    logger: app.log,
+    journal,
+    cadence,
+  })
+  cron.schedule(config.NARRATIVE_CRON, () => {
+    void narrativeJob
+      .run()
+      .catch((error: unknown) => app.log.error({ err: error }, 'narrative job failed'))
+  })
+}
+
 const calendarItems: string[] = []
 if (runsCalendar) {
   const calendar = loadCalendar(config.CALENDAR_PATH)
@@ -692,6 +731,9 @@ app.log.info(
       ? `at "${config.MORNING_CRON}", ${media?.videos ? 'video' : 'image'}, ${config.MORNING_NEWS_TOPICS.length} topics`
       : false,
     moon: runsMoon ? `${config.MOON_COIN_ID} against ${config.MOON_CATEGORY} at "${config.MOON_CRON}", rota slot ${config.MOON_ROTA_SLOT}` : false,
+    narrative: runsNarrative
+      ? `${config.NARRATIVE_BRANCHES} rooms of ${config.NARRATIVE_TURNS} exchanges at "${config.NARRATIVE_CRON}"`
+      : false,
     rota: runsChart || runsMoon ? `${config.POST_ROTA_DAYS} days from ${config.POST_ROTA_ANCHOR}` : false,
     cadence: `${config.POST_MIN_GAP_HOURS}h between own posts, ${config.POST_GAP_TOLERANCE_MINUTES}m tolerance`,
     heat: runsReplies && config.HEAT_ENABLED
