@@ -204,18 +204,48 @@ export class MorningPipeline {
     log('news gathered', { stories: stories.length, posts: posts.length, quiet, trends: trends.length, dropped })
     if (options.timeline && posts.length === 0) problems.push('the timeline gave nothing; chosen from the news alone')
 
-    // 3. Choose the subject, from both lists as one, and check it against
-    // memory before anything is drawn: the broad recall above says what was
-    // posted lately, but a story can be a repeat in other words, and a story
-    // can be two days old with its conversation already over. So the chosen
-    // subject is looked up by name and a model reads the answer; a repeat or
-    // a stale pick is turned down and the picker chooses again, told why.
+    // 3. The seed picture, before the subject: it does not depend on the
+    // story, and the scene writer needs it whichever story is chosen. The
+    // seed's description is an illustrator's brief of a whole picture, a
+    // thousand characters and more; boiled down to what is particular about
+    // it, so it fits next to the sheet and the scene inside a generator's
+    // prompt.
+    const sheet = options.reference ? await options.reference.get() : undefined
+    let seed = options.reference ? await options.reference.seed(options.random) : undefined
+    if (seed) {
+      try {
+        const { brief } = await askJson(options.text, { ...seedBriefPrompt({ look: seed.look }), schema: seedBriefSchema })
+        seed = { ...seed, look: brief }
+      } catch (error) {
+        problems.push(`could not brief the seed picture: ${messageOf(error)}; drawing from the sheet alone`)
+        seed = undefined
+      }
+    }
+
+    // 4. Choose the subject, from both lists as one, check it against
+    // memory, and write the scene, all before anything is drawn. The broad
+    // recall above says what was posted lately, but a story can be a repeat
+    // in other words, and a story can be two days old with its conversation
+    // already over. So the chosen subject is looked up by name and a model
+    // reads the answer; a repeat or a stale pick is turned down and the
+    // picker chooses again, told why.
+    //
+    // The scene is written in the same loop, because the content filter reads
+    // it as a prompt before a picture is drawn, and a refused scene used to
+    // be the end of the morning: nothing drawn, nothing posted. Now a refused
+    // scene is written once more with the refusal in front of the writer, and
+    // when the story cannot be drawn cleanly at all it is turned down like a
+    // repeat and the picker chooses again. Only the last pick's refusal is
+    // final, and then the old rule holds: nothing drawn, nothing posted.
     const candidates = [...stories, ...posts]
     const freshness: MorningResult['freshness'] = { subject: [] }
     const rejected: NonNullable<Parameters<typeof pickPrompt>[1]['rejected']> = []
     let pick!: Pick
     let story: Story | undefined
+    let scene!: Scene
+    let sceneRefused: string | undefined
     for (let attempt = 1; attempt <= PICK_ATTEMPTS; attempt += 1) {
+      const last = attempt === PICK_ATTEMPTS
       pick = await askJson(options.text, {
         ...pickPrompt(context, {
           stories: renderStories(stories),
@@ -242,58 +272,68 @@ export class MorningPipeline {
       })
 
       const fresh = await this.freshness(context, 'subject', subjectOf(pick, story), problems)
-      if (!fresh) break
-      freshness.subject.push({ ...fresh, story: pick.story, headline: pick.headline })
-      log('freshness checked', { attempt, verdict: fresh.verdict, reason: fresh.reason })
-      if (fresh.verdict === 'fresh') break
-      if (attempt === PICK_ATTEMPTS) {
-        problems.push(`the subject was ${fresh.verdict} on the last try too (${fresh.reason}); going with it`)
+      if (fresh) {
+        freshness.subject.push({ ...fresh, story: pick.story, headline: pick.headline })
+        log('freshness checked', { attempt, verdict: fresh.verdict, reason: fresh.reason })
+        if (fresh.verdict !== 'fresh') {
+          if (last) {
+            problems.push(`the subject was ${fresh.verdict} on the last try too (${fresh.reason}); going with it`)
+          } else {
+            problems.push(`turned down [${pick.story}] ${pick.headline}: ${fresh.verdict}, ${fresh.reason}`)
+            rejected.push({ story: pick.story, headline: pick.headline, verdict: fresh.verdict, reason: fresh.reason })
+            continue
+          }
+        }
+      }
+
+      // The article itself, for the scene: the excerpt is two sentences and
+      // a picture built from two sentences is a picture of a desk. Unreadable
+      // is fine; the headline and the picked visual carry it. A post from the
+      // timeline is its own article: the text, and what its picture showed.
+      const article =
+        story?.kind === 'x'
+          ? [`${story.source}: ${story.excerpt}`, story.media ? `Their picture: ${story.media}` : undefined].filter(Boolean).join('\n')
+          : story
+            ? await options.news.read(story.url, { maxCharacters: ARTICLE_CHARACTERS }).catch(() => '')
+            : ''
+      scene = await askJson(options.text, {
+        ...scenePrompt({ pick, article, seedLook: seed?.look }),
+        schema: sceneSchema,
+      })
+      log('scene written', { attempt, seed: seed?.url, concepts: scene.concepts, cue: scene.storyCue })
+
+      // The scene passes the filter first, as a prompt does in the generate
+      // tool: a refused scene is not drawn at all, and no budget is spent.
+      sceneRefused = await this.refused(scene.scene, 'generate_image')
+      if (!sceneRefused) break
+      problems.push(`the content filter refused the scene (${sceneRefused}); rewriting it`)
+      log('scene refused', { attempt, category: sceneRefused, take: 1 })
+      scene = await askJson(options.text, {
+        ...scenePrompt({ pick, article, seedLook: seed?.look, refused: { category: sceneRefused, scene: scene.scene } }),
+        schema: sceneSchema,
+      })
+      log('scene rewritten', { attempt, concepts: scene.concepts, cue: scene.storyCue })
+      sceneRefused = await this.refused(scene.scene, 'generate_image')
+      if (!sceneRefused) break
+      if (last) {
+        problems.push(`the content filter refused the scene again (${sceneRefused}); nothing drawn`)
         break
       }
-      problems.push(`turned down [${pick.story}] ${pick.headline}: ${fresh.verdict}, ${fresh.reason}`)
-      rejected.push({ story: pick.story, headline: pick.headline, verdict: fresh.verdict, reason: fresh.reason })
+      problems.push(`turned down [${pick.story}] ${pick.headline}: the scene was refused twice (${sceneRefused})`)
+      rejected.push({
+        story: pick.story,
+        headline: pick.headline,
+        verdict: 'refused',
+        reason: `cannot be drawn without ${sceneRefused} content; the picture was refused twice`,
+      })
     }
 
-    // 4. A seed picture and the scene, then the picture itself. The seed's
-    // description is an illustrator's brief of a whole picture, a thousand
-    // characters and more; boiled down to what is particular about it, so it
-    // fits next to the sheet and the scene inside a generator's prompt.
-    const sheet = options.reference ? await options.reference.get() : undefined
-    let seed = options.reference ? await options.reference.seed(options.random) : undefined
-    if (seed) {
-      try {
-        const { brief } = await askJson(options.text, { ...seedBriefPrompt({ look: seed.look }), schema: seedBriefSchema })
-        seed = { ...seed, look: brief }
-      } catch (error) {
-        problems.push(`could not brief the seed picture: ${messageOf(error)}; drawing from the sheet alone`)
-        seed = undefined
-      }
-    }
-    // The article itself, for the scene: the excerpt is two sentences and a
-    // picture built from two sentences is a picture of a desk. Unreadable is
-    // fine; the headline and the picked visual carry it. A post from the
-    // timeline is its own article: the text, and what its picture showed.
-    const article =
-      story?.kind === 'x'
-        ? [`${story.source}: ${story.excerpt}`, story.media ? `Their picture: ${story.media}` : undefined].filter(Boolean).join('\n')
-        : story
-          ? await options.news.read(story.url, { maxCharacters: ARTICLE_CHARACTERS }).catch(() => '')
-          : ''
-    const scene = await askJson(options.text, {
-      ...scenePrompt({ pick, article, seedLook: seed?.look }),
-      schema: sceneSchema,
-    })
-    log('scene written', { seed: seed?.url, concepts: scene.concepts, cue: scene.storyCue })
-
-    // Drawn, then looked at: an image rung is not bound to the sheet, and one
-    // served a purple robot in rehearsal. A picture that fails the look is
+    // 5. Drawn, then looked at: an image rung is not bound to the sheet, and
+    // one served a purple robot in rehearsal. A picture that fails the look is
     // drawn again once; the second is kept either way, and the problem noted.
-    // The scene passes the filter first, as a prompt does in the generate
-    // tool: a refused scene is not drawn at all, and no budget is spent.
+    // A scene the filter refused on the last pick is not drawn at all.
     let image: StoredMedia | undefined
     const imagePrompt = withSeed(sheet, seed, scene.scene, { maxLength: MAX_GENERATION_PROMPT })
-    const sceneRefused = await this.refused(scene.scene, 'generate_image')
-    if (sceneRefused) problems.push(`the content filter refused the scene (${sceneRefused}); nothing drawn`)
     for (let attempt = 1; attempt <= IMAGE_ATTEMPTS && !image && !sceneRefused; attempt += 1) {
       if (!options.budget.take('image')) {
         problems.push('the daily image allowance was already spent')
@@ -317,7 +357,7 @@ export class MorningPipeline {
       }
     }
 
-    // 5. The script, then the clip. The script is written even when there
+    // 6. The script, then the clip. The script is written even when there
     // is nothing to film it with: it is what the journal records, and a
     // rehearsal without a video key still shows what would have been asked.
     let script: Script | undefined
@@ -380,7 +420,7 @@ export class MorningPipeline {
       }
     }
 
-    // 6. The caption. It knows something is attached only so it does not
+    // 7. The caption. It knows something is attached only so it does not
     // narrate it: the clip is the joke, the words are the good morning.
     // Written, then checked against memory as a post -- the subject was
     // fresh, but the joke on it may be one the account has made -- and
@@ -458,7 +498,7 @@ export class MorningPipeline {
       recalled: { history, community },
     }
 
-    // 7. Post, or say what would have been posted.
+    // 8. Post, or say what would have been posted.
     if (held) return { ...base, caption: '', outcome: 'held' }
     if (attached === 'none') {
       problems.push('nothing to attach, so nothing was posted')
