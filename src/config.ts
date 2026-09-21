@@ -153,6 +153,19 @@ const schema = z.object({
     .default('')
     .transform((value) => value.split(',').map((entry) => entry.trim()).filter(Boolean)),
   THREAD_CONTEXT_MAX_POSTS: z.coerce.number().int().min(0).max(100).default(10),
+  // Handles whose statements the account takes as fact: the lab and the people
+  // who run it. Matched against the author and the thread before drafting, so
+  // "Teeny buys $TINY" from the team is known rather than "reportedly".
+  TRUSTED_HANDLES: z
+    .string()
+    .default('TinyHumansAISol,senamakel,enamakel,tinyhumansai')
+    .transform((value) => value.split(',').map((entry) => entry.trim()).filter(Boolean)),
+  // The names the account goes by besides its handle, matched as whole words
+  // so a post about "Teeny" is recognised as a post about the account.
+  SELF_NAMES: z
+    .string()
+    .default('Teeny')
+    .transform((value) => value.split(',').map((entry) => entry.trim()).filter(Boolean)),
 
   // --- the chart agent -----------------------------------------------------
   // A second agent, on its own timer: it reads the token's own chart once a day

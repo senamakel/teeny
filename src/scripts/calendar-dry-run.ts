@@ -83,6 +83,8 @@ const job = new CalendarJob({
       : {}),
     searchLimit: config.X_SEARCH_MAX_RESULTS,
     ownTokenAddresses: config.OWN_TOKEN_ADDRESSES,
+    trustedHandles: config.TRUSTED_HANDLES,
+    selfNames: config.SELF_NAMES,
   }),
   memory,
   x,

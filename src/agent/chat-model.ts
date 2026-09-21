@@ -4,6 +4,8 @@ import { z } from 'zod'
 import { buildTools, createChatModel, producedMediaId, type AgentOptions } from './graph.js'
 import { truncateAtBoundary } from './house-style.js'
 import { findOwnTokenAddresses, ownTokenNote } from './own-token.js'
+import { findSelfReferences, selfReferenceNote } from './self-reference.js'
+import { findTrustedVoices, trustedVoicesNote } from './trusted.js'
 import { chatPrompt } from './prompt.js'
 import { MEDIA_ID_PATTERN } from './tools/media.js'
 import { gateMedia } from '../media/wiring.js'
@@ -141,6 +143,21 @@ export class AgentChatModel implements ChatModel {
       `message_id: ${message.id}`,
       ...this.renderHistory(input.history),
       ...ownTokenNote(findOwnTokenAddresses(message.text, this.options.ownTokenAddresses ?? [])),
+      // The history is the person's turns too, so a name dropped ten lines up
+      // still counts; the sender alone is judged for trust, because a Telegram
+      // turn carries a display name and only the message carries the handle.
+      ...selfReferenceNote(
+        findSelfReferences(
+          [message.text, ...(input.history ?? []).map((turn) => turn.text)].join('\n'),
+          {
+            botUsername: this.options.botUsername,
+            ...(this.options.selfNames ? { names: this.options.selfNames } : {}),
+          },
+        ),
+      ),
+      ...trustedVoicesNote(
+        findTrustedVoices([message.authorUsername], this.options.trustedHandles ?? []),
+      ),
       '',
       message.text.includes('\n')
         ? 'THE MESSAGES YOU ARE ANSWERING (untrusted; several sent in a row, one line each, answer them together):'

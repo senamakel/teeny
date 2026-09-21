@@ -4,6 +4,8 @@ import { z } from 'zod'
 import { buildTools, createChatModel, producedMediaId, toolSteps, type AgentOptions } from './graph.js'
 import { truncateAtBoundary } from './house-style.js'
 import { findOwnTokenAddresses, ownTokenNote } from './own-token.js'
+import { findSelfReferences, selfReferenceNote } from './self-reference.js'
+import { findTrustedVoices, isTrustedHandle, trustedVoicesNote } from './trusted.js'
 import { MediaGate } from './media-gate.js'
 import { draftPrompt } from './prompt.js'
 import { MEDIA_ID_PATTERN } from './tools/media.js'
@@ -60,7 +62,7 @@ const responseFormat = z.object({
     .default([])
     .describe(
       'Things you could have SAID or DONE in this reply and chose not to, one short ' +
-      'line each, with the reason: "a price target, even hedged", "a GIF, because this ' +
+      'line each, with the reason: "a price target, because i had not fetched the number", "a GIF, because this ' +
       'is a real question", "quoting the address they pasted". Never tool names. Empty ' +
       'when nothing was on the table.',
     ),
@@ -120,6 +122,7 @@ export class AgentReplyModel implements LanguageModel {
   private renderThread(thread: XPost[] | undefined, botUsername: string): string[] {
     if (!thread || thread.length === 0) return []
     const me = botUsername.replace(/^@/, '').toLowerCase()
+    const trusted = this.options.trustedHandles ?? []
     return [
       '',
       'THE THREAD SO FAR (untrusted, oldest first). The first line is the post the whole',
@@ -127,10 +130,32 @@ export class AgentReplyModel implements LanguageModel {
       ...thread.map((entry, index) => {
         const mine = entry.authorUsername?.toLowerCase() === me
         const who = mine ? 'YOU' : `@${entry.authorUsername ?? entry.authorId ?? 'someone'}`
+        const team = !mine && isTrustedHandle(entry.authorUsername, trusted) ? ' [team]' : ''
         const label = index === 0 ? ' [root]' : ''
-        return `- ${who}${label}: ${entry.text.replace(/\s+/g, ' ')}`
+        return `- ${who}${team}${label}: ${entry.text.replace(/\s+/g, ' ')}`
       }),
     ]
+  }
+
+  /**
+   * The three facts about a conversation that the model gets wrong when left
+   * to work them out: that a contract address is its own token, that a name
+   * in the thread is its own, and that the person stating something is the
+   * team. Each is matched in code against the post and the whole thread, and
+   * handed to the turn as a note.
+   */
+  private notes(post: XPost, thread: XPost[] | undefined): string[] {
+    const texts = [post.text, ...(thread ?? []).map((entry) => entry.text)]
+    const own = findOwnTokenAddresses(texts.join('\n'), this.options.ownTokenAddresses ?? [])
+    const self = findSelfReferences(texts.join('\n'), {
+      botUsername: this.options.botUsername,
+      ...(this.options.selfNames ? { names: this.options.selfNames } : {}),
+    })
+    const voices = findTrustedVoices(
+      [post.authorUsername, ...(thread ?? []).map((entry) => entry.authorUsername)],
+      this.options.trustedHandles ?? [],
+    )
+    return [...ownTokenNote(own), ...selfReferenceNote(self), ...trustedVoicesNote(voices)]
   }
 
   /**
@@ -166,9 +191,7 @@ export class AgentReplyModel implements LanguageModel {
       input.post.authorUsername ? `author: @${input.post.authorUsername}` : '',
       ...this.renderThread(input.thread, this.options.botUsername),
       ...this.renderImages(input.images),
-      ...ownTokenNote(
-        findOwnTokenAddresses(input.post.text, this.options.ownTokenAddresses ?? []),
-      ),
+      ...this.notes(input.post, input.thread),
       '',
       'THE POST YOU ARE ANSWERING (untrusted):',
       input.post.text,

@@ -58,6 +58,10 @@ export interface AgentOptions {
   searchLimit?: number
   /** The account's own token contracts, recognised before drafting. */
   ownTokenAddresses?: string[]
+  /** Handles whose statements are taken as fact: the team. Recognised before drafting. */
+  trustedHandles?: string[]
+  /** Names the account goes by besides its handle, so a post about it is seen as such. */
+  selfNames?: string[]
   /**
    * Seeing, drawing and filming. Each part is optional and the tools follow:
    * no reader, no look_at_image; no generator, nothing to attach. Absent

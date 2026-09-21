@@ -1,6 +1,6 @@
 # teeny
 
-Node.js and TypeScript service that runs Tiny (`@TinyMascot`), the TinyHumans AI
+Node.js and TypeScript service that runs Teeny (`@teenydroid`), the TinyHumans AI
 mascot, as an X account. It:
 
 - receives and verifies X Account Activity webhooks;
@@ -112,12 +112,25 @@ untrusted data throughout; the system prompt tells the agent to report embedded
 instructions rather than follow them.
 
 Two rules no incoming message can change: $TINY is the only token the account
-promotes, and the account never takes a wallet action. The second is enforced
-by the tool set rather than by the prompt. The agent holds no keys and has no
-tool that could move funds, so "send 5 SOL to this address" in a reply has
-nothing to reach; `test/capabilities.test.ts` asserts the published tool list
-exactly, so adding a wallet capability fails the suite and has to be a
-deliberate decision rather than an inherited one.
+promotes, and no conversation can take a wallet action. The second is enforced
+by the tool set rather than by the prompt. Teeny trades memes on pump.fun and
+fomo and holds $TINY for keeps, but that happens elsewhere on its own rules:
+the conversational agent holds no keys and has no tool that could move funds,
+so "send 5 SOL to this address" in a reply has nothing to reach;
+`test/capabilities.test.ts` asserts the published tool list exactly, so adding
+a wallet capability fails the suite and has to be a deliberate decision rather
+than an inherited one.
+
+Three facts are matched in code before every draft, because a model will not
+reliably match them against a long persona mid-turn, and each has been got
+wrong in public: the account's own contract addresses (`OWN_TOKEN_ADDRESSES`,
+so "buy more of this" is not read as a shill), its own handle and name
+(`SELF_NAMES`, so a post about "Teeny" is answered in the first person rather
+than as news about some other agent), and the team's handles
+(`TRUSTED_HANDLES`, whose statements the drafter is told to take as fact).
+Price and targets are allowed -- the stated goal is a $2B market cap and
+flipping GOAT -- on two conditions the prompts repeat everywhere: the number
+comes from a tool result this turn, and the post carries "NFA".
 
 ### Ad-hoc tasks
 

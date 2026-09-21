@@ -101,6 +101,8 @@ const harness = new ReplyHarness(
     ...(config.EXA_API_KEY ? { exaApiKey: config.EXA_API_KEY } : {}),
     ...(gifs ? { gifs } : {}),
     ownTokenAddresses: config.OWN_TOKEN_ADDRESSES,
+    trustedHandles: config.TRUSTED_HANDLES,
+    selfNames: config.SELF_NAMES,
   }),
   // The dry run has to see the same thread the cron would, or it is testing a
   // different reply from the one that would go out.
