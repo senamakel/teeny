@@ -9,15 +9,10 @@ import type { Hold, HoldLog, HoldStatus } from './safety/holds.js'
 import { reviewHold } from './safety/review.js'
 import { renderCritique, type Critic } from './critic/algo.js'
 import type { Agent, Memory } from './types.js'
-import {
-  captureWebhookActivity,
-  crcResponse,
-  interactionsFromActivity,
-  isValidWebhookSignature,
-  mentionsFromActivity,
-} from './webhooks/activity.js'
+import { crcResponse, isValidWebhookSignature } from './webhooks/activity.js'
 import type { People } from './cadence/people.js'
 import type { WebhookForwarder } from './webhooks/forward.js'
+import { ActivityIntake } from './webhooks/intake.js'
 import { redactInference, type InferenceLedger, type Lane } from './ledger/ledger.js'
 import type { BrainReader } from './ledger/brain.js'
 
@@ -112,8 +107,24 @@ export function buildServer(options: {
   forwarder?: WebhookForwarder
   /** Who interacts with the account, fed from every delivery. */
   people?: Pick<People, 'observe'>
+  /**
+   * Where a verified delivery goes. Shared with the activity stream reader so
+   * an event both transports carry is handled once; built from the options
+   * above when nothing is passed.
+   */
+  intake?: ActivityIntake
 }): FastifyInstance {
   const app = Fastify({ logger: options.logger ?? false })
+  const intake =
+    options.intake ??
+    new ActivityIntake({
+      memory: options.memory,
+      logger: app.log,
+      ...(options.queue ? { queue: options.queue } : {}),
+      ...(options.botUserId ? { botUserId: options.botUserId } : {}),
+      ...(options.botUsername ? { botUsername: options.botUsername } : {}),
+      ...(options.people ? { people: options.people } : {}),
+    })
 
   app.addContentTypeParser(
     'application/json',
@@ -221,44 +232,8 @@ export function buildServer(options: {
     // X retries a delivery it does not see acknowledged quickly, so the work is
     // queued rather than done here: the reply itself takes a model call and
     // several seconds, which is far longer than a webhook may hold the line.
-    if (options.queue) {
-      // Identity first, and nothing is queued without it: a delivery is mostly
-      // the account's own activity, and queuing that is how a self-reply loop
-      // starts. The cron poll is the safety net for anything dropped here.
-      let botUserId: string | undefined
-      try {
-        botUserId = await options.botUserId?.()
-      } catch (error) {
-        request.log.error({ err: error }, 'could not identify the account; queued nothing')
-      }
-      if (!botUserId) {
-        request.log.error('no account id available; refusing to queue webhook activity')
-        return reply.code(200).send({ ok: true })
-      }
-      if (options.people) {
-        const interactions = interactionsFromActivity(payload, botUserId)
-        await Promise.all(
-          interactions.map((interaction) =>
-            options.people!.observe(interaction).catch((error: unknown) => {
-              request.log.warn({ err: error, interaction }, 'could not record the interaction')
-            }),
-          ),
-        )
-      }
-      const mentions = mentionsFromActivity(payload, {
-        botUserId,
-        botUsername: options.botUsername ?? '',
-      })
-      if (mentions.length > 0) {
-        const cached = await options.queue.cache(mentions)
-        request.log.info(
-          { delivered: mentions.length, cached },
-          'queued mentions from an activity webhook',
-        )
-      }
-    }
-
-    await captureWebhookActivity(options.memory, payload)
+    // The intake answers once the queue has it; memory is written behind.
+    await intake.deliver(payload, 'webhook')
     return reply.code(200).send({ ok: true })
   })
 

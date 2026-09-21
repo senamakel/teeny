@@ -88,6 +88,11 @@ const schema = z.object({
   // reply side without pausing ingestion, which is the half with a deadline.
   SERVICE_ROLE: z.enum(['all', 'ingest', 'reply', 'api', 'chart', 'morning', 'moon', 'calendar', 'narrative']).default('all'),
   INGEST_CRON: z.string().default('*/5 * * * *'),
+  // The X Activity API's stream, `GET /2/activity/stream`, read next to the
+  // webhook. On because the webhook stopped delivering `post.*` events in
+  // 2026-08 (an X-side fault, devcommunity 273644) while the stream still
+  // does, within seconds. Needs X_BEARER_TOKEN; without one it is skipped.
+  ACTIVITY_STREAM_ENABLED: z.coerce.boolean().default(true),
   // `worker` drains the queue continuously, which is what makes a webhook
   // delivery turn into a reply in seconds rather than by the next tick.
   // `cron` keeps the old timer for a quiet account that would rather poll.
