@@ -11,7 +11,7 @@ import { LangGraphBackroomsAgent, renderSystem, type BackroomsAgent } from '../s
 import { agentPresets, pickAgents } from '../src/backrooms/agents.js'
 import { ContextBuilder, engines, spread } from '../src/backrooms/context.js'
 import { DEFAULT_EDITOR, distill, distillPrompt, thoughtSchema } from '../src/backrooms/distill.js'
-import { gatherGmMaterial, gm, gmPrompt, touchesSeed } from '../src/backrooms/gm.js'
+import { gatherGmMaterial, gm, gmPrompt, touchesSeed, touchesThought } from '../src/backrooms/gm.js'
 import { articlePrompt, codePrompt, renderVariants, tweetsPrompt, variants, variantsSchema, videoPrompt } from '../src/backrooms/variants.js'
 import { crazinessSchema, judge, stats } from '../src/backrooms/evaluate.js'
 import { clean, looksLikeSalad, runBackrooms } from '../src/backrooms/room.js'
@@ -26,6 +26,7 @@ import { estimateTokens, fit, rng, shuffle } from '../src/backrooms/tokens.js'
 import { TONES, driftTone, pickTone } from '../src/backrooms/tones.js'
 import { backroomsTools } from '../src/backrooms/tools.js'
 import type { AgentContext, AgentSpec, BackroomsRun, Forum, ForumPost, Seed } from '../src/backrooms/types.js'
+import type { Critique } from '../src/critic/algo.js'
 import type { TextModel } from '../src/media/reference.js'
 import type { Memory } from '../src/types.js'
 
@@ -690,6 +691,36 @@ describe('the good morning', () => {
     expect(post.text).not.toContain('—')
     expect(prompts[0]).toContain('WHAT CAME THROUGH THE WIRE')
     expect(prompts[0]).toContain("the wire in it: the car outside is the kettle-lid agent's ride")
+  })
+
+  it('keeps the draft when the ranker\'s rewrite loses the lab twice', async () => {
+    expect(touchesThought('gm. the fridge rate is up. one kettle is five naps.', thought)).toBe(true)
+    expect(touchesThought('gm. a human replaced codex with local models. what is on your machine?', thought)).toBe(false)
+    const draft = 'gm. a car pulled up. the kettle is five naps now. the agents accepted it. what is yours?'
+    const answers = [
+      { reasons: 'r', continues: '', wire: 'a car pulled up', text: 'gm. a car pulled up outside. local models or api, which are you on?' },
+      { reasons: 'r', continues: '', wire: 'a car pulled up', text: 'gm. a car pulled up. local models or api, which one right now?' },
+    ]
+    let calls = 0
+    const model: TextModel = { complete: async () => JSON.stringify(answers[calls++]) }
+    const critique: Critique = {
+      verdict: 'flat',
+      score: 1,
+      upside: 2,
+      cost: -1,
+      predicted: { reply: 0, quote: 0, repost: 0, like: 0, shareViaCopyLink: 0, shareViaDm: 0, share: 0, followAuthor: 0, notInterested: 0, muteAuthor: 0, blockAuthor: 0, report: 0 },
+      communityReply: 0,
+      firstReply: '',
+      disagreement: '',
+      shareReason: '',
+      riskReason: '',
+      fixes: ['swap the question to a forced choice'],
+      summary: 'flat',
+    }
+    const post = await gm(RUN, thought, material, model, { rewrite: { draft, critique } })
+    expect(calls).toBe(2)
+    expect(post.text).toBe(draft)
+    expect(post.reasons).toContain('the draft it was sent with is kept')
   })
 
   it('sends a post back once when nothing in it is recognisably about the wire', async () => {

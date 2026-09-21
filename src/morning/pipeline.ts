@@ -560,9 +560,12 @@ export class MorningPipeline {
   private async room(pick: Pick, story: Story | undefined, problems: string[]): Promise<RoomResult | undefined> {
     const { backrooms } = this.options
     if (!backrooms) return undefined
+    // A timeline post goes in without its author: the room plays with what
+    // was said, and a handle in the seed is a real person the lore would
+    // otherwise pull into the lab by name.
     const seed =
       story?.kind === 'x'
-        ? { kind: 'mention' as const, text: story.excerpt, source: story.source }
+        ? { kind: 'mention' as const, text: story.excerpt, source: 'the timeline' }
         : story
           ? { kind: 'news' as const, title: story.title, text: story.excerpt, source: story.source }
           : { kind: 'text' as const, title: pick.headline, text: `${pick.headline}. ${pick.angle}` }
