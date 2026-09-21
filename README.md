@@ -856,6 +856,70 @@ implied price. The turn is journaled with `trigger: moon` for the mind page.
 The job refuses to run twice inside 20 hours, like the others, and only posts
 on its day of the rota.
 
+## The article
+
+Twice a week the account writes something long: a piece of the serial's
+lore, published as an X Article with a cover and a picture per section,
+and mirrored on the site at `/articles`. `ARTICLE_ENABLED` turns the job
+on; `ARTICLE_CRON` (Wednesday and Saturday, 23:00 UTC) says when.
+
+The idea comes from the backrooms. A room of tool-using agents is opened
+on something from the wire (`ARTICLE_NEWS_TOPICS`), steered at one of the
+lore's engines so tonight is about one thing, and read down to a thought.
+`ARTICLE_ROOMS` rooms run on the same seed and the best-scored one is
+written up.
+
+The piece is then made in order, and every stage's output is saved:
+
+1. **The plan.** A structure first: title, dek, angle, three to five
+   sections each with a purpose, its beats, a word target and an image
+   brief, a cover brief and a closing image. A cold editor reads the plan
+   for a beginning, a turn and an ending, for sections that repeat, and
+   for lore that has not come out yet; a plan that fails is revised once.
+   Nothing is written until the plan stands.
+2. **The sections**, one at a time against their purpose and beats, each
+   with the earlier ones in view. Cut down when it runs long.
+3. **The proof-reader.** The humanizer skill (`skills/humanizer/SKILL.md`)
+   is read twice: first as a reviewer, listing every place the text trips
+   one of its numbered patterns, with the words and the fix; then, only
+   when there is something to fix, as an editor applying exactly those
+   findings. The findings before and after are kept on the record. A fix
+   that changed the headings, lost a picture, or came back as "nothing to
+   fix" is refused and the draft stands.
+4. **The rules and the gates.** Urls, handles and hashtags are cut; a
+   price, a market cap or "nfa" means the piece is not published. The
+   content filter reads the title and dek and then each section under the
+   narrative profile. The ranker's reader, when configured, is advisory
+   unless it reads the piece as risky.
+5. **The pictures.** The cover and one per section, from the briefs, with
+   Tiny's reference sheet, checked by the vision model, drawn landscape.
+   They spend the same daily image budget as everything else and the
+   piece goes without any that could not be drawn.
+6. **The record.** Everything lands in `ARTICLES_DIR/<slug>/article.json`
+   with the pictures beside it: the room, the plan and its check, each
+   section, the proof-reader's findings, the critique, the problems. The
+   bot serves the directory at `/articles`, and the site reads it there.
+
+**Nothing publishes until `ARTICLE_PUBLISH=true`.** With the job on and
+that off, every scheduled run is a rehearsal: the whole pipeline runs on
+the real lore, news and pictures and saves a `dry-run` record that can be
+read on the site (`/articles?all=1` on the bot) before a single piece goes
+out. Publishing creates the article as a draft on X, then publishes it,
+which makes the post on the timeline; the article counts as an own post
+for the cadence. X allows articles on a Premium+ account only, and an
+account without it gets a refusal, journaled as a failure with X's
+reason. There is no fallback by design: an article that cannot be an
+article is not posted as something else.
+
+```sh
+npm run article-dry-run -- --structure-only   # the room and the plan; nothing written
+npm run article-dry-run -- --no-images        # the whole text, proof-read; nothing drawn
+npm run article-dry-run                       # the text and the pictures
+npm run article-dry-run -- --from data/backrooms/<run>.json   # a saved room; no seed, no rooms
+npm run article-dry-run -- --engine "the fridge rate" --topic "ai agents"
+npm run article-dry-run -- --publish          # publishes, if DRY_RUN=false
+```
+
 ## The journal, and the mind page
 
 Every turn the account takes is written to a journal, and the journal is what
@@ -1407,6 +1471,7 @@ npm run chart-dry-run   # rehearse the daily chart post without publishing
 npm run morning-dry-run # rehearse the good-morning post: reads, draws, films, captions, no post
 npm run moon-dry-run    # rehearse the moon chart: reads the board, draws, captions, no post
 npm run calendar-dry-run -- gm   # draft one calendar item, generate its media, publish nothing
+npm run article-dry-run -- --structure-only   # rehearse an article: the room and the plan; --no-images for the text too
 npm run telegram-dry-run -- "hi"            # one Telegram DM through the real drafter, printed not sent
 npm run telegram-dry-run -- --group "@teenythebot gm"   # the same, as a group mention
 ```
