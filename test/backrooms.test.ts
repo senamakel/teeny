@@ -11,6 +11,7 @@ import { LangGraphBackroomsAgent, renderSystem, type BackroomsAgent } from '../s
 import { agentPresets, pickAgents } from '../src/backrooms/agents.js'
 import { ContextBuilder, engines, spread } from '../src/backrooms/context.js'
 import { DEFAULT_EDITOR, distill, distillPrompt, thoughtSchema } from '../src/backrooms/distill.js'
+import { gatherGmMaterial, gm, gmPrompt } from '../src/backrooms/gm.js'
 import { articlePrompt, codePrompt, renderVariants, tweetsPrompt, variants, variantsSchema, videoPrompt } from '../src/backrooms/variants.js'
 import { crazinessSchema, judge, stats } from '../src/backrooms/evaluate.js'
 import { clean, looksLikeSalad, runBackrooms } from '../src/backrooms/room.js'
@@ -623,5 +624,83 @@ describe('the evaluation', () => {
       rmSync(dir, { recursive: true, force: true })
     }
     expect(runId(new Date('2026-09-21T13:35:12.000Z'), 'A car pulled up!! outside')).toBe('20260921-1335-a-car-pulled-up-outside')
+  })
+})
+
+describe('the good morning', () => {
+  const thought = {
+    reasons: '',
+    premise: 'a robot posts a fridge rate and the agents accept it.',
+    objects: ['the fridge', 'the kettle'],
+    thought: 'the fridge rate went up overnight. one kettle is five naps now. the agents did not argue.',
+    post: 'one kettle is five naps now.',
+    kept: [],
+  }
+  const material = {
+    persona: 'This is who you are. smol yellow robot.',
+    lore: '# lore\n\n- the fridge rate: always in objects.',
+    recentPosts: ['gm. the kettle is watching me again.', 'the ledger balanced. nobody knows in what.'],
+    history: 'posted about the kettle yesterday',
+    community: 'holders who like the kettle bit',
+    today: '2026-09-21',
+    botUsername: 'teenydroid',
+    maxEmoji: 1,
+    maxLength: 280,
+  }
+
+  it('puts the soul, the lore, the thought and the last posts in front of the writer', () => {
+    const { system, prompt } = gmPrompt(RUN, thought, material)
+    expect(system).toContain('smol yellow robot')
+    expect(system).toContain('the fridge rate: always in objects')
+    expect(system).toContain("@teenydroid's good-morning post for 2026-09-21")
+    expect(prompt).toContain('one kettle is five naps now')
+    expect(prompt).toContain('1. gm. the kettle is watching me again.')
+    expect(prompt).toContain('2. the ledger balanced.')
+    expect(prompt).toContain('posted about the kettle yesterday')
+    expect(prompt).toContain('holders who like the kettle bit')
+    expect(prompt).toContain(RUN.seed.text.slice(0, 40))
+    expect(prompt).toMatch(/no "nfa"/)
+    expect(prompt).toContain('$TINY')
+  })
+
+  it('writes the post once, sends it back when over the cap, and applies the house style', async () => {
+    const prompts: string[] = []
+    const answers = [
+      { reasons: 'first', continues: 'gm. the kettle is watching me again.', text: 'gm 🔥🔥 the kettle is five naps now' },
+      { reasons: 'shorter', continues: 'gm. the kettle is watching me again.', text: 'gm $TINY fam 🔥 the kettle is five naps now — the agents accepted it' },
+    ]
+    const model: TextModel = {
+      complete: async (input) => {
+        prompts.push(input.prompt)
+        return JSON.stringify(answers[prompts.length - 1])
+      },
+    }
+    const post = await gm(RUN, thought, material, model)
+    expect(prompts).toHaveLength(2)
+    expect(prompts[1]).toContain('Your draft was')
+    expect(post.continues).toBe('gm. the kettle is watching me again.')
+    expect(post.text).toContain('gm $TINY fam')
+    expect(post.text).not.toContain('—')
+  })
+
+  it('gathers the last posts and the recalls, and notes a source that fails', async () => {
+    const problems: string[] = []
+    const memory: Memory = {
+      recall: async (query: string) => (query.includes('good-morning') ? 'yesterday: the kettle' : 'holders'),
+      remember: async () => undefined,
+    } as unknown as Memory
+    const x = { searchPosts: async () => [{ id: '0', text: '@fren thanks', inReplyToUserId: '9' }, { id: '1', text: ' the ledger balanced https://t.co/x ' }, { id: '2', text: '' }] as never }
+    const got = await gatherGmMaterial({ memory, x, persona: 'p', lore: 'l', botUsername: 'teenydroid', maxEmoji: 1, now: () => Date.UTC(2026, 8, 21) }, problems)
+    expect(got.recentPosts).toEqual(['the ledger balanced'])
+    expect(got.history).toBe('yesterday: the kettle')
+    expect(got.community).toBe('holders')
+    expect(got.today).toBe('2026-09-21')
+    expect(problems).toEqual([])
+
+    const broken = { searchPosts: async () => { throw new Error('401') } }
+    const without = await gatherGmMaterial({ x: broken, persona: 'p', lore: 'l', botUsername: 'teenydroid', maxEmoji: 1 }, problems)
+    expect(without.recentPosts).toEqual([])
+    expect(without.history).toBe('')
+    expect(problems).toEqual(['could not read recent posts: 401'])
   })
 })

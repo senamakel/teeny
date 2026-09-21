@@ -10,6 +10,7 @@ import { LangGraphBackroomsAgent } from './agent.js'
 import { agentPresets, pickAgents } from './agents.js'
 import { ContextBuilder } from './context.js'
 import { distill, type Thought } from './distill.js'
+import { gatherGmMaterial, gm as writeGm, type GmPost } from './gm.js'
 import { judge, stats, type Craziness, type RunStats } from './evaluate.js'
 import { variants as makeVariants, type Variants } from './variants.js'
 import { runBackrooms } from './room.js'
@@ -29,6 +30,9 @@ export interface BackroomsDeps {
   exa?: ExaSearch
   fetch?: Fetch
   botUsername: string
+  /** The rendered persona (soul, context, skills), for the good-morning layer. Absent, the voice file stands in. */
+  persona?: string
+  maxEmoji?: number
   ledger?: InferenceLedger
   logger?: { info(object: unknown, message?: string): void }
 }
@@ -46,6 +50,8 @@ export interface RunOptions {
   distill?: boolean
   /** Whether the thought is then written out as article, tweets, video and code. */
   variants?: boolean
+  /** Whether the thought is written up as the good-morning post, with the soul, the lore and the last posts around it. */
+  gm?: boolean
   onTurn?: (turn: BackroomsTurn, index: number) => void
 }
 
@@ -56,6 +62,8 @@ export interface Backrooms {
   /** The last layers on their own, for a run already on disk. */
   distill(run: BackroomsRun): Promise<Thought>
   variants(run: BackroomsRun, thought: Thought): Promise<Variants>
+  /** The good-morning post from a thought; `problems` collects the sources that could not be read. */
+  gm(run: BackroomsRun, thought: Thought, problems?: string[]): Promise<GmPost>
 }
 
 export interface RunResult {
@@ -64,6 +72,9 @@ export interface RunResult {
   judge?: Craziness
   thought?: Thought
   variants?: Variants
+  gm?: GmPost
+  /** Sources the good-morning layer could not read; the post was written without them. */
+  problems: string[]
   saved: { json: string; markdown: string }
 }
 
@@ -97,6 +108,17 @@ export function buildBackrooms(config: Config, deps: BackroomsDeps): Backrooms {
   const cold = text('backrooms:judge', 0.2)
   // Warmer than the judge: the thought is written, not classified.
   const editor = text('backrooms:editor', 0.5)
+  const lore = readFileSync(config.NARRATIVE_LORE_PATH, 'utf8')
+  const gmSources = {
+    ...(deps.memory ? { memory: deps.memory } : {}),
+    ...(deps.x ? { x: deps.x } : {}),
+    persona: deps.persona ?? readFileSync(config.NARRATIVE_VOICE_PATH, 'utf8'),
+    lore,
+    botUsername: deps.botUsername,
+    maxEmoji: deps.maxEmoji ?? config.MAX_EMOJI_PER_POST,
+  }
+  const writeMorning = async (run: BackroomsRun, thought: Thought, problems: string[] = []): Promise<GmPost> =>
+    writeGm(run, thought, await gatherGmMaterial(gmSources, problems), editor)
 
   return {
     forums,
@@ -197,17 +219,28 @@ export function buildBackrooms(config: Config, deps: BackroomsDeps): Backrooms {
           deps.logger?.info({ error: error instanceof Error ? error.message : String(error) }, 'backrooms variants failed')
         }
       }
+      const problems: string[] = []
+      let morning: GmPost | undefined
+      if (thought && options.gm) {
+        try {
+          morning = await writeMorning(run, thought, problems)
+        } catch (error) {
+          deps.logger?.info({ error: error instanceof Error ? error.message : String(error) }, 'backrooms gm failed')
+        }
+      }
       const extras = {
         stats: counted,
         ...(verdict ? { judge: verdict } : {}),
         ...(thought ? { thought } : {}),
         ...(shapes ? { variants: shapes } : {}),
+        ...(morning ? { gm: morning } : {}),
       }
       const saved = store.save(run, extras)
-      return { run, ...extras, saved }
+      return { run, ...extras, problems, saved }
     },
     distill: (run) => distill(run, editor, editorPrompt),
     variants: (run, thought) => makeVariants(run, thought, editor),
+    gm: writeMorning,
   }
 }
 

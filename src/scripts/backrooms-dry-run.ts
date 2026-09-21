@@ -11,6 +11,7 @@ import type { BackroomsRun } from '../backrooms/types.js'
 import { XApiClient } from '../clients/x.js'
 import { loadConfig } from '../config.js'
 import { CortexMemory } from '../memory/cortex.js'
+import { loadPersona, renderPersona } from '../agent/soul.js'
 
 /**
  * Opens the backrooms on something and prints what came out.
@@ -25,6 +26,8 @@ import { CortexMemory } from '../memory/cortex.js'
  *   --tools 3 --drift 4 --score --no-distill --variants
  *   npm run backrooms -- --distill data/backrooms/<run>.json    # the thought again, on a saved run
  *   npm run backrooms -- --variants data/backrooms/<run>.json   # article, tweets, video, code from a saved run
+ *   npm run backrooms -- --news --gm                             # the good-morning post from the thought
+ *   npm run backrooms -- --gm data/backrooms/<run>.json          # the good morning again, on a saved run
  *
  * Nothing posts. Every run is written to BACKROOMS_DIR as .json and .md.
  * --score asks a cold model to grade the transcript for craziness; the same
@@ -61,11 +64,13 @@ const exa = config.EXA_API_KEY ? createExaClient(config.EXA_API_KEY) : undefined
 const log = (object: unknown, message?: string): void => {
   console.log(`  ${message ?? ''} ${JSON.stringify(object)}`)
 }
+const persona = renderPersona(loadPersona({ soulPath: config.SOUL_PATH, contextPath: config.CONTEXT_PATH, skillsDir: config.SKILLS_DIR }))
 const backrooms = buildBackrooms(config, {
   memory,
   x,
   ...(exa ? { exa } : {}),
   botUsername,
+  persona,
   logger: { info: log },
 })
 
@@ -79,13 +84,23 @@ const printThought = (thought: { premise: string; thought: string; post: string;
   if (thought.objects.length > 0) console.log(`\n  objects: ${thought.objects.join(' · ')}`)
 }
 
-const again = flag('distill') ?? flag('variants')
+const printGm = (post: { text: string; continues: string; reasons: string }, problems: string[]): void => {
+  console.log('\nGOOD MORNING')
+  for (const line of post.text.split('\n')) console.log(`  > ${line}`)
+  console.log(`\n  ${post.text.length} chars`)
+  if (post.continues) console.log(`  continues: ${post.continues}`)
+  console.log(`  ${post.reasons}`)
+  for (const problem of problems) console.log(`  problem: ${problem}`)
+}
+
+const again = flag('distill') ?? flag('variants') ?? flag('gm')
 if (again) {
-  const { stats: counted, judge: verdict, thought: had, variants: hadVariants, ...run } = JSON.parse(readFileSync(again, 'utf8')) as BackroomsRun & SavedExtras
+  const { stats: counted, judge: verdict, thought: had, variants: hadVariants, gm: hadGm, ...run } = JSON.parse(readFileSync(again, 'utf8')) as BackroomsRun & SavedExtras
   const extras: SavedExtras = {
     ...(counted ? { stats: counted } : {}),
     ...(verdict ? { judge: verdict } : {}),
     ...(hadVariants ? { variants: hadVariants } : {}),
+    ...(hadGm ? { gm: hadGm } : {}),
   }
   const thought = flag('distill') || !had ? await backrooms.distill(run) : had
   extras.thought = thought
@@ -93,6 +108,11 @@ if (again) {
   if (flag('variants')) {
     extras.variants = await backrooms.variants(run, thought)
     console.log(`\n${renderVariants(extras.variants).join('\n')}`)
+  }
+  if (flag('gm')) {
+    const problems: string[] = []
+    extras.gm = await backrooms.gm(run, thought, problems)
+    printGm(extras.gm, problems)
   }
   const where = new FileBackroomsStore(config.BACKROOMS_DIR).save(run, extras)
   console.log(`\nSAVED ${where.markdown}`)
@@ -129,6 +149,7 @@ for (let index = 0; index < runs; index += 1) {
     score: has('score'),
     distill: !has('no-distill'),
     variants: has('variants'),
+    gm: has('gm'),
     onTurn: (turn, at) => {
       console.log(`\n${renderTurn(turn, at)}`)
     },
@@ -155,6 +176,7 @@ for (let index = 0; index < runs; index += 1) {
   }
   if (result.thought) printThought(result.thought)
   if (result.variants) console.log(`\n${renderVariants(result.variants).join('\n')}`)
+  if (result.gm) printGm(result.gm, result.problems)
   console.log(`\nSAVED ${result.saved.markdown}`)
 }
 process.exit(0)

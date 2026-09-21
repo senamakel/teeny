@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Thought } from './distill.js'
+import type { GmPost } from './gm.js'
 import { renderTurn, type Craziness, type RunStats } from './evaluate.js'
 import { renderVariants, type Variants } from './variants.js'
 import type { BackroomsRun } from './types.js'
@@ -28,6 +29,7 @@ export interface SavedExtras {
   judge?: Craziness
   thought?: Thought
   variants?: Variants
+  gm?: GmPost
 }
 
 export function renderMarkdown(run: BackroomsRun, extras: SavedExtras): string {
@@ -54,6 +56,17 @@ export function renderMarkdown(run: BackroomsRun, extras: SavedExtras): string {
       ...extras.thought.post.split('\n').map((line) => `> ${line}`),
       '',
       extras.thought.objects.length > 0 ? `objects: ${extras.thought.objects.join(' · ')}` : '',
+      '',
+    )
+  }
+  if (extras.gm) {
+    lines.push(
+      '## the good morning',
+      '',
+      ...extras.gm.text.split('\n').map((line) => `> ${line}`),
+      '',
+      extras.gm.continues ? `continues: ${extras.gm.continues}` : '',
+      extras.gm.reasons,
       '',
     )
   }
