@@ -104,6 +104,8 @@ export interface ArticleStore {
   /** Published articles, newest first; everything with `all`. */
   list(options?: { all?: boolean; limit?: number }): Promise<ArticleSummary[]>
   get(slug: string): Promise<ArticleRecord | undefined>
+  /** The published article that a post on X carried, by that post's id. */
+  findByPostId(postId: string): Promise<ArticleRecord | undefined>
   /** Writes the record, and any files given, under the article's directory. */
   save(record: ArticleRecord, files?: Array<{ file: string; data: Uint8Array }>): Promise<void>
   media(slug: string, file: string): Promise<{ data: Uint8Array; mimeType: string } | undefined>
@@ -126,6 +128,12 @@ export function summarise(record: ArticleRecord): ArticleSummary {
   }
 }
 
+/** Only a published record counts: a post id on anything else is not a post anyone can be replying under. */
+function findPublished(records: ArticleRecord[], postId: string): ArticleRecord | undefined {
+  if (!postId) return undefined
+  return records.find((record) => record.status === 'published' && record.postId === postId)
+}
+
 const MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp' }
 
 export class FileArticleStore implements ArticleStore {
@@ -146,6 +154,10 @@ export class FileArticleStore implements ArticleStore {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
       throw error
     }
+  }
+
+  async findByPostId(postId: string): Promise<ArticleRecord | undefined> {
+    return findPublished(await this.records(), postId)
   }
 
   async save(record: ArticleRecord, files: Array<{ file: string; data: Uint8Array }> = []): Promise<void> {
@@ -208,6 +220,10 @@ export class MemoryArticleStore implements ArticleStore {
 
   async get(slug: string): Promise<ArticleRecord | undefined> {
     return this.records.get(slug)
+  }
+
+  async findByPostId(postId: string): Promise<ArticleRecord | undefined> {
+    return findPublished([...this.records.values()], postId)
   }
 
   async save(record: ArticleRecord, files: Array<{ file: string; data: Uint8Array }> = []): Promise<void> {

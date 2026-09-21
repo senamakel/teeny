@@ -920,6 +920,20 @@ npm run article-dry-run -- --engine "the fridge rate" --topic "ai agents"
 npm run article-dry-run -- --publish          # publishes, if DRY_RUN=false
 ```
 
+### Replies under an article
+
+The post that carries an article is a title and a card, and a reply under it
+is a reply to the article: "the ledger part was weird" says nothing to an
+account that can see only the card. So when a mention's conversation root is
+the post one of the account's own published articles went out as, the reply
+harness reads the record back from `ARTICLES_DIR` and hands the drafter the
+whole article -- title, dek and the full text -- marked as its own, and the
+memory recall is asked about the article rather than only the line under it.
+The lookup is by the root id that arrives with the mention, so it costs no X
+call and works with `THREAD_CONTEXT_MAX_POSTS=0`. A store that cannot be read
+is an article the drafter does not see, not a reply that does not go out; the
+same applies in `npm run dry-run`.
+
 ## The journal, and the mind page
 
 Every turn the account takes is written to a journal, and the journal is what
