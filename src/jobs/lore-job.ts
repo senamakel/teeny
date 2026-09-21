@@ -13,6 +13,8 @@ export interface LoreJobDependencies {
   /** The posting rota and the slots that are this job's. Absent, it posts every day the cron fires. */
   rota?: { rota: Rota; slots: number[] }
   cadence?: Pick<Cadence, 'claim' | 'within'>
+  /** Which lore job this is, when there are two: the journal id and the cadence kind carry it. `lore` by default. */
+  name?: string
 }
 
 /**
@@ -40,7 +42,7 @@ export class LoreJob {
       this.dependencies.logger.info({ sinceLastRunMs: now - this.lastRunAt, minimum }, 'lore job: skipping, it already ran recently')
       return undefined
     }
-    const claim = await this.dependencies.cadence?.claim('lore')
+    const claim = await this.dependencies.cadence?.claim(this.name)
     if (claim && !claim.ok && !options.force) {
       this.dependencies.logger.info({ ...claim }, `lore job: skipping, the cadence says ${claim.reason === 'gap' ? 'too soon after the last post' : 'the timeline is held for a hot post'}`)
       return undefined
@@ -51,7 +53,7 @@ export class LoreJob {
     try {
       const pipeline = this.dependencies.pipeline
       result = this.dependencies.cadence
-        ? await this.dependencies.cadence.within('lore', () => pipeline.run())
+        ? await this.dependencies.cadence.within(this.name, () => pipeline.run())
         : await pipeline.run()
     } catch (error) {
       await this.journalFailure(now, error)
@@ -65,8 +67,12 @@ export class LoreJob {
     return result
   }
 
+  private get name(): string {
+    return this.dependencies.name ?? 'lore'
+  }
+
   private id(now: number): string {
-    return `lore:${new Date(now).toISOString().slice(0, 10)}`
+    return `${this.name}:${new Date(now).toISOString().slice(0, 10)}`
   }
 
   private async journal(now: number, result: LoreResult): Promise<void> {

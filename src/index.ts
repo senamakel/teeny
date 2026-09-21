@@ -35,6 +35,7 @@ import { buildQuotePipeline } from './quote/wiring.js'
 import { QuoteJob } from './jobs/quote-job.js'
 import { buildLorePipeline } from './lore/wiring.js'
 import { LoreJob } from './jobs/lore-job.js'
+import { SlotJob, type SlotOwner } from './jobs/slot.js'
 import { NarrativeJob } from './jobs/narrative-job.js'
 import { ArticleJob } from './jobs/article-job.js'
 import { buildArticlePipeline } from './article/wiring.js'
@@ -611,6 +612,9 @@ if (runsMoon) {
 }
 
 const loreSlots: number[] = []
+// The evening slot's owners, in the order they register, and its fallback.
+const evening: SlotOwner[] = []
+let eveningLore: LoreJob | undefined
 if (runsLore) {
   // Every slot of the rota that no enabled chart has: with the moon and
   // the chart on, five days of seven; with one of them off, six.
@@ -635,6 +639,24 @@ if (runsLore) {
   loreSlots.push(...slots)
   cron.schedule(config.LORE_CRON, () => {
     void loreJob.run().catch((error: unknown) => app.log.error({ err: error }, 'lore job failed'))
+  })
+  // A second one for the evening slot: its own interval guard and journal
+  // id, so an afternoon page and an evening page on the same day are two turns.
+  eveningLore = new LoreJob({
+    pipeline: buildLorePipeline(config, {
+      memory,
+      x,
+      persona,
+      botUsername,
+      dryRun: config.DRY_RUN,
+      logger: app.log,
+      safety,
+      ledger: inferences,
+    }),
+    logger: app.log,
+    journal,
+    cadence,
+    name: 'lore-evening',
   })
 }
 
@@ -681,11 +703,7 @@ if (runsNarrative) {
     journal,
     cadence,
   })
-  cron.schedule(config.NARRATIVE_CRON, () => {
-    void narrativeJob
-      .run()
-      .catch((error: unknown) => app.log.error({ err: error }, 'narrative job failed'))
-  })
+  evening.push({ name: 'narrative', slots: config.NARRATIVE_ROTA_SLOTS, run: () => narrativeJob.run() })
 }
 
 if (runsArticle) {
@@ -710,8 +728,21 @@ if (runsArticle) {
     minIntervalMs: config.ARTICLE_MIN_INTERVAL_HOURS * 60 * 60 * 1_000,
     readRun: (path) => readFile(path, 'utf8').then((text) => JSON.parse(text)),
   })
-  cron.schedule(config.ARTICLE_CRON, () => {
-    void articleJob.run().catch((error: unknown) => app.log.error({ err: error }, 'article job failed'))
+  evening.push({ name: 'article', slots: config.ARTICLE_ROTA_SLOTS, run: () => articleJob.run() })
+}
+
+// The evening slot, one cron: the serial on its days, the article on its,
+// and the lore on the rest. Scheduled once every owner has registered.
+const eveningSlot = new SlotJob({
+  label: 'evening',
+  rota,
+  owners: evening,
+  ...(eveningLore ? { fallback: { name: 'lore', run: () => eveningLore.run() } } : {}),
+  logger: app.log,
+})
+if (evening.length > 0 || eveningLore) {
+  cron.schedule(config.EVENING_CRON, () => {
+    void eveningSlot.run()
   })
 }
 
@@ -862,11 +893,12 @@ app.log.info(
     lore: runsLore ? `at "${config.LORE_CRON}", rota slots ${loreSlots.join(',')}, ${config.LORE_BACKROOMS_TURNS} turns from ${config.LORE_SEEDS.join('/')}` : false,
     quote: runsQuote ? `at "${config.QUOTE_CRON}", ${config.QUOTE_POSTS_PER_SEARCH} posts a search over ${config.QUOTE_HOURS}h` : false,
     narrative: runsNarrative
-      ? `${config.NARRATIVE_BRANCHES} rooms of ${config.NARRATIVE_TURNS} exchanges at "${config.NARRATIVE_CRON}"`
+      ? `${config.NARRATIVE_BRANCHES} rooms of ${config.NARRATIVE_TURNS} exchanges, evening slots ${config.NARRATIVE_ROTA_SLOTS.join(',')}`
       : false,
     article: runsArticle
-      ? `${config.ARTICLE_ROOMS} room(s), ~${config.ARTICLE_WORDS} words at "${config.ARTICLE_CRON}"${publishesArticles ? '' : ' (rehearsal: nothing publishes until ARTICLE_PUBLISH=true)'}`
+      ? `${config.ARTICLE_ROOMS} room(s), ~${config.ARTICLE_WORDS} words, evening slots ${config.ARTICLE_ROTA_SLOTS.join(',')}${publishesArticles ? '' : ' (rehearsal: nothing publishes until ARTICLE_PUBLISH=true)'}`
       : false,
+    evening: evening.length > 0 || eveningLore ? `at "${config.EVENING_CRON}": ${eveningSlot.describe()}` : false,
     rota: runsChart || runsMoon || runsLore ? `${config.POST_ROTA_DAYS} days from ${config.POST_ROTA_ANCHOR}` : false,
     cadence: `${config.POST_MIN_GAP_HOURS}h between own posts, ${config.POST_GAP_TOLERANCE_MINUTES}m tolerance`,
     heat: runsReplies && config.HEAT_ENABLED
