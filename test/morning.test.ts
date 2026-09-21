@@ -1136,7 +1136,7 @@ describe('the morning pipeline', () => {
     expect(captions).toBe(2)
     expect(result.caption).toBe('gm builders.\n\nan agent runtime crossed 40k stars, reportedly.')
     const asked = (base.complete as ReturnType<typeof vi.fn>).mock.calls.map((call) => (call[0] as { prompt: string }).prompt)
-    expect(asked.find((prompt) => prompt.includes('"story": number'))).toContain('hook is the take the post will make')
+    expect(asked.find((prompt) => prompt.includes('"story": number'))).toContain('hook is the stance the post will take')
   })
 
   it('falls back to the old morning when the room fails or leaves nothing', async () => {
