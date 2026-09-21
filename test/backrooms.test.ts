@@ -638,16 +638,16 @@ describe('the evaluation', () => {
 describe('the good morning', () => {
   const thought = {
     reasons: '',
-    premise: 'a robot posts a fridge rate and the agents accept it.',
-    wire: 'the car outside is the kettle-lid agent\'s ride',
-    objects: ['the fridge', 'the kettle'],
-    thought: 'the fridge rate went up overnight. one kettle is five naps now. the agents did not argue.',
-    post: 'one kettle is five naps now.',
+    premise: 'a robot trades a chair for a nap and the agents accept it.',
+    wire: 'the car outside is the broom agent\'s ride',
+    objects: ['the chair', 'the broom'],
+    thought: 'the chair went for a nap overnight. one chair, one nap. the agents did not argue.',
+    post: 'one chair, one nap.',
     kept: [],
   }
   const material = {
     persona: 'This is who you are. smol yellow robot.',
-    lore: '# lore\n\n- the fridge rate: always in objects.',
+    lore: '# lore\n\n- the currency: one trade, one object.',
     recentPosts: ['gm. the kettle is watching me again.', 'the ledger balanced. nobody knows in what.'],
     history: 'posted about the kettle yesterday',
     community: 'holders who like the kettle bit',
@@ -660,9 +660,9 @@ describe('the good morning', () => {
   it('puts the soul, the lore, the thought and the last posts in front of the writer', () => {
     const { system, prompt } = gmPrompt(RUN, thought, material)
     expect(system).toContain('smol yellow robot')
-    expect(system).toContain('the fridge rate: always in objects')
+    expect(system).toContain('the currency: one trade, one object')
     expect(system).toContain("@teenydroid's good-morning post for 2026-09-21")
-    expect(prompt).toContain('one kettle is five naps now')
+    expect(prompt).toContain('one chair, one nap')
     expect(prompt).toContain('1. gm. the kettle is watching me again.')
     expect(prompt).toContain('2. the ledger balanced.')
     expect(prompt).toContain('posted about the kettle yesterday')
@@ -710,11 +710,11 @@ describe('the good morning', () => {
     expect(post.text).toContain('gm $TINY fam')
     expect(post.text).not.toContain('—')
     expect(prompts[0]).toContain('WHAT CAME THROUGH THE WIRE')
-    expect(prompts[0]).toContain("the wire in it: the car outside is the kettle-lid agent's ride")
+    expect(prompts[0]).toContain("the wire in it: the car outside is the broom agent's ride")
   })
 
   it('keeps the draft when the ranker\'s rewrite loses the lab twice', async () => {
-    expect(touchesThought('gm. the fridge rate is up. one kettle is five naps.', thought)).toBe(true)
+    expect(touchesThought('gm. the chair is gone. one chair, one nap.', thought)).toBe(true)
     expect(touchesThought('gm. a human replaced codex with local models. what is on your machine?', thought)).toBe(false)
     const draft = 'gm. a car pulled up. the kettle is five naps now. the agents accepted it.'
     const answers = [
