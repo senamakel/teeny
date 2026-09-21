@@ -629,7 +629,7 @@ The job refuses to run twice inside 20 hours even if the cron fires again — a
 container that restarts near the cron minute would otherwise post the same chart
 an hour later, which is exactly the repetitive-publishing shape that got this
 account throttled. It also only posts on its day of [the rota](#the-rota) it
-shares with the moon chart: every third day by default, the day after the moon.
+shares with the moon chart: every other day by default, alternating with the moon.
 
 ## The morning post
 
@@ -751,7 +751,7 @@ on the video surface; over it, the seed is the part that goes.
 
 ## The moon chart
 
-"$TINY with the market cap of X", once a day, at 20:00 UTC by default. Like
+"$TINY with the market cap of X", on its days, at 15:00 UTC by default. Like
 the morning post it is a fixed pipeline rather than an agent: read the board,
 pick a yardstick, do the arithmetic, draw it, write two lines under it, post.
 Nothing in it wants a model's judgement about whether to run.
@@ -770,15 +770,74 @@ The picture is written to `MOON_OUTPUT_DIR` (`data/moon`) either way.
 ### The rota
 
 The moon chart and [the chart agent](#the-chart-agent) take turns rather
-than both posting every day: on a three-day rota, day one is the moon, day
-two the chart, day three quiet. Cron cannot say "every third day" -- a step
-in the day-of-month field restarts at every month and lands two posts back
-to back on the 31st and the 1st -- so each job keeps its daily cron and asks
-`src/jobs/cycle.ts` whether today is its slot, counted in UTC days from
-`POST_ROTA_ANCHOR` (slot 0). `POST_ROTA_DAYS` is the length, `MOON_ROTA_SLOT`
-(0) and `CHART_ROTA_SLOT` (1) the turns; a slot past the length never posts,
-which is how one of them is switched off without touching its cron. The
-rehearsal scripts force past the rota, so a dry run works on any day.
+than both posting every day: on the two-day rota, one day is the moon, the
+next the chart, so the afternoon slot is always filled and never twice.
+Cron cannot say "every other day" -- a step in the day-of-month field
+restarts at every month and lands two posts back to back on the 31st and
+the 1st -- so each job keeps its daily cron and asks `src/jobs/cycle.ts`
+whether today is its slot, counted in UTC days from `POST_ROTA_ANCHOR`
+(slot 0). `POST_ROTA_DAYS` is the length (a longer rota leaves the extra
+days quiet), `MOON_ROTA_SLOT` (0) and `CHART_ROTA_SLOT` (1) the turns; a
+slot past the length never posts, which is how one of them is switched off
+without touching its cron. The rehearsal scripts force past the rota, so a
+dry run works on any day.
+
+## The quote post
+
+Once a day, at 23:00 UTC by default, somebody else's post lifted onto the
+timeline with a line over it: a holder bullish on $TINY, somebody who posted
+the ticker or the contract with something to say about it, or somebody who
+talked to the account and meant it. The third post of the day, after the
+morning post and the afternoon chart.
+
+It is off by default (`QUOTE_ENABLED=false`), because it publishes. It needs
+nothing beyond the chat model and the X read credentials.
+
+```sh
+npm run quote-dry-run              # search, filter, pick, write; post nothing
+npm run quote-dry-run -- --publish # actually posts, if DRY_RUN=false
+```
+
+### Who gets quoted
+
+Two X searches a run (`src/quote/candidates.ts`), both bounded to the last
+`QUOTE_HOURS` (48) and read by relevancy so the first page is what people
+engaged with: `QUOTE_QUERY` -- the cashtag or the contract address, which
+people paste as `solana:<address>`, so the address is a quoted phrase (X has
+no `solana:` operator) -- with reposts and the account's own posts cut, and
+the account's mentions. Replies are kept: a bull answering somebody else's
+thread with the ticker is still a bull.
+
+Every post is then read against the rules, in code, before a model sees it:
+never the account's own; never a post already quoted, ever; never an author
+quoted inside `QUOTE_AUTHOR_COOLDOWN_DAYS` (7), so a stranger posting the
+ticker every hour does not get the timeline every night; nothing older than
+the window; nothing carrying a contract address that is not ours or a
+cashtag that is not `$TINY`, because a quote is an endorsement whatever the
+words over it say; nothing that reads as a giveaway or a whitelist; nothing
+the content filter's lexicon catches; and nothing that is only the ticker
+and an emoji. At most two of one author make the list. What survives is
+sorted with the lab's own posts first and the busiest conversation next, and
+the top twenty go to the picker.
+
+The picker is one model call (`src/quote/prompt.ts`): the persona, the
+numbered list marked untrusted, the rule that a bull with a reason beats a
+bull with a rocket, and permission to pick nothing. A quiet day is a day with
+no quote, never a quote of the least bad. The same call writes the line over
+it -- talking to the timeline about what they said, not replying to them,
+with no handle in the text since X already shows whose post it is -- and the
+filter runs on that line as it does on every other post.
+
+### What it remembers
+
+The quotes go to `QUOTE_LOG_PATH` (`data/quotes.json`, on the data volume):
+the post id, the author, when, and the account's own post id. That file is
+the "never twice" rule; memory would not promise it. Memory still gets the
+quote as a `quote_post` -- the words, the author, the gist of theirs -- which
+is what the next run reads so a framing is not repeated. A dry run writes
+the log too, so a rehearsal followed by a real run quotes two different
+posts; delete the entry from the file to let the real run have the rehearsed
+one. The turn is journaled with `trigger: quote` for the mind page.
 
 ### The numbers
 
@@ -1001,7 +1060,7 @@ pending, and an approve or reject on each entry is a decision with an effect:
 | a link cut from a draft | puts its host on the live allowlist; every gate reads it within a minute |
 | an X mention that was not answered | sends it back to the queue to be answered, inbound check waived, outbound still on |
 | a withheld draft (X or Telegram) | publishes it as written, honouring `DRY_RUN` / `TELEGRAM_DRY_RUN` |
-| a withheld calendar, morning or moon post | recorded as a wrong call; the item posts again on its next run, the morning post and the moon chart tomorrow |
+| a withheld calendar, morning, moon or quote post | recorded as a wrong call; the item posts again on its next run, the morning post, the moon chart and the quote post tomorrow |
 | a Telegram message, a refused picture, an ad-hoc task | recorded as a wrong call; nothing is re-sent |
 
 Rejecting confirms the filter and closes the entry. A decision is taken once;
@@ -1167,7 +1226,7 @@ answered a stranger and a regular identically.
 ## The cadence
 
 The account's own posts -- the morning post, the chart, the moon chart, the
-calendar items, anything the agent is asked to put on the timeline -- are
+quote post, the calendar items, anything the agent is asked to put on the timeline -- are
 spaced at least `POST_MIN_GAP_HOURS` apart (8), whichever job writes them.
 Each job used to guard only against running itself twice; none of them knew
 about the others, so a morning post at seven and a chart at eight were two
@@ -1184,8 +1243,9 @@ subject to it; they are conversations, not slots.
 `POST_GAP_TOLERANCE_MINUTES` (20) is how much short of the gap still counts:
 the jobs fire on the hour and spend minutes drawing and filming, so a
 schedule of exactly eight hours apart lands at seven hours fifty. The default
-crons are the morning at 07:00, the chart at 15:00 and the moon at 20:00 UTC,
-with [the rota](#the-rota) putting the chart and the moon on different days.
+crons are the morning at 07:00, the chart or the moon at 15:00, and the
+quote post at 23:00 UTC: three posts a day, eight hours apart, with [the
+rota](#the-rota) putting the chart and the moon on alternate days.
 
 ### A post that takes off
 
@@ -1406,6 +1466,7 @@ npm run webhook     # read or move the X Account Activity registration
 npm run chart-dry-run   # rehearse the daily chart post without publishing
 npm run morning-dry-run # rehearse the good-morning post: reads, draws, films, captions, no post
 npm run moon-dry-run    # rehearse the moon chart: reads the board, draws, captions, no post
+npm run quote-dry-run   # rehearse the quote post: two searches, the filter, the pick, no post
 npm run calendar-dry-run -- gm   # draft one calendar item, generate its media, publish nothing
 npm run telegram-dry-run -- "hi"            # one Telegram DM through the real drafter, printed not sent
 npm run telegram-dry-run -- --group "@teenythebot gm"   # the same, as a group mention

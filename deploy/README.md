@@ -81,6 +81,17 @@ so that ladder has to be on a router that counts Surplus's prepaid credit as
 balance (llm-ladder-router #21) and have credit to spend; `ladder-up --pull`
 after a router release.
 
+## The day's three posts
+
+Since 2026-09-21 the box's `.env` schedules three own posts a day, eight
+hours apart, which is what the cadence wants: the morning post at 07:00
+(`MORNING_ENABLED`), the chart or the moon chart at 15:00 (`CHART_ENABLED`
+and `MOON_ENABLED`, alternating on the two-day `POST_ROTA_DAYS` rota), and
+the quote post at 23:00 (`QUOTE_ENABLED`). The quote post's two searches
+are billed like every other X read; `data/quotes.json` on the `bot-data`
+volume is what stops it quoting a post twice, so migrate that volume with
+the rest.
+
 ## The brain
 
 Teeny's brain is an [OpenCompany](https://github.com/tinyhumansai/opencompany)

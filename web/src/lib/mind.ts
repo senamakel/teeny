@@ -8,7 +8,7 @@
 import { readApi } from './api'
 import { emptyTotals, type Totals } from './ledger'
 
-export type Trigger = 'mention' | 'chart' | 'morning' | 'moon' | 'calendar' | 'task' | 'narrative'
+export type Trigger = 'mention' | 'chart' | 'morning' | 'moon' | 'calendar' | 'task' | 'narrative' | 'quote'
 export type Tone = 'friendly' | 'neutral' | 'negative' | 'hostile' | 'confused'
 export type Outcome = 'posted' | 'dry-run' | 'skipped' | 'held' | 'failed'
 
