@@ -18,10 +18,12 @@ import {
   askJson,
   captionPrompt,
   captionSchema,
+  asksTheReader,
   checkQuestion,
   checkSchema,
   extractJson,
   freshnessPrompt,
+  withoutTheAsk,
   freshnessSchema,
   pickPrompt,
   pickSchema,
@@ -624,6 +626,18 @@ export class MorningPipeline {
     const ask = captionPrompt(context, { ...rest, maxEmoji, maxLength: MAX_POST_LENGTH, ...(avoid ? { avoid } : {}) })
     if (rewrite) ask.prompt = rewriteWith(ask.prompt, rewrite.draft, rewrite.critique)
     let { text } = await askJson(this.options.text, { ...ask, schema: captionSchema })
+    if (asksTheReader(text)) {
+      // The ranker likes a question and the model knows it; the morning
+      // ends on its take instead. Once more with that said, then the ask is cut.
+      const retry = await askJson(this.options.text, {
+        system: ask.system,
+        prompt:
+          `${ask.prompt}\n\nYour draft:\n${text}\n\nIt ends by asking the reader something. Rewrite it to end on your take, the` +
+          ' joke, or a wish for the day, with no question in it, keeping everything else.',
+        schema: captionSchema,
+      })
+      text = asksTheReader(retry.text) ? withoutTheAsk(retry.text) : retry.text
+    }
     if (text.length > MAX_POST_LENGTH || countEmoji(text) > maxEmoji) {
       const retry = await askJson(this.options.text, {
         system: ask.system,
@@ -816,8 +830,9 @@ export function rewriteWith(prompt: string, draft: string, critique: Critique): 
     "A reader who knows how X's ranker scores a post read it:",
     renderCritique(critique),
     '',
-    'Rewrite it with the fixes, keeping every rule above and your own voice. The point is',
-    'that somebody has something to type back: a stance they can push on, a question with',
-    'a one-line answer, a blank to fill. Never at a person, never political, never a price.',
+    'Rewrite it with the fixes that are about the shape, the length and the first line,',
+    'keeping every rule above and your own voice. Ignore any fix that asks for a question,',
+    'a forced choice, a blank to fill or a hook: the post ends on its take, not on an ask.',
+    'Never at a person, never political, never a price.',
   ].join('\n')
 }

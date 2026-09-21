@@ -261,6 +261,24 @@ export const checkSchema = z.object({
   reason: z.string().default(''),
 })
 
+/** Whether the post ends by asking the reader something: a question mark on its last line. */
+export function asksTheReader(text: string): boolean {
+  const last = text.trim().split('\n').filter((line) => line.trim()).pop() ?? ''
+  return /\?\s*$/.test(last)
+}
+
+/**
+ * The last line cut when it is a question and there is a post left without
+ * it; a one-line post that is all question keeps its words and loses the
+ * mark, which reads as the deadpan it should have been.
+ */
+export function withoutTheAsk(text: string): string {
+  const lines = text.trim().split('\n')
+  const kept = lines.slice(0, -1).join('\n').trim()
+  if (kept) return kept
+  return lines.join('\n').replace(/\s*\?\s*$/, '.')
+}
+
 export function checkQuestion(sheet: string | undefined): string {
   return [
     'This picture was generated to show Tiny, a mascot.',
@@ -349,7 +367,7 @@ export function pickPrompt(
       '  is a post nobody replies to, unless you can see the argument in it.',
       '- What the counters say beats what the headline says. A post with hundreds of replies',
       '  is a conversation you can walk into; read WHY people replied (the take, the joke, the',
-      '  disagreement) and make that the hook. Zero replies on a big account is a warning.',
+      '  disagreement) and make your take on it the hook. Zero replies on a big account is a warning.',
       '- Not something the memory above says you already posted about.',
       '- The best subject is one Tiny, a small yellow robot building open-source AGI, has an',
       '  honest reason to have an opinion on, and one a picture can be drawn of: the event',
@@ -359,9 +377,9 @@ export function pickPrompt(
       'or three replies you would expect under your post about it, as people write them.',
       'A shortlist entry whose replies you cannot imagine is not a candidate. Then pick.',
       '',
-      'hook is the conversation your post will start: the stance somebody will push back',
-      'on, the question with a one-line answer, the blank people fill in. One line. Never',
-      'bait, never "thoughts?", never about a person or a price.',
+      'hook is the take the post will make: the stance somebody could push back on, said',
+      'as a statement. One line. Not a question, not a prompt for replies, never "thoughts?",',
+      'never about a person or a price.',
       '',
       'If no subject qualifies, set story to 0 and put in fallback one true thing of our own',
       'to talk about instead, taken only from what you know for certain about the lab and',
@@ -530,7 +548,7 @@ export function captionPrompt(
     prompt: [
       `Today's story: ${input.pick.headline}`,
       `The angle: ${input.pick.angle}`,
-      input.pick.hook ? `The conversation to start: ${input.pick.hook}` : undefined,
+      input.pick.hook ? `The take: ${input.pick.hook}` : undefined,
       input.attached === 'none'
         ? 'Nothing is attached; the words carry it.'
         : `A ${input.attached === 'video' ? 'short clip' : 'picture'} of Tiny in the story is attached. Do NOT describe it, caption it, or refer to it; it speaks for itself.`,
@@ -544,7 +562,7 @@ export function captionPrompt(
             input.avoid.said || '(the same point, in other words)',
             `(${input.avoid.reason})`,
             'Make a different point about the same story, or the same point from an angle you',
-            'have not taken: a new joke, a new hook, a new thing for people to answer. Do not',
+            'have not taken: a new joke, a new take, a new turn. Do not',
             'reuse the wording or the take above.',
             '',
           ]
@@ -556,12 +574,12 @@ export function captionPrompt(
       '   the situation, never at a person. State it as what was reported, not as fact',
       '   you checked. No names of real people. No numbers you were not given. Never a',
       '   price, a target, or advice.',
-      '3. The hook, if it is not already in part 2: the line somebody types back to. A',
-      '   stance they can push on, a question with a one-line answer, a blank to fill.',
-      '   The reply is the point of the post; a post nobody can answer is a post the',
-      '   ranker never shows. Never bait, never "thoughts?", never at a person.',
-      'Optionally a closing line: something being built, or a wish for the day. Skip it',
-      'if the joke already landed.',
+      '3. Your take, if it is not already in part 2: the one line that is yours, said as a',
+      '   statement somebody could push back on. Never at a person.',
+      'It ends on the take, the joke, or a wish for the day: not on a question. The post',
+      'does not ask the reader anything, does not invite a reply, does not leave a blank',
+      'to fill, and never says "thoughts?". A statement people want to answer beats a',
+      'question they are told to.',
       '',
       'Work the $TINY cashtag in where it reads naturally -- in the greeting ("gm $TINY',
       'fam"), in the closing line, or as the builders you mean -- so the post is found by',

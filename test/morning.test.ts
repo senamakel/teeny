@@ -533,7 +533,7 @@ describe('the morning pipeline', () => {
     expect(scene.prompt).toContain('Their picture: a robot nodding')
     expect(scene.prompt).toContain('The conversation the post starts: the most sycophantic')
     const caption = calls.find(([call]) => call.prompt.includes('"text": string'))![0]
-    expect(caption.prompt).toContain('The conversation to start: the most sycophantic')
+    expect(caption.prompt).toContain('The take: the most sycophantic')
     expect(memory.captureActivity).toHaveBeenCalledWith(
       'morning_post',
       '9001',
@@ -1119,6 +1119,24 @@ describe('the morning pipeline', () => {
     expect(result.problems).toContain('the room: could not recall the community: 401')
     expect(result.outcome).toBe('posted')
     expect(memory.captureActivity).toHaveBeenCalledWith('morning_post', '9001', expect.objectContaining({ room: 'room-1', premise: 'the agents build a star out of forks.' }))
+  })
+
+  it('sends a caption that ends on a question back once, then cuts the ask', async () => {
+    let captions = 0
+    const answers = [
+      '{"text": "gm builders.\\n\\nan agent runtime crossed 40k stars, reportedly.\\n\\nwhat is yours running on?"}',
+      '{"text": "gm builders.\\n\\nan agent runtime crossed 40k stars, reportedly.\\n\\nlocal or api, which?"}',
+    ]
+    const base = stagedModel()
+    const text: TextModel = {
+      complete: async (input) =>
+        input.prompt.includes('"text": string') ? answers[Math.min(captions++, answers.length - 1)]! : base.complete(input),
+    }
+    const result = await pipeline({ text }).run()
+    expect(captions).toBe(2)
+    expect(result.caption).toBe('gm builders.\n\nan agent runtime crossed 40k stars, reportedly.')
+    const asked = (base.complete as ReturnType<typeof vi.fn>).mock.calls.map((call) => (call[0] as { prompt: string }).prompt)
+    expect(asked.find((prompt) => prompt.includes('"story": number'))).toContain('hook is the take the post will make')
   })
 
   it('falls back to the old morning when the room fails or leaves nothing', async () => {

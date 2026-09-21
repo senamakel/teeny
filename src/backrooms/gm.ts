@@ -3,7 +3,7 @@ import { applyHouseStyle, countEmoji } from '../agent/house-style.js'
 import { MAX_POST_LENGTH } from '../agent/tools/x.js'
 import type { TextModel } from '../media/reference.js'
 import { renderCritique, type Critique } from '../critic/algo.js'
-import { askJson } from '../morning/stages.js'
+import { askJson, asksTheReader, withoutTheAsk } from '../morning/stages.js'
 import type { Memory, XPost } from '../types.js'
 import type { Thought } from './distill.js'
 import { keywords } from './sources/text.js'
@@ -255,24 +255,6 @@ export function touchesSeed(text: string, seed: Seed): boolean {
   if (wanted.length === 0) return true
   const have = new Set(keywords(text, 80).map(stem))
   return wanted.some((word) => have.has(word))
-}
-
-/** Whether the post ends by asking the reader something: a question mark on its last line. */
-export function asksTheReader(text: string): boolean {
-  const last = text.trim().split('\n').filter((line) => line.trim()).pop() ?? ''
-  return /\?\s*$/.test(last)
-}
-
-/**
- * The last line cut when it is a question and there is a post left without
- * it; a one-line post that is all question keeps its words and loses the
- * mark, which reads as the deadpan it should have been.
- */
-export function withoutTheAsk(text: string): string {
-  const lines = text.trim().split('\n')
-  const kept = lines.slice(0, -1).join('\n').trim()
-  if (kept) return kept
-  return lines.join('\n').replace(/\s*\?\s*$/, '.')
 }
 
 /** Whether a post still carries the room's thought: it shares a content word with the thought or one of its objects. */
