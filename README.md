@@ -34,6 +34,22 @@ npm run dev
 Fill every blank value in `.env`. Leave `DRY_RUN=true` until generated replies
 have been inspected. Set it to `false` only when the bot is ready to publish.
 
+### The X read cache
+
+X bills every post a read returns, and the same reads recur: a thread's root
+and replies are fetched once per mention under it, the quote job runs the same
+two searches every hour, the agent asks for a post it was just shown. So every
+read goes through a cache in Mongo (`x-cache`) first. A post seen through any
+read -- a search, a conversation, a direct fetch -- is kept for
+`X_CACHE_POST_TTL_DAYS` (30), since its content cannot change; a search,
+conversation or trend list for `X_CACHE_SEARCH_TTL_MINUTES` (10), long enough
+to absorb one job's repeats and short enough not to read stale. Own-post
+counters are kept ten minutes, a follow relationship a day, a post X said was
+missing an hour. Concurrent callers asking the same thing share one request.
+The mention poll (`findMentions`) and every write bypass it. If Mongo cannot be
+read the call goes to X as it would have anyway. `X_CACHE_ENABLED=false` turns
+it off.
+
 ## Persona: SOUL.md and skills
 
 `SOUL.md` holds the account's identity, voice, and hard formatting rules.
