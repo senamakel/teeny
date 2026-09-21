@@ -220,6 +220,8 @@ const agentOptions: AgentOptions = {
   ...(gifs ? { gifs } : {}),
   searchLimit: config.X_SEARCH_MAX_RESULTS,
   ownTokenAddresses: config.OWN_TOKEN_ADDRESSES,
+  trustedHandles: config.TRUSTED_HANDLES,
+  selfNames: config.SELF_NAMES,
 }
 const useAgent = config.AGENT_MODE === 'langgraph'
 const model =

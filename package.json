@@ -11,6 +11,7 @@
     "auth:x": "tsx src/scripts/auth-x.ts",
     "dry-run": "tsx src/scripts/dry-run.ts",
     "forget": "tsx src/scripts/forget.ts",
+    "remember": "tsx src/scripts/remember.ts",
     "migrate-memory": "tsx src/scripts/migrate-memory.ts",
     "start": "node dist/index.js",
     "build": "tsc -p tsconfig.json",
