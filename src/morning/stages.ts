@@ -24,6 +24,7 @@ export async function askJson<T extends z.ZodType>(
     '\n\nAnswer with one JSON object and nothing else: no prose before or after, no code fence.'
   let prompt = input.prompt + instruction
   let lastError = 'no answer'
+  let lastRaw = ''
   let failures = 0
   for (let attempt = 0; attempt < 2; attempt += 1) {
     let raw: string
@@ -35,6 +36,7 @@ export async function askJson<T extends z.ZodType>(
       attempt -= 1
       continue
     }
+    lastRaw = raw
     const candidate = extractJson(raw)
     if (candidate === undefined) {
       lastError = 'the answer contained no JSON object'
@@ -49,7 +51,8 @@ export async function askJson<T extends z.ZodType>(
       `${input.prompt}${instruction}\n\nYour previous answer was rejected (${lastError}). ` +
       'Answer again, as one JSON object matching the shape described.'
   }
-  throw new Error(`the model could not produce the expected JSON: ${lastError}`)
+  // The tail of the answer, so a field the model keeps leaving out can be seen rather than guessed at.
+  throw new Error(`the model could not produce the expected JSON: ${lastError}; the answer ended: ${JSON.stringify(lastRaw.slice(-400))}`)
 }
 
 /** The first balanced `{…}` in a string, parsed, or undefined. */
@@ -361,9 +364,11 @@ export function pickPrompt(
       'or three replies you would expect under your post about it, as people write them.',
       'A shortlist entry whose replies you cannot imagine is not a candidate. Then pick.',
       '',
-      'hook is the take the post will make: the stance somebody could push back on, said',
-      'as a statement. One line. Not a question, not a prompt for replies, never "thoughts?",',
-      'never about a person or a price.',
+      'angle is what is interesting about it to Tiny, a small robot building open-source AGI:',
+      'one line, always filled in. hook is the stance the post will take on it, the one line',
+      'somebody could push back on, said as a statement. One line. Not a question, not a',
+      'prompt for replies, never "thoughts?", never about a person or a price. Both are',
+      'required; visual too.',
       '',
       'If no subject qualifies, set story to 0 and put in fallback one true thing of our own',
       'to talk about instead, taken only from what you know for certain about the lab and',
