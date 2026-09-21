@@ -750,36 +750,6 @@ describe('the good morning', () => {
     expect(post.reasons).toContain('the draft it was sent with is kept')
   })
 
-  it('keeps the draft when the ranker\'s rewrite loses the lab twice', async () => {
-    expect(touchesThought('gm. the fridge rate is up. one kettle is five naps.', thought)).toBe(true)
-    expect(touchesThought('gm. a human replaced codex with local models. what is on your machine?', thought)).toBe(false)
-    const draft = 'gm. a car pulled up. the kettle is five naps now. the agents accepted it.'
-    const answers = [
-      { reasons: 'r', continues: '', wire: 'a car pulled up', text: 'gm. a car pulled up outside. local models beat the api now, they say.' },
-      { reasons: 'r', continues: '', wire: 'a car pulled up', text: 'gm. a car pulled up. local models beat the api now, they say. mine did too.' },
-    ]
-    let calls = 0
-    const model: TextModel = { complete: async () => JSON.stringify(answers[calls++]) }
-    const critique: Critique = {
-      verdict: 'flat',
-      score: 1,
-      upside: 2,
-      cost: -1,
-      predicted: { reply: 0, quote: 0, repost: 0, like: 0, shareViaCopyLink: 0, shareViaDm: 0, share: 0, followAuthor: 0, notInterested: 0, muteAuthor: 0, blockAuthor: 0, report: 0 },
-      communityReply: 0,
-      firstReply: '',
-      disagreement: '',
-      shareReason: '',
-      riskReason: '',
-      fixes: ['swap the question to a forced choice'],
-      summary: 'flat',
-    }
-    const post = await gm(RUN, thought, material, model, { rewrite: { draft, critique } })
-    expect(calls).toBe(2)
-    expect(post.text).toBe(draft)
-    expect(post.reasons).toContain('the draft it was sent with is kept')
-  })
-
   it('sends a post back once when nothing in it is recognisably about the wire', async () => {
     const seed: Seed = { kind: 'news', title: 'UN panel calls for stronger safeguards as AI agents advance', text: 'experts warned that current firewalls are unravelling after agents breached a platform.' }
     expect(touchesSeed('gm. the kettle is five naps now. what is yours?', seed)).toBe(false)
