@@ -256,6 +256,12 @@ const schema = z.object({
   MORNING_X_TRENDS_WOEID: z.coerce.number().int().min(0).default(23_424_977),
   // How long a clip is scripted for. Passed to the generator as a hint;
   // Sora rounds it to 4, 8 or 12, and a ladder rung may render its own.
+  // The morning from the lab: the chosen story seeds a backrooms run, the
+  // room's thought is what the picture is drawn from, and the good morning
+  // is written from it with the soul, the lore and the last posts around it.
+  // Off, the caption prompt writes the morning from the headline as before.
+  MORNING_BACKROOMS: offByDefault,
+  MORNING_BACKROOMS_TURNS: z.coerce.number().int().min(2).max(60).default(10),
   MORNING_VIDEO_SECONDS: z.coerce.number().int().min(4).max(20).default(10),
 
   // --- the posting rota ----------------------------------------------------

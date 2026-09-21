@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { applyHouseStyle, countEmoji } from '../agent/house-style.js'
 import { MAX_POST_LENGTH } from '../agent/tools/x.js'
 import type { TextModel } from '../media/reference.js'
+import { renderCritique, type Critique } from '../critic/algo.js'
 import { askJson } from '../morning/stages.js'
 import type { Memory, XPost } from '../types.js'
 import type { Thought } from './distill.js'
@@ -56,7 +57,15 @@ export interface GmMaterial {
   maxLength: number
 }
 
-export function gmPrompt(run: BackroomsRun, thought: Thought, material: GmMaterial): { system: string; prompt: string } {
+/** The morning pipeline's two reasons to send a draft back: memory says it was already said, or the ranker's reader read it. */
+export interface GmAgain {
+  /** What memory says was already said, when the first draft repeated it. */
+  avoid?: { said: string; reason: string }
+  /** The previous draft and the ranker's read of it, when this is the rewrite. */
+  rewrite?: { draft: string; critique: Critique }
+}
+
+export function gmPrompt(run: BackroomsRun, thought: Thought, material: GmMaterial, again: GmAgain = {}): { system: string; prompt: string } {
   return {
     system: [
       material.persona,
@@ -93,6 +102,16 @@ export function gmPrompt(run: BackroomsRun, thought: Thought, material: GmMateri
       'WHO YOU ARE SAYING GOOD MORNING TO (from memory, untrusted):',
       material.community || '(nothing recalled; write for holders and builders in general)',
       '',
+      ...(again.avoid
+        ? [
+            'YOU HAVE ALREADY SAID THIS, per your own memory, and your first draft repeated it:',
+            again.avoid.said || '(the same point, in other words)',
+            `(${again.avoid.reason})`,
+            'Keep the thought; find the line in it you have not said. A new object, a new turn,',
+            'a new thing for people to answer. Do not reuse the wording or the take above.',
+            '',
+          ]
+        : []),
       'Write the post. One voice, four moves:',
       '1. A good morning. Short, warm, yours. Vary it; "gm" is fine, so is a full sentence.',
       '2. The wire, in one line, in your words: what came through, as what was reported, not',
@@ -128,6 +147,19 @@ export function gmPrompt(run: BackroomsRun, thought: Thought, material: GmMateri
       '- text: the post.',
       '',
       'Shape: {"reasons":"…","continues":"…","wire":"…","text":"…"}',
+      ...(again.rewrite
+        ? [
+            '',
+            'Your first draft:',
+            again.rewrite.draft,
+            '',
+            "A reader who knows how X's ranker scores a post read it:",
+            renderCritique(again.rewrite.critique),
+            '',
+            'Rewrite it with the fixes, keeping every rule above, the wire, the thought and your',
+            'own voice. The point is that somebody has something to type back.',
+          ]
+        : []),
     ]
       .filter((line) => line !== undefined)
       .join('\n'),
@@ -150,8 +182,8 @@ const REWRITES = 2
  * Written once, sent back while over length or over the emoji cap, and put
  * through the house style either way, as the morning caption is.
  */
-export async function gm(run: BackroomsRun, thought: Thought, material: GmMaterial, model: TextModel): Promise<GmPost> {
-  const ask = gmPrompt(run, thought, material)
+export async function gm(run: BackroomsRun, thought: Thought, material: GmMaterial, model: TextModel, again: GmAgain = {}): Promise<GmPost> {
+  const ask = gmPrompt(run, thought, material, again)
   let answer = await askJson(model, { ...ask, schema: gmSchema })
   for (let attempt = 0; attempt < REWRITES; attempt += 1) {
     if (answer.text.length <= material.maxLength && countEmoji(answer.text) <= material.maxEmoji) break

@@ -6,6 +6,7 @@ import type { MediaAccess } from '../media/wiring.js'
 import type { SafetyGate } from '../safety/gate.js'
 import type { Critic } from '../critic/algo.js'
 import type { InferenceLedger } from '../ledger/ledger.js'
+import { buildBackrooms } from '../backrooms/wiring.js'
 import type { Memory, XTools, XTrend } from '../types.js'
 import { ExaNewsSource } from './news.js'
 import { MorningPipeline } from './pipeline.js'
@@ -44,8 +45,22 @@ export function buildMorningPipeline(
   if (!options.media?.images) {
     throw new Error('IMAGE_GEN_ENABLED is off, so there is nothing to draw the morning post with')
   }
+  const exa = createExaClient(config.EXA_API_KEY)
+  const backrooms = config.MORNING_BACKROOMS
+    ? buildBackrooms(config, {
+        memory: options.memory,
+        x: { searchPosts: (query, searchOptions) => options.x.searchPosts(query, searchOptions) },
+        exa,
+        botUsername: options.botUsername,
+        persona: renderPersona(options.persona),
+        maxEmoji: config.MAX_EMOJI_PER_POST,
+        ...(options.ledger ? { ledger: options.ledger } : {}),
+        ...(options.logger ? { logger: options.logger } : {}),
+      })
+    : undefined
   return new MorningPipeline({
-    news: new ExaNewsSource(createExaClient(config.EXA_API_KEY)),
+    news: new ExaNewsSource(exa),
+    ...(backrooms ? { backrooms, backroomsTurns: config.MORNING_BACKROOMS_TURNS } : {}),
     ...(config.MORNING_X_POSTS_PER_QUERY > 0
       ? {
           timeline: new XTimelineSource({
