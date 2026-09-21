@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import cron from 'node-cron'
 import { XApiClient } from './clients/x.js'
+import { cached, MongoXCache } from './clients/x-cache.js'
 import { OpenAICompatibleModel } from './clients/llm.js'
 import { loadConfig } from './config.js'
 import { ReplyHarness } from './harness/reply-harness.js'
@@ -89,7 +90,25 @@ const cadence = new Cadence({
     warn: (detail, event) => app.log.warn(detail, event),
   },
 })
-const x = paced(rawX, cadence)
+// The cache sits under the cadence: reads are served from Mongo when they
+// can be, and own posts still go through the spacing rule first.
+const xCache = config.X_CACHE_ENABLED
+  ? new MongoXCache({ uri: config.MONGO_URI, database: config.MONGO_DATABASE })
+  : undefined
+const cachedX = xCache
+  ? cached(rawX, xCache, {
+      ttl: {
+        post: config.X_CACHE_POST_TTL_DAYS * 24 * 3_600_000,
+        search: config.X_CACHE_SEARCH_TTL_MINUTES * 60_000,
+        conversation: config.X_CACHE_SEARCH_TTL_MINUTES * 60_000,
+      },
+      logger: {
+        debug: (detail, event) => app.log.debug(detail, event),
+        warn: (detail, event) => app.log.warn(detail, event),
+      },
+    })
+  : rawX
+const x = paced(cachedX, cadence)
 /**
  * The account's own handle, read from the token rather than trusted from the
  * environment. `X_BOT_USERNAME` is a fallback for a cold start where X cannot

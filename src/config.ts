@@ -36,6 +36,14 @@ const schema = z.object({
   X_ACCESS_TOKEN: z.string().min(1),
   X_ACCESS_TOKEN_SECRET: z.string().min(1),
   X_BEARER_TOKEN: z.string().optional(),
+  // The read cache in front of X. Every post a read returns is billed, so a
+  // post once seen is kept for X_CACHE_POST_TTL_DAYS and served from Mongo,
+  // and a search, conversation or trend list is kept for
+  // X_CACHE_SEARCH_TTL_MINUTES so a job asking the same thing twice in one
+  // run pays once. Off, every read goes to X.
+  X_CACHE_ENABLED: z.coerce.boolean().default(true),
+  X_CACHE_POST_TTL_DAYS: z.coerce.number().min(0).default(30),
+  X_CACHE_SEARCH_TTL_MINUTES: z.coerce.number().min(0).default(10),
   CORTEX_API_URL: z.url().default('https://api-v1.cortexdb.ai'),
   CORTEX_ACTOR: z.string().min(1).default('agent:teeny'),
   CORTEX_SCOPE: z.string().min(1).default('agent:teeny'),
