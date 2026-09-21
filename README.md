@@ -1277,24 +1277,41 @@ the line the code draws is the same line.
 The cursor still advances past what was dropped, so nothing is re-read and
 re-billed.
 
-There are two ways into the queue and one way out:
+There are three ways into the queue and one way out:
 
 ```text
-webhook     X Activity API     -> MongoDB `mentions` (status: pending), `people` (scores)
-IngestJob   cron -> X search   -> MongoDB `mentions` (status: pending)
+stream      GET /2/activity/stream  -> ActivityIntake -> MongoDB `mentions` (status: pending), `people` (scores)
+webhook     X Activity API POSTs    -> ActivityIntake -> same
+IngestJob   cron -> X search        -> MongoDB `mentions` (status: pending)
 ReplyJob    pending mentions, regulars first -> like -> budget -> agent -> X reply -> status: replied
 ```
 
-The webhook is the fast path: a mention arrives in seconds, costs nothing
-against the post-read cap, and needs no search. The cron poll stays on as a
-safety net, because a webhook delivery that fails is retried for a while and
-then dropped, and an account that misses a mention entirely has no way to
-notice. Both write through the same insert-if-absent, so a mention that arrives
-twice is queued once.
+The stream and the webhook are the same subscription over two transports,
+and both are the fast path: a mention arrives in seconds, costs nothing
+against the post-read cap, and needs no search. Both are read because X
+has been known to deliver different things on each: for weeks in 2026-08
+and -09 the webhook carried the free events (likes, follows) and silently
+dropped every `post.*` event, while the stream carried all of them within
+seconds -- an X-side fault ([devcommunity 273644](https://devcommunity.x.com/t/273644)),
+acknowledged by X staff, which for this account cleared only when the app
+was replaced and the webhook re-registered. Everything either transport delivers
+goes through one `ActivityIntake`, which drops an event it has already seen
+by X's event id, so a like that arrives on both counts once. The stream is
+on by default (`ACTIVITY_STREAM_ENABLED`), needs `X_BEARER_TOKEN`, and runs
+in the ingest role only: X allows one connection per app and answers a
+second with 429.
 
-The webhook handler queues and returns. It does not draft: X retries a delivery
-it does not see acknowledged quickly, and a model call takes far longer than
-the line is held open.
+The cron poll stays on as a safety net, because a webhook delivery that fails
+is retried for a while and then dropped, a stream reconnect has a gap, and an
+account that misses a mention entirely has no way to notice. With the stream
+on it can run far less often than it did when it was the only thing that
+caught a mention; hourly is plenty. All three write through the same
+insert-if-absent, so a mention that arrives twice is queued once.
+
+The intake queues and returns. It does not draft, and it does not wait for
+memory: X retries a delivery it does not see acknowledged quickly, and a
+model call or a slow CortexDB write takes far longer than the line is held
+open.
 
 `SERVICE_ROLE` decides what a process runs: `all` (everything, the default),
 `ingest`, `reply`, `chart`, `morning`, `calendar`, or `api` for the webhook and agent
