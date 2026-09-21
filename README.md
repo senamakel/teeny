@@ -1289,11 +1289,12 @@ ReplyJob    pending mentions, regulars first -> like -> budget -> agent -> X rep
 The stream and the webhook are the same subscription over two transports,
 and both are the fast path: a mention arrives in seconds, costs nothing
 against the post-read cap, and needs no search. Both are read because X
-delivers different things on each. Since 2026-08 the webhook carries the
-free events (likes, follows) and silently drops every `post.*` event,
-while the stream carries all of them within seconds; that is an X-side
-fault ([devcommunity 273644](https://devcommunity.x.com/t/273644)), acknowledged
-by X staff, with no developer-side fix. Everything either transport delivers
+has been known to deliver different things on each: for weeks in 2026-08
+and -09 the webhook carried the free events (likes, follows) and silently
+dropped every `post.*` event, while the stream carried all of them within
+seconds -- an X-side fault ([devcommunity 273644](https://devcommunity.x.com/t/273644)),
+acknowledged by X staff, which for this account cleared only when the app
+was replaced and the webhook re-registered. Everything either transport delivers
 goes through one `ActivityIntake`, which drops an event it has already seen
 by X's event id, so a like that arrives on both counts once. The stream is
 on by default (`ACTIVITY_STREAM_ENABLED`), needs `X_BEARER_TOKEN`, and runs

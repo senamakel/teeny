@@ -348,10 +348,20 @@ the cron, minutes late. The same subscriptions deliver every event, posts
 included, over `GET /2/activity/stream` within seconds, so the agent holds
 that stream open too (`ACTIVITY_STREAM_ENABLED`, on by default, needs
 `X_BEARER_TOKEN`). One connection per app; it runs in the ingest role. A
-`post.mention.create` that arrives shows up as `queued mentions from
-activity` with `source: "stream"` in the bot's log. Note that X holds the
+mention that arrives shows up as `queued mentions from activity` with
+`source: "stream"` or `"webhook"` in the bot's log, whichever got there
+first; the other copy is dropped by event id. Note that X holds the
 response headers for the first keep-alive, so "activity stream connected"
-appears about 20 seconds after start.
+appears about 20 seconds after start, and answers 409 until at least one
+subscription exists.
+
+The same day the app was replaced (new consumer key, new project
+`2095056638054907912`, access token obtained with the OAuth 1.0a PIN flow)
+and the webhook re-registered under it as `2102011178583224320`. That
+fresh registration delivers `post.*` events again: the first mention after
+it landed by webhook, 5 seconds after it was posted. So the fault was tied
+to the old app's registration, not to webhooks in general, and the stream
+is insurance against it coming back rather than the only working path.
 
 The cron poll is the safety net under all of it: a webhook delivery that fails
 is retried for a while and then dropped, a stream reconnect leaves a gap, and
