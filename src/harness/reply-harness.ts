@@ -2,10 +2,12 @@ import {
   personOf,
   type LanguageModel,
   type Memory,
+  type ReplyArticle,
   type ReplyDraft,
   type XPost,
   type XTools,
 } from '../types.js'
+import type { ArticleStore } from '../article/store.js'
 import { summariseRecall } from '../journal/journal.js'
 import type { ImageReader } from '../media/types.js'
 import type { SafetyGate } from '../safety/gate.js'
@@ -47,6 +49,14 @@ export class ReplyHarness {
      * not need to see. Lexicon only, so it costs nothing per line.
      */
     private readonly safety?: Pick<SafetyGate, 'screen'>,
+    /**
+     * Where the account's own articles are kept. A reply under the post that
+     * carried an article is a reply to the article, and the post itself says
+     * almost nothing about it -- a title and a card. With the store, the
+     * whole article goes to the drafter. Omit and the drafter answers from
+     * the card, as it did before there were articles.
+     */
+    private readonly articles?: Pick<ArticleStore, 'findByPostId'>,
   ) {}
 
   async generate(post: XPost): Promise<ReplyDraft> {
@@ -60,7 +70,11 @@ export class ReplyHarness {
     // a thread often says almost nothing alone -- "sure, go on" -- and a lookup
     // keyed on that finds nothing, where the same lookup keyed on the whole
     // exchange finds the person, the project, and what was promised earlier.
-    const [thread, images] = await Promise.all([this.readThread(post), this.lookAt(post)])
+    const [thread, images, article] = await Promise.all([
+      this.readThread(post),
+      this.lookAt(post),
+      this.articleUnder(post),
+    ])
     const conversation = thread
       .map(
         (entry) =>
@@ -82,6 +96,7 @@ export class ReplyHarness {
         this.memory.recall(
           'What context, past interactions, product facts, and tone are relevant to replying to ' +
             `this X post? ${post.text}` +
+            (article ? `\n\nIt is a reply under the account's own article "${article.title}": ${article.dek}` : '') +
             (conversation ? `\n\nThe conversation it sits in:\n${conversation}` : ''),
           person ? { person } : {},
         ),
@@ -103,6 +118,7 @@ export class ReplyHarness {
       memory,
       ...(thread.length > 0 ? { thread } : {}),
       ...(images.length > 0 ? { images } : {}),
+      ...(article ? { article } : {}),
     })
     // What memory said goes on the draft for the journal: the page shows
     // "recalled" next to "thinking", and it should be what was actually
@@ -160,6 +176,32 @@ export class ReplyHarness {
     // middle of a long thread is the part a reply can most afford to miss.
     const [first, ...rest] = ordered
     return [...(first ? [first] : []), ...rest.slice(-(this.thread.maxPosts - 1))]
+  }
+
+  /**
+   * The account's own article the post is replying under, if it is one.
+   *
+   * Looked up by the conversation root rather than by anything in the thread:
+   * the post that carried the article is the root of every reply under it,
+   * however deep, and the root id arrives with the mention, so this costs no
+   * X call and does not depend on the thread being fetched. A store that
+   * cannot be read is an article the drafter does not see, not a reply that
+   * does not go out.
+   */
+  private async articleUnder(post: XPost): Promise<ReplyArticle | undefined> {
+    if (!this.articles) return undefined
+    const rootId = post.conversationId
+    if (!rootId || rootId === post.id) return undefined
+    const record = await Promise.resolve(this.articles.findByPostId(rootId)).catch(() => undefined)
+    if (!record?.postId || !record.markdown.trim()) return undefined
+    return {
+      slug: record.slug,
+      title: record.title,
+      dek: record.dek,
+      markdown: record.markdown,
+      ...(record.publishedAt ? { publishedAt: record.publishedAt } : {}),
+      postId: record.postId,
+    }
   }
 
   /**

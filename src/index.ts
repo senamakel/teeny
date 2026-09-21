@@ -447,6 +447,7 @@ if (runsReplies) {
         : undefined,
       media?.reader,
       safety,
+      articles,
     ),
     queue,
     logger: app.log,

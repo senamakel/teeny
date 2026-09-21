@@ -161,6 +161,23 @@ export interface ReplyDraft {
   recalled?: string[]
 }
 
+/**
+ * One of the account's own X Articles, whole, when the post being answered
+ * sits under the post that carried it. The full text goes to the drafter
+ * rather than a summary: a reply to "the ledger part was weird" needs the
+ * ledger part, and nothing shorter than the article says which part that is.
+ */
+export interface ReplyArticle {
+  slug: string
+  title: string
+  dek: string
+  /** The whole body, as written. */
+  markdown: string
+  publishedAt?: string
+  /** The post on X that carried it, which the thread is rooted at. */
+  postId: string
+}
+
 export interface LanguageModel {
   reply(input: {
     post: XPost
@@ -168,6 +185,8 @@ export interface LanguageModel {
     thread?: XPost[]
     /** What is in the post's pictures, one description each, when something could look. */
     images?: string[]
+    /** The account's own article the thread hangs off, when it is one. */
+    article?: ReplyArticle
   }): Promise<ReplyDraft>
 }
 

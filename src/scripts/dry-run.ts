@@ -11,6 +11,7 @@ import { GlobalMarketClient } from '../market/global.js'
 import { TokenMarket } from '../market/market.js'
 import type { XPost } from '../types.js'
 import { buildMedia } from '../media/wiring.js'
+import { FileArticleStore } from '../article/store.js'
 
 /**
  * Shows what the bot would reply, without replying.
@@ -110,6 +111,9 @@ const harness = new ReplyHarness(
     ? { x, maxPosts: config.THREAD_CONTEXT_MAX_POSTS }
     : undefined,
   media?.reader,
+  undefined,
+  // And the same articles: a reply under one is drafted from the whole of it.
+  new FileArticleStore(config.ARTICLES_DIR),
 )
 
 const botUsername = config.X_BOT_USERNAME.toLowerCase()

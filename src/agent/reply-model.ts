@@ -10,7 +10,7 @@ import { MediaGate } from './media-gate.js'
 import { draftPrompt } from './prompt.js'
 import { MEDIA_ID_PATTERN } from './tools/media.js'
 import { canGenerate, gateMedia } from '../media/wiring.js'
-import type { LanguageModel, ReplyDraft, XPost } from '../types.js'
+import type { LanguageModel, ReplyArticle, ReplyDraft, XPost } from '../types.js'
 
 const MAX_REPLY_LENGTH = 260
 
@@ -174,11 +174,34 @@ export class AgentReplyModel implements LanguageModel {
     ]
   }
 
+  /**
+   * The account's own article the thread is under, whole.
+   *
+   * Whole, not summarised: the reply is to a person who read it, and what
+   * they are asking about is one line of it. It is the account's own text,
+   * so it is not flagged untrusted the way the thread is; a title and a dek
+   * go first so the drafter knows what it is looking at before the length.
+   */
+  private renderArticle(article: ReplyArticle | undefined): string[] {
+    if (!article) return []
+    return [
+      '',
+      'YOUR OWN ARTICLE, which this whole thread is a reply to. You wrote and published it',
+      `${article.publishedAt ? `on ${article.publishedAt.slice(0, 10)} ` : ''}as post ${article.postId}. The person is talking about it:`,
+      `TITLE: ${article.title}`,
+      `DEK: ${article.dek}`,
+      '--- ARTICLE ---',
+      article.markdown.trim(),
+      '--- END OF ARTICLE ---',
+    ]
+  }
+
   async reply(input: {
     post: XPost
     memory: string
     thread?: XPost[]
     images?: string[]
+    article?: ReplyArticle
   }): Promise<ReplyDraft> {
     const author = input.post.authorUsername ? `@${input.post.authorUsername}` : 'someone'
     const task = [
@@ -189,6 +212,7 @@ export class AgentReplyModel implements LanguageModel {
       `post_id: ${input.post.id}`,
       input.post.conversationId ? `conversation_id: ${input.post.conversationId}` : '',
       input.post.authorUsername ? `author: @${input.post.authorUsername}` : '',
+      ...this.renderArticle(input.article),
       ...this.renderThread(input.thread, this.options.botUsername),
       ...this.renderImages(input.images),
       ...this.notes(input.post, input.thread),
