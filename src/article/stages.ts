@@ -57,7 +57,7 @@ export const structureSchema = z.object({
         /** One line: what this section does for the story. */
         purpose: z.string().min(1),
         /** Two to five things that happen, in order, each something that can be shown. */
-        beats: z.array(z.string().min(1)).min(2).max(5),
+        beats: z.array(z.string().min(1)).min(2).max(8),
         /** Target length of this section. */
         words: z.number().int().min(80).max(800),
         image: imageBriefSchema,
@@ -124,7 +124,8 @@ export function structurePrompt(
       'say "teeny" and "the tiny agents" and nothing about what they look like (the image model',
       'has a sheet for that; a brief that describes a mug or a box gets a mug or a box drawn);',
       'no text, letters, numbers or writing anywhere in the frame. the cover is the whole piece in',
-      'one frame, the same rules. the title is lowercase, under 60 characters, no colon. the dek is',
+      'one frame, the same rules, composed for a wide 16:9 frame: everything that matters in the',
+      'middle band of the picture, room above and below that can be cut away. the title is lowercase, under 60 characters, no colon. the dek is',
       'one sentence a stranger reads before deciding to click. the angle says what the piece is',
       'about and what the turn is. the closing is the last image the reader is left with.',
       '',
@@ -241,6 +242,81 @@ export function tightenPrompt(structure: Structure, index: number, body: string,
       body,
       '',
       'answer with the cut section\'s text and nothing else: no title, no preamble, no code fence.',
+    ].join('\n'),
+  }
+}
+
+/**
+ * The flow pass. The sections were written one at a time, each looking
+ * back; nobody has yet read the piece front to back. A cold editor does,
+ * and says where the thread breaks: a section that restarts the story, a
+ * beat told twice, a jump with no bridge, an ending that arrives early.
+ * Then the writer rewrites the whole piece for continuity, keeping the
+ * headings and the pictures where they are.
+ */
+export const flowSchema = z.object({
+  ok: z.boolean(),
+  /** Where the thread breaks, one line each, naming the section. */
+  problems: z.array(z.string()).default([]),
+  /** What to do about it, in reading order, one line each. */
+  plan: z.array(z.string()).default([]),
+})
+
+export type Flow = z.infer<typeof flowSchema>
+
+export function flowReadPrompt(markdown: string, structure: Structure, m: ArticleMaterial): { system: string; prompt: string } {
+  return {
+    system: [
+      'you are a cold, exact editor reading a piece of serial fiction front to back for the first',
+      'time. you read for flow only: does one thing lead to the next, does the reader always know',
+      'where they are, is anything told twice, does the piece arrive where it was going. you do not',
+      'rewrite; you say where the thread breaks and what to do.',
+    ].join(' '),
+    prompt: [
+      `the angle: ${structure.angle}`,
+      `the closing image it should land on: ${structure.closing}`,
+      ...(m.brief ? [`the brief: ${m.brief}`] : []),
+      '',
+      'the piece:',
+      '',
+      markdown,
+      '',
+      'read it once as a stranger. then answer: does each section pick up where the last one left',
+      'off, or restart? is any beat, object or line told twice? is there a jump a reader would',
+      'trip on: a place, a time, a person appearing with no bridge? does the opening earn the',
+      'first section and does the last section land on the closing image? does the piece keep',
+      'one line of time or explain when it moves? ok is true only when it reads as one story.',
+      'problems name the section and the break, one line each. plan says what to do, in reading',
+      'order, one line each; keep it to what fixes the flow, not a rewrite of the story.',
+      '',
+      'Shape: {"ok":true,"problems":[],"plan":[]}',
+    ].join('\n'),
+  }
+}
+
+export function flowRewritePrompt(markdown: string, flow: Flow, structure: Structure, m: ArticleMaterial): { system: string; prompt: string } {
+  return {
+    system: `${ARTICLE_VOICE} you are rewriting a piece you wrote for flow, after an editor read it front to back.`,
+    prompt: [
+      `the angle: ${structure.angle}`,
+      `the closing image: ${structure.closing}`,
+      ...(m.brief ? [`the brief: ${m.brief}`] : []),
+      '',
+      'the editor said:',
+      ...flow.problems.map((line) => `- ${line}`),
+      ...flow.plan.map((line) => `- do: ${line}`),
+      '',
+      'the piece as it stands:',
+      '',
+      markdown,
+      '',
+      'rewrite the whole piece so it reads as one story, front to back: every section picks up',
+      'where the last one left off, nothing is told twice, every move in time or place has its',
+      'bridge, and the last section lands on the closing image. keep every scene, object and',
+      'claim; keep the voice; keep it about the same length. keep every `## ` heading line and',
+      'every `![…](image:…)` line exactly as they are and where they are; keep the first italic',
+      'line (the dek) as the first line. answer with the whole rewritten markdown and nothing',
+      'else: no preamble, no notes, no code fence.',
     ].join('\n'),
   }
 }

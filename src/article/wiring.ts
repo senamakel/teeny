@@ -45,6 +45,7 @@ export function buildArticlePipeline(
     structureOnly?: boolean
     noImages?: boolean
     noProof?: boolean
+    noFlow?: boolean
     from?: { run: BackroomsRun; thought: Thought; judge?: Craziness; path?: string }
     topic?: string
     engine?: string
@@ -107,6 +108,7 @@ export function buildArticlePipeline(
     ...(options.structureOnly ? { structureOnly: true } : {}),
     ...(options.noImages ? { noImages: true } : {}),
     ...(options.noProof ? { noProof: true } : {}),
+    ...(options.noFlow ? { noFlow: true } : {}),
     ...(options.from ? { from: options.from } : {}),
     ...(options.topic ? { topic: options.topic } : {}),
     ...(options.engine ? { engine: options.engine } : {}),

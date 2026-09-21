@@ -7,6 +7,7 @@ import { renderCritique, type Critic, type Critique } from '../critic/algo.js'
 import { withSeed, type ReferenceSheet, type TextModel } from '../media/reference.js'
 import type { MediaBudget, MediaStore } from '../media/store.js'
 import type { ImageGenerator, ImageReader, StoredMedia } from '../media/types.js'
+import { cropToAspect } from '../media/fit.js'
 import { MAX_GENERATION_PROMPT } from '../morning/pipeline.js'
 import { askJson, checkQuestion, checkSchema, extractJson, seedBriefPrompt, seedBriefSchema } from '../morning/stages.js'
 import type { NarrativeStateStore } from '../narrative/state.js'
@@ -14,12 +15,15 @@ import { renderLoreForTeeny, type Lore } from '../narrative/voice.js'
 import type { SafetyGate } from '../safety/gate.js'
 import type { Memory, XArticleContentState, XTools } from '../types.js'
 import { markdownToContentState, type ArticleImageRef } from './content-state.js'
-import { proofread, unfence, type ProofResult } from './proofread.js'
+import { proofread, structurallySame, unfence, type ProofResult } from './proofread.js'
 import {
   articleStyle,
   assembleMarkdown,
   checkStructurePrompt,
   dekOf,
+  flowReadPrompt,
+  flowRewritePrompt,
+  flowSchema,
   normaliseStructure,
   reviseStructurePrompt,
   sectionPrompt,
@@ -30,12 +34,15 @@ import {
   tightenPrompt,
   wordCount,
   type ArticleMaterial,
+  type Flow,
   type Structure,
   type StructureCheck,
 } from './stages.js'
 import { freeSlug, slugFor, type ArticleImage, type ArticleRecord, type ArticleStore } from './store.js'
 
 const IMAGE_ATTEMPTS = 2
+/** X shows an article's cover wide; the generator may answer square, so the cover is cut to this. */
+export const COVER_ASPECT = 16 / 9
 
 /**
  * One article, as a fixed sequence.
@@ -84,6 +91,7 @@ export interface ArticlePipelineOptions {
   structureOnly?: boolean
   noImages?: boolean
   noProof?: boolean
+  noFlow?: boolean
   /** A room already on disk: skips the seed and the rooms. */
   from?: { run: BackroomsRun; thought: Thought; judge?: Craziness; path?: string }
   topic?: string
@@ -117,6 +125,7 @@ export interface ArticleResult {
   sections: string[]
   markdown: string
   wordCount: number
+  flow?: { review: Flow; applied: boolean; refused?: string }
   proof?: ProofResult
   critique?: Critique
   cover?: StoredMedia
@@ -240,7 +249,31 @@ export class ArticlePipeline {
     let markdown = assembleMarkdown(structure, bodies)
     record.set({ sections: structure.sections.map((section, index) => ({ key: section.key, heading: section.heading, markdown: bodies[index]! })), markdown, wordCount: wordCount(markdown) })
 
-    // 7. The proof-reader.
+    // 7. The flow pass: the first front-to-back read, then one rewrite for continuity.
+    let flow: ArticleResult['flow'] | undefined
+    if (!options.noFlow) {
+      try {
+        const review = await askJson(options.editor, { ...flowReadPrompt(markdown, structure, m), schema: flowSchema })
+        flow = { review, applied: false }
+        if (!review.ok || review.plan.length > 0) {
+          const candidate = unfence(await options.writer.complete(flowRewritePrompt(markdown, review, structure, m)))
+          const refused = structurallySame(markdown, candidate)
+          if (refused) {
+            flow.refused = refused
+            problems.push(`the flow rewrite was refused: ${refused}`)
+          } else {
+            markdown = candidate
+            flow.applied = true
+          }
+        }
+        log('flow', { ok: review.ok, problems: review.problems.length, applied: flow.applied })
+        record.set({ flow: { review, applied: flow.applied, ...(flow.refused ? { refused: flow.refused } : {}) }, markdown, wordCount: wordCount(markdown) })
+      } catch (error) {
+        problems.push(`the flow pass failed: ${messageOf(error)}`)
+      }
+    }
+
+    // 8. The proof-reader.
     let proof: ProofResult | undefined
     if (!options.noProof) {
       try {
@@ -254,7 +287,7 @@ export class ArticlePipeline {
       }
     }
 
-    // 8. The voice's hard rules, the safety gate per section, and the critic.
+    // 9. The voice's hard rules, the safety gate per section, and the critic.
     const styled = articleStyle(markdown)
     markdown = styled.text
     if (styled.fixes.length > 0) problems.push(`the style pass ${styled.fixes.join(', ')}`)
@@ -293,7 +326,7 @@ export class ArticlePipeline {
       }
     }
 
-    // 9. Drawn: the cover and one picture per section, bytes copied into
+    // 10. Drawn: the cover and one picture per section, bytes copied into
     // the article's directory as they come.
     const images: ArticleResult['images'] = []
     let cover: StoredMedia | undefined
@@ -316,11 +349,20 @@ export class ArticlePipeline {
         }
       }
       for (const { key, brief } of wanted) {
-        const media = await this.draw(key, withSeed(sheet, look, brief.brief, { maxLength: MAX_GENERATION_PROMPT }), sheet, problems, log)
+        let media = await this.draw(key, withSeed(sheet, look, brief.brief, { maxLength: MAX_GENERATION_PROMPT }), sheet, problems, log)
         if (!media || media.mimeType === 'video/mp4') continue
-        const file = `${key}.${media.mimeType === 'image/jpeg' ? 'jpg' : media.mimeType === 'image/webp' ? 'webp' : 'png'}`
-        files.push({ file, data: media.data })
-        const image: ArticleImage = { key, file, mimeType: media.mimeType, prompt: media.prompt, caption: brief.caption }
+        let still: { data: Uint8Array; mimeType: 'image/png' | 'image/jpeg' | 'image/webp' } = { data: media.data, mimeType: media.mimeType }
+        if (key === 'cover') {
+          try {
+            still = await cropToAspect(still, COVER_ASPECT)
+            media = { ...media, ...still }
+          } catch (error) {
+            problems.push(`could not cut the cover to 16:9: ${messageOf(error)}`)
+          }
+        }
+        const file = `${key}.${still.mimeType === 'image/jpeg' ? 'jpg' : still.mimeType === 'image/webp' ? 'webp' : 'png'}`
+        files.push({ file, data: still.data })
+        const image: ArticleImage = { key, file, mimeType: still.mimeType, prompt: media.prompt, caption: brief.caption }
         if (key === 'cover') {
           cover = media
           record.set({ cover: image })
@@ -339,8 +381,8 @@ export class ArticlePipeline {
       problems.push('image generation is off; the article goes without pictures')
     }
 
-    // 10. Saved, then 11. published, or not.
-    const partial = { ...base, slug: record.current.slug, thought, structure, ...(check ? { structureCheck: check } : {}), sections: bodies, markdown, wordCount: wordCount(markdown), ...(proof ? { proof } : {}), ...(critique ? { critique } : {}), ...(cover ? { cover } : {}), images }
+    // 11. Saved, then 12. published, or not.
+    const partial = { ...base, slug: record.current.slug, thought, structure, ...(check ? { structureCheck: check } : {}), sections: bodies, markdown, wordCount: wordCount(markdown), ...(flow ? { flow } : {}), ...(proof ? { proof } : {}), ...(critique ? { critique } : {}), ...(cover ? { cover } : {}), images }
     if (!options.publish) {
       const contentState = markdownToContentState(
         markdown,

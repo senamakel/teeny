@@ -44,7 +44,7 @@ function room(id: string, total: number, thought = THOUGHT): RunResult {
 }
 
 /** A text model that answers by which shape the prompt asks for. */
-function staged(overrides: Partial<Record<'structure' | 'check' | 'section' | 'proof' | 'fix' | 'brief', (prompt: string, system: string) => string>> = {}): TextModel & { asked: string[] } {
+function staged(overrides: Partial<Record<'structure' | 'check' | 'flow' | 'flowfix' | 'section' | 'proof' | 'fix' | 'brief', (prompt: string, system: string) => string>> = {}): TextModel & { asked: string[] } {
   const asked: string[] = []
   return {
     asked,
@@ -55,6 +55,8 @@ function staged(overrides: Partial<Record<'structure' | 'check' | 'section' | 'p
         return (overrides[kind] ?? fallback)(prompt, sys)
       }
       if (prompt.includes('"angle"')) return answer('structure', () => JSON.stringify({ ...STRUCTURE, sections: STRUCTURE.sections.map((s) => ({ ...s, key: '' })) }))
+      if (prompt.includes('"plan"')) return answer('flow', () => JSON.stringify({ ok: true, problems: [], plan: [] }))
+      if (sys.includes('rewriting a piece you wrote for flow')) return answer('flowfix', () => prompt.split('the piece as it stands:\n\n')[1]?.split('\n\nrewrite the whole piece')[0] ?? '')
       if (prompt.includes('"problems"')) return answer('check', () => JSON.stringify({ ok: true, problems: [], fixes: [] }))
       if (prompt.includes('"brief": string')) return answer('brief', () => JSON.stringify({ brief: 'a warm picture' }))
       if (prompt.includes('"findings"')) return answer('proof', () => JSON.stringify({ verdict: 'clean', findings: [], voice: 'yes' }))
@@ -281,6 +283,33 @@ describe('the article pipeline', () => {
     const budget = vi.spyOn(none.budget, 'take')
     await new ArticlePipeline(none).run()
     expect(budget).not.toHaveBeenCalled()
+  })
+
+  it('reads the piece front to back and rewrites it for flow, holding the shape', async () => {
+    const model = staged({
+      flow: () => JSON.stringify({ ok: false, problems: ['s2 restarts the night'], plan: ['carry the kettle from s1 into s2'] }),
+      flowfix: (prompt) => (prompt.split('the piece as it stands:\n\n')[1]?.split('\n\nrewrite the whole piece')[0] ?? '').replace(/body of section 2\./, 'body of section 2, the kettle still warm.'),
+    })
+    const o = options({ writer: model, editor: model, fixer: model, noImages: true })
+    const result = await new ArticlePipeline(o).run()
+    expect(result.flow).toEqual({ review: { ok: false, problems: ['s2 restarts the night'], plan: ['carry the kettle from s1 into s2'] }, applied: true })
+    expect(result.markdown).toContain('the kettle still warm')
+    expect(model.asked).toEqual(['structure', 'check', 'section', 'section', 'section', 'flow', 'flowfix', 'proof'])
+    expect((await o.articles.get(result.slug!))?.flow?.applied).toBe(true)
+
+    // A rewrite that lost a heading is refused; the draft stands.
+    const bad = staged({
+      flow: () => JSON.stringify({ ok: false, problems: ['x'], plan: ['y'] }),
+      flowfix: () => '_dek_\n\n## the gap\n\n![the door](image:s1)\n\nonly one section came back.',
+    })
+    const refused = await new ArticlePipeline(options({ writer: bad, editor: bad, fixer: bad, noImages: true })).run()
+    expect(refused.flow?.applied).toBe(false)
+    expect(refused.flow?.refused).toMatch(/of the length$/)
+    expect(refused.markdown).toContain('## the ledger')
+
+    const off = staged()
+    await new ArticlePipeline(options({ writer: off, editor: off, fixer: off, noImages: true, noFlow: true })).run()
+    expect(off.asked).not.toContain('flow')
   })
 
   it('opens the room on a given text and holds the plan to a brief', async () => {

@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
+import sharp from 'sharp'
+import { cropToAspect } from '../src/media/fit.js'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -496,5 +498,17 @@ describe('generate_image with the reference sheet', () => {
     const output = await invoke({ prompt: 'Tiny reading a chart at dawn' })
     expect(images.generate).toHaveBeenCalledWith({ prompt: 'Tiny reading a chart at dawn', aspect: 'square' })
     expect(output).toContain('no reference sheet was available')
+  })
+})
+
+describe('cutting an image to an aspect', () => {
+  it('cuts a square from the middle to 16:9 and leaves a wide one alone', async () => {
+    const square = new Uint8Array(await sharp({ create: { width: 640, height: 640, channels: 3, background: '#ffcc00' } }).png().toBuffer())
+    const cut = await cropToAspect({ data: square, mimeType: 'image/png' }, 16 / 9)
+    const meta = await sharp(cut.data).metadata()
+    expect([meta.width, meta.height]).toEqual([640, 360])
+    expect(cut.mimeType).toBe('image/png')
+    const wide = new Uint8Array(await sharp({ create: { width: 1600, height: 900, channels: 3, background: '#ffcc00' } }).jpeg().toBuffer())
+    expect(await cropToAspect({ data: wide, mimeType: 'image/jpeg' }, 16 / 9)).toEqual({ data: wide, mimeType: 'image/jpeg' })
   })
 })

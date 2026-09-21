@@ -33,3 +33,22 @@ export async function fitImageForX(media: XMedia): Promise<XMedia> {
     }
   }
 }
+
+/**
+ * The image cut to an aspect, from the middle. A rung that ignores the
+ * size it was asked for answers square; a cover that has to be wide is
+ * cut from that, so the prompt that drew it should have kept the subject
+ * in the middle band. An image already at the aspect passes through.
+ */
+export async function cropToAspect(
+  image: { data: Uint8Array; mimeType: 'image/png' | 'image/jpeg' | 'image/webp' },
+  aspect: number,
+): Promise<{ data: Uint8Array; mimeType: 'image/png' | 'image/jpeg' | 'image/webp' }> {
+  const meta = await sharp(image.data).metadata()
+  const width = meta.width ?? 0
+  const height = meta.height ?? 0
+  if (!width || !height || Math.abs(width / height - aspect) < 0.01) return image
+  const cut = width / height > aspect ? { width: Math.round(height * aspect), height } : { width, height: Math.round(width / aspect) }
+  const data = new Uint8Array(await sharp(image.data).resize({ ...cut, fit: 'cover', position: 'centre' }).png().toBuffer())
+  return { data, mimeType: 'image/png' }
+}

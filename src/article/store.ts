@@ -58,6 +58,14 @@ export const articleRecordSchema = z.object({
   sections: z.array(z.object({ key: z.string(), heading: z.string(), markdown: z.string() })).default([]),
   markdown: z.string().default(''),
   wordCount: z.number().default(0),
+  /** What the flow editor saw, and whether the rewrite was taken. */
+  flow: z
+    .object({
+      review: z.object({ ok: z.boolean(), problems: z.array(z.string()).default([]), plan: z.array(z.string()).default([]) }),
+      applied: z.boolean(),
+      refused: z.string().optional(),
+    })
+    .optional(),
   proof: z
     .object({
       review: proofSchema,
