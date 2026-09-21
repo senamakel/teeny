@@ -33,6 +33,8 @@ import { buildMoonPipeline } from './moon/wiring.js'
 import { MoonJob } from './jobs/moon-job.js'
 import { buildQuotePipeline } from './quote/wiring.js'
 import { QuoteJob } from './jobs/quote-job.js'
+import { buildLorePipeline } from './lore/wiring.js'
+import { LoreJob } from './jobs/lore-job.js'
 import { NarrativeJob } from './jobs/narrative-job.js'
 import { ArticleJob } from './jobs/article-job.js'
 import { buildArticlePipeline } from './article/wiring.js'
@@ -324,6 +326,10 @@ async function release(hold: Hold): Promise<string> {
   if (where.surface === 'quote') {
     return 'recorded; the quote post runs again tomorrow'
   }
+  // Nor the lore post: the room that wrote it is on disk, and the next day's is a new room.
+  if (where.surface === 'lore') {
+    return 'recorded; the lore post runs again on its next day'
+  }
   return 'recorded; nothing here can publish it'
 }
 // Every role writes to it and the ingest role serves it, so it lives in the
@@ -418,6 +424,8 @@ const rota = { days: config.POST_ROTA_DAYS, anchor: config.POST_ROTA_ANCHOR }
 const runsMorning = config.MORNING_ENABLED && (role === 'all' || role === 'morning')
 // And the moon chart, for the same reason.
 const runsMoon = config.MOON_ENABLED && (role === 'all' || role === 'moon')
+// And the lore post, which takes the afternoon slot on the days the charts do not.
+const runsLore = config.LORE_ENABLED && (role === 'all' || role === 'lore')
 // And the quote post, the third post of the day.
 const runsQuote = config.QUOTE_ENABLED && (role === 'all' || role === 'quote')
 // And the serial, which publishes an episode on its own schedule.
@@ -599,6 +607,34 @@ if (runsMoon) {
   })
   cron.schedule(config.MOON_CRON, () => {
     void moonJob.run().catch((error: unknown) => app.log.error({ err: error }, 'moon job failed'))
+  })
+}
+
+const loreSlots: number[] = []
+if (runsLore) {
+  // Every slot of the rota that no enabled chart has: with the moon and
+  // the chart on, five days of seven; with one of them off, six.
+  const taken = new Set<number>([...(runsMoon ? [config.MOON_ROTA_SLOT] : []), ...(runsChart ? [config.CHART_ROTA_SLOT] : [])])
+  const slots = Array.from({ length: config.POST_ROTA_DAYS }, (_, slot) => slot).filter((slot) => !taken.has(slot))
+  const loreJob = new LoreJob({
+    pipeline: buildLorePipeline(config, {
+      memory,
+      x,
+      persona,
+      botUsername,
+      dryRun: config.DRY_RUN,
+      logger: app.log,
+      safety,
+      ledger: inferences,
+    }),
+    logger: app.log,
+    journal,
+    rota: { rota, slots },
+    cadence,
+  })
+  loreSlots.push(...slots)
+  cron.schedule(config.LORE_CRON, () => {
+    void loreJob.run().catch((error: unknown) => app.log.error({ err: error }, 'lore job failed'))
   })
 }
 
@@ -823,6 +859,7 @@ app.log.info(
       ? `at "${config.MORNING_CRON}", ${media?.videos ? 'video' : 'image'}, ${config.MORNING_NEWS_TOPICS.length} topics`
       : false,
     moon: runsMoon ? `${config.MOON_COIN_ID} against ${config.MOON_CATEGORY} at "${config.MOON_CRON}", rota slot ${config.MOON_ROTA_SLOT}` : false,
+    lore: runsLore ? `at "${config.LORE_CRON}", rota slots ${loreSlots.join(',')}, ${config.LORE_BACKROOMS_TURNS} turns from ${config.LORE_SEEDS.join('/')}` : false,
     quote: runsQuote ? `at "${config.QUOTE_CRON}", ${config.QUOTE_POSTS_PER_SEARCH} posts a search over ${config.QUOTE_HOURS}h` : false,
     narrative: runsNarrative
       ? `${config.NARRATIVE_BRANCHES} rooms of ${config.NARRATIVE_TURNS} exchanges at "${config.NARRATIVE_CRON}"`
@@ -830,7 +867,7 @@ app.log.info(
     article: runsArticle
       ? `${config.ARTICLE_ROOMS} room(s), ~${config.ARTICLE_WORDS} words at "${config.ARTICLE_CRON}"${publishesArticles ? '' : ' (rehearsal: nothing publishes until ARTICLE_PUBLISH=true)'}`
       : false,
-    rota: runsChart || runsMoon ? `${config.POST_ROTA_DAYS} days from ${config.POST_ROTA_ANCHOR}` : false,
+    rota: runsChart || runsMoon || runsLore ? `${config.POST_ROTA_DAYS} days from ${config.POST_ROTA_ANCHOR}` : false,
     cadence: `${config.POST_MIN_GAP_HOURS}h between own posts, ${config.POST_GAP_TOLERANCE_MINUTES}m tolerance`,
     heat: runsReplies && config.HEAT_ENABLED
       ? `"${config.HEAT_CRON}", hot at ${config.HOT_IMPRESSIONS_PER_HOUR}/h and ${config.HOT_BASELINE_MULTIPLE}x, hold up to ${config.HOT_MAX_HOLD_SLOTS} slots`

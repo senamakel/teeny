@@ -85,9 +85,11 @@ after a router release.
 
 Since 2026-09-21 the box's `.env` schedules three own posts a day, eight
 hours apart, which is what the cadence wants: the morning post at 07:00
-(`MORNING_ENABLED`), the chart or the moon chart at 15:00 (`CHART_ENABLED`
-and `MOON_ENABLED`, alternating on the two-day `POST_ROTA_DAYS` rota), and
-the quote post at 23:00 (`QUOTE_ENABLED`). The quote post's two searches
+(`MORNING_ENABLED`); at 15:00 the moon chart on Mondays, the candlestick
+chart on Thursdays and the lore post on the other five days (`MOON_ENABLED`,
+`CHART_ENABLED`, `LORE_ENABLED`, on the week-long `POST_ROTA_DAYS` rota
+anchored on Monday 2026-09-14); and the quote post at 23:00
+(`QUOTE_ENABLED`). The quote post's two searches
 are billed like every other X read; `data/quotes.json` on the `bot-data`
 volume is what stops it quoting a post twice, so migrate that volume with
 the rest.

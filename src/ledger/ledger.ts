@@ -60,7 +60,7 @@ export interface Inference {
   lane: Lane
   /**
    * What the call was for. On the mascot's lane a surface: `reply`, `chat`,
-   * `chart`, `morning`, `moon`, `quote`, `calendar`, `task`, `judge`, `critic`,
+   * `chart`, `morning`, `moon`, `quote`, `lore`, `calendar`, `task`, `judge`, `critic`,
    * `vision`, `media-gate`. On the brain's lane the agent's id.
    */
   source: string

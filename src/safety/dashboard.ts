@@ -61,6 +61,7 @@ export function dashboardHtml(): string {
     if (c.surface === 'calendar') return 'calendar' + (c.tool ? ' · ' + c.tool : '');
     if (c.surface === 'morning') return 'morning post' + (c.tool ? ' · ' + c.tool : '');
     if (c.surface === 'moon') return 'moon chart';
+    if (c.surface === 'lore') return 'lore post';
     if (c.surface === 'quote') return 'quote post' + (c.postId ? ' · quoting ' + c.postId : '') + (c.authorUsername ? ' · @' + c.authorUsername : '');
     return c.surface || '';
   };

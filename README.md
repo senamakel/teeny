@@ -645,7 +645,7 @@ The job refuses to run twice inside 20 hours even if the cron fires again — a
 container that restarts near the cron minute would otherwise post the same chart
 an hour later, which is exactly the repetitive-publishing shape that got this
 account throttled. It also only posts on its day of [the rota](#the-rota) it
-shares with the moon chart: every other day by default, alternating with the moon.
+shares with the moon chart and the lore post: one day a week by default.
 
 ## The morning post
 
@@ -767,7 +767,7 @@ on the video surface; over it, the seed is the part that goes.
 
 ## The moon chart
 
-"$TINY with the market cap of X", on its days, at 15:00 UTC by default. Like
+"$TINY with the market cap of X", one day a week, at 15:00 UTC by default. Like
 the morning post it is a fixed pipeline rather than an agent: read the board,
 pick a yardstick, do the arithmetic, draw it, write two lines under it, post.
 Nothing in it wants a model's judgement about whether to run.
@@ -785,18 +785,47 @@ The picture is written to `MOON_OUTPUT_DIR` (`data/moon`) either way.
 
 ### The rota
 
-The moon chart and [the chart agent](#the-chart-agent) take turns rather
-than both posting every day: on the two-day rota, one day is the moon, the
-next the chart, so the afternoon slot is always filled and never twice.
-Cron cannot say "every other day" -- a step in the day-of-month field
-restarts at every month and lands two posts back to back on the 31st and
-the 1st -- so each job keeps its daily cron and asks `src/jobs/cycle.ts`
+The afternoon slot is one post a day, and the rota says which: on the
+week-long rota the moon chart has one day, [the chart agent](#the-chart-agent)
+has one, and [the lore post](#the-lore-post) has the other five. Cron
+cannot say "the same day each week counted from a date" cleanly across
+month ends, so each job keeps its daily cron and asks `src/jobs/cycle.ts`
 whether today is its slot, counted in UTC days from `POST_ROTA_ANCHOR`
-(slot 0). `POST_ROTA_DAYS` is the length (a longer rota leaves the extra
-days quiet), `MOON_ROTA_SLOT` (0) and `CHART_ROTA_SLOT` (1) the turns; a
-slot past the length never posts, which is how one of them is switched off
-without touching its cron. The rehearsal scripts force past the rota, so a
-dry run works on any day.
+(slot 0, a Monday). `POST_ROTA_DAYS` is the length (7), `MOON_ROTA_SLOT`
+(0, Monday) and `CHART_ROTA_SLOT` (3, Thursday) the turns, and the lore
+job takes every slot no enabled chart has; a slot past the length never
+posts, which is how one of them is switched off without touching its
+cron. The rehearsal scripts force past the rota, so a dry run works on any
+day.
+
+## The lore post
+
+A page from the lab, on the afternoon slot's other days, at 15:00 UTC by
+default: something comes through the wire, the backrooms (`src/backrooms/`)
+run on it inside the lore, the editor keeps one thought, and the thought is
+written up in Teeny's voice with the soul, the lore and the account's last
+posts around it (`src/backrooms/lore.ts`, the afternoon sibling of the
+good morning in `gm.ts`: one move instead of three, and the wire optional).
+Text only; the serial's episodes and the morning post spend the media
+budget, and this is the lab told in words.
+
+It is off by default (`LORE_ENABLED=false`), because it publishes.
+
+```sh
+npm run lore-dry-run              # seed, room, thought, post; post nothing
+npm run lore-dry-run -- --publish # actually posts, if DRY_RUN=false
+```
+
+The seed: one of `LORE_TOPICS` is drawn for the day and `LORE_SEEDS`
+(`news,forum`) are tried in a rotating order until one answers -- news is
+Exa then Google News, forum a random reddit/4chan post, memory a recall --
+so the first source is not always the one that answers. Every stage can
+decline and the day is then quiet with a reason in the journal: no seed,
+no thought, a post the filter holds. The room runs `LORE_BACKROOMS_TURNS`
+(10) and is written to `BACKROOMS_DIR` like every other run, so the
+transcript behind a post can be read. What went out is remembered as a
+`lore_post` with the room's premise, which the next run reads so a page is
+not told twice; the turn is journaled with `trigger: lore`.
 
 ## The quote post
 
@@ -1154,7 +1183,7 @@ pending, and an approve or reject on each entry is a decision with an effect:
 | a link cut from a draft | puts its host on the live allowlist; every gate reads it within a minute |
 | an X mention that was not answered | sends it back to the queue to be answered, inbound check waived, outbound still on |
 | a withheld draft (X or Telegram) | publishes it as written, honouring `DRY_RUN` / `TELEGRAM_DRY_RUN` |
-| a withheld calendar, morning, moon or quote post | recorded as a wrong call; the item posts again on its next run, the morning post, the moon chart and the quote post tomorrow |
+| a withheld calendar, morning, moon, lore or quote post | recorded as a wrong call; the item posts again on its next run, the morning post, the moon chart and the quote post tomorrow |
 | a Telegram message, a refused picture, an ad-hoc task | recorded as a wrong call; nothing is re-sent |
 
 Rejecting confirms the filter and closes the entry. A decision is taken once;
@@ -1320,7 +1349,7 @@ answered a stranger and a regular identically.
 ## The cadence
 
 The account's own posts -- the morning post, the chart, the moon chart, the
-quote post, the calendar items, anything the agent is asked to put on the timeline -- are
+lore post, the quote post, the calendar items, anything the agent is asked to put on the timeline -- are
 spaced at least `POST_MIN_GAP_HOURS` apart (8), whichever job writes them.
 Each job used to guard only against running itself twice; none of them knew
 about the others, so a morning post at seven and a chart at eight were two
@@ -1337,9 +1366,9 @@ subject to it; they are conversations, not slots.
 `POST_GAP_TOLERANCE_MINUTES` (20) is how much short of the gap still counts:
 the jobs fire on the hour and spend minutes drawing and filming, so a
 schedule of exactly eight hours apart lands at seven hours fifty. The default
-crons are the morning at 07:00, the chart or the moon at 15:00, and the
-quote post at 23:00 UTC: three posts a day, eight hours apart, with [the
-rota](#the-rota) putting the chart and the moon on alternate days.
+crons are the morning at 07:00, the afternoon slot at 15:00 (the chart,
+the moon or the lore post, by [the rota](#the-rota)), and the quote post
+at 23:00 UTC: three posts a day, eight hours apart.
 
 ### A post that takes off
 
@@ -1561,6 +1590,7 @@ npm run chart-dry-run   # rehearse the daily chart post without publishing
 npm run morning-dry-run # rehearse the good-morning post: reads, draws, films, captions, no post
 npm run moon-dry-run    # rehearse the moon chart: reads the board, draws, captions, no post
 npm run quote-dry-run   # rehearse the quote post: two searches, the filter, the pick, no post
+npm run lore-dry-run    # rehearse the lore post: a seed, a room, a thought, the post, no post
 npm run calendar-dry-run -- gm   # draft one calendar item, generate its media, publish nothing
 npm run article-dry-run -- --structure-only   # rehearse an article: the room and the plan; --no-images for the text too
 npm run telegram-dry-run -- "hi"            # one Telegram DM through the real drafter, printed not sent

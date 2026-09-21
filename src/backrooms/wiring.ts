@@ -11,6 +11,7 @@ import { agentPresets, pickAgents } from './agents.js'
 import { ContextBuilder } from './context.js'
 import { distill, type Thought } from './distill.js'
 import { gatherGmMaterial, gm as writeGm, type GmAgain, type GmPost } from './gm.js'
+import { lore as writeLore, type LorePost } from './lore.js'
 import { judge, stats, type Craziness, type RunStats } from './evaluate.js'
 import { variants as makeVariants, type Variants } from './variants.js'
 import { runBackrooms } from './room.js'
@@ -70,6 +71,8 @@ export interface Backrooms {
    * back (a repeat per memory, or the ranker's read).
    */
   gm(run: BackroomsRun, thought: Thought, problems?: string[], again?: GmAgain): Promise<GmPost>
+  /** The afternoon lore post from a thought: the lab's page for the day, no good morning and no wire required. */
+  lore(run: BackroomsRun, thought: Thought, problems?: string[]): Promise<LorePost>
 }
 
 export interface RunResult {
@@ -125,6 +128,14 @@ export function buildBackrooms(config: Config, deps: BackroomsDeps): Backrooms {
   }
   const writeMorning = async (run: BackroomsRun, thought: Thought, problems: string[] = [], again: GmAgain = {}): Promise<GmPost> =>
     writeGm(run, thought, await gatherGmMaterial(gmSources, problems), editor, again)
+  const loreSources = {
+    ...gmSources,
+    historyQuery:
+      'What lore posts, pages from the lab, has this account published recently, and what did each say? ' +
+      'Also anything it has said this week about the lab, the tiny agents, its currency, the terminal, or senamakel.',
+  }
+  const writeAfternoon = async (run: BackroomsRun, thought: Thought, problems: string[] = []): Promise<LorePost> =>
+    writeLore(run, thought, await gatherGmMaterial(loreSources, problems), editor)
 
   return {
     forums,
@@ -250,6 +261,7 @@ export function buildBackrooms(config: Config, deps: BackroomsDeps): Backrooms {
     distill: (run) => distill(run, editor, editorPrompt),
     variants: (run, thought) => makeVariants(run, thought, editor),
     gm: writeMorning,
+    lore: writeAfternoon,
   }
 }
 

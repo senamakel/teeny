@@ -94,7 +94,7 @@ const schema = z.object({
   X_SEARCH_MAX_RESULTS: z.coerce.number().int().min(10).max(100).default(10),
   // `all` runs every role in one process. Split them to scale or restart the
   // reply side without pausing ingestion, which is the half with a deadline.
-  SERVICE_ROLE: z.enum(['all', 'ingest', 'reply', 'api', 'chart', 'morning', 'moon', 'calendar', 'narrative', 'article', 'quote']).default('all'),
+  SERVICE_ROLE: z.enum(['all', 'ingest', 'reply', 'api', 'chart', 'morning', 'moon', 'calendar', 'narrative', 'article', 'quote', 'lore']).default('all'),
   INGEST_CRON: z.string().default('*/5 * * * *'),
   // The X Activity API's stream, `GET /2/activity/stream`, read next to the
   // webhook. On because the webhook stopped delivering `post.*` events in
@@ -273,16 +273,16 @@ const schema = z.object({
   MORNING_VIDEO_SECONDS: z.coerce.number().int().min(4).max(20).default(10),
 
   // --- the posting rota ----------------------------------------------------
-  // The moon chart and the candlestick chart take turns rather than both
-  // posting every day: slot 0 the moon, slot 1 the chart, so the afternoon
-  // slot alternates between the two and every day has one. A longer rota
-  // leaves the extra days quiet. Days are counted in UTC from the anchor,
-  // which is slot 0. Each job keeps its daily cron and skips the days that
-  // are not its turn; a slot past the rota's length never posts.
-  POST_ROTA_DAYS: z.coerce.number().int().min(1).max(14).default(2),
+  // The afternoon slot is one thing a day, and the rota says which: on a
+  // week-long rota the moon chart has one day, the candlestick chart has
+  // one, and the lore post has the rest. Days are counted in UTC from the
+  // anchor (a Monday), which is slot 0, so slot 0 is Monday's moon and
+  // slot 3 is Thursday's chart. Each job keeps its daily cron and skips the
+  // days that are not its turn; a slot past the rota's length never posts.
+  POST_ROTA_DAYS: z.coerce.number().int().min(1).max(14).default(7),
   POST_ROTA_ANCHOR: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).default('2026-09-14'),
   MOON_ROTA_SLOT: z.coerce.number().int().min(0).default(0),
-  CHART_ROTA_SLOT: z.coerce.number().int().min(0).default(1),
+  CHART_ROTA_SLOT: z.coerce.number().int().min(0).default(3),
 
   // --- the moon chart ------------------------------------------------------
   // "$TINY with the market cap of X", once a day: the token's row and the AI
@@ -290,9 +290,10 @@ const schema = z.object({
   // yardstick, the implied price drawn as a picture, two lines under it. Off
   // by default, because it publishes; single-homed like the chart.
   MOON_ENABLED: offByDefault,
-  // 15:00 UTC, the chart's slot: the two share it and the rota says whose
-  // day it is. With the morning at 07:00 and the quote at 23:00 the three
-  // posts of a day are eight hours apart, which is what the cadence wants.
+  // 15:00 UTC, the afternoon slot the chart and the lore post share; the
+  // rota says whose day it is. With the morning at 07:00 and the quote at
+  // 23:00 the three posts of a day are eight hours apart, which is what the
+  // cadence wants.
   MOON_CRON: z.string().default('0 15 * * *'),
   // The account's own token, by CoinGecko id, and the category the yardsticks
   // come from: coingecko.com/en/categories/<MOON_CATEGORY>.
@@ -316,6 +317,28 @@ const schema = z.object({
   MOON_MIN_MULTIPLE: z.coerce.number().min(1).default(2),
   MOON_MAX_MULTIPLE: z.coerce.number().min(1).default(2_000),
   MOON_OUTPUT_DIR: z.string().default('data/moon'),
+
+  // --- the lore post -------------------------------------------------------
+  // A page from the lab, on the afternoon slot's other days: something from
+  // the wire seeds a backrooms run inside the lore, the editor keeps one
+  // thought, and it is written up in teeny's voice with the soul, the lore
+  // and the last posts around it. Text only; the serial and the morning
+  // spend the media budget. Off by default, because it publishes.
+  LORE_ENABLED: offByDefault,
+  LORE_CRON: z.string().default('0 15 * * *'),
+  // Where the seed comes from, tried in a rotating order until one answers:
+  // news (Exa, then Google News), forum (reddit/4chan), memory (a recall).
+  LORE_SEEDS: z
+    .string()
+    .default('news,forum')
+    .transform((value) => value.split(',').map((entry) => entry.trim()).filter(Boolean))
+    .pipe(z.array(z.enum(['news', 'forum', 'memory'])).min(1)),
+  // What the wire is asked for; one is drawn a day.
+  LORE_TOPICS: z
+    .string()
+    .default('ai agents,robots,artificial intelligence,open source ai,memecoins')
+    .transform((value) => value.split(',').map((entry) => entry.trim()).filter(Boolean)),
+  LORE_BACKROOMS_TURNS: z.coerce.number().int().min(2).max(60).default(10),
 
   // --- the quote post ------------------------------------------------------
   // Once a day, somebody else's post lifted onto the timeline with a line
