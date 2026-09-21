@@ -28,7 +28,7 @@ export type HoldStatus = 'pending' | 'approved' | 'rejected'
  */
 export type HoldKind = 'message' | 'draft' | 'link' | 'prompt' | 'task'
 
-export type HoldSurface = 'x' | 'telegram' | 'task' | 'chart' | 'calendar' | 'morning' | 'moon' | 'narrative' | 'article' | 'quote'
+export type HoldSurface = 'x' | 'telegram' | 'task' | 'chart' | 'calendar' | 'morning' | 'moon' | 'narrative' | 'article' | 'quote' | 'lore'
 
 /** Where the held text came from, enough to act on an approval. */
 export interface HoldContext {

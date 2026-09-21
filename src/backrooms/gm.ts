@@ -287,6 +287,8 @@ export async function gatherGmMaterial(
     botUsername: string
     maxEmoji: number
     now?: () => number
+    /** What to ask memory about the series; the good-morning question by default. */
+    historyQuery?: string
   },
   problems: string[] = [],
 ): Promise<GmMaterial> {
@@ -318,8 +320,9 @@ export async function gatherGmMaterial(
       }
     })(),
     recall(
-      'What good-morning posts has this account published recently, and what did each say? ' +
-        'Also anything it has said this week about the lab, the tiny agents, its currency, or senamakel.',
+      sources.historyQuery ??
+        'What good-morning posts has this account published recently, and what did each say? ' +
+          'Also anything it has said this week about the lab, the tiny agents, its currency, or senamakel.',
       'posting history',
     ),
     recall(
