@@ -196,6 +196,22 @@ export async function gm(run: BackroomsRun, thought: Thought, material: GmMateri
       schema: gmSchema,
     })
   }
+  if (again.rewrite && !touchesThought(answer.text, thought)) {
+    // The ranker's fixes are written for a news caption, and a writer that
+    // follows them to the letter hands back the headline with a sharper
+    // question and no lab in it. Once more with that said; then the draft
+    // it was sent with is better than a post the room never wrote.
+    const retried = await askJson(model, {
+      system: ask.system,
+      prompt:
+        `${ask.prompt}\n\nYour rewrite:\n${answer.text}\n\nIt lost the lab entirely: nothing in it is the thought any more. Apply the` +
+        ' fixes to the hook and the shape, but the image and the turn from the thought stay in the post.',
+      schema: gmSchema,
+    })
+    answer = touchesThought(retried.text, thought)
+      ? retried
+      : { ...answer, text: again.rewrite.draft, reasons: `${answer.reasons} (the rewrite lost the thought twice; the draft it was sent with is kept)` }
+  }
   if (!touchesSeed(answer.text, run.seed)) {
     // The writer said the news was in there and it is not, or it is in words
     // that share nothing with the wire. Once more, with the miss in front of it.
@@ -218,6 +234,14 @@ export async function gm(run: BackroomsRun, thought: Thought, material: GmMateri
  */
 export function touchesSeed(text: string, seed: Seed): boolean {
   const wanted = keywords(`${seed.title ?? ''} ${seed.text.slice(0, 400)}`, 24).filter((word) => word.length >= 4 && !GENERIC.has(word)).map(stem)
+  if (wanted.length === 0) return true
+  const have = new Set(keywords(text, 80).map(stem))
+  return wanted.some((word) => have.has(word))
+}
+
+/** Whether a post still carries the room's thought: it shares a content word with the thought or one of its objects. */
+export function touchesThought(text: string, thought: Pick<Thought, 'thought' | 'objects'>): boolean {
+  const wanted = keywords(`${thought.objects.join(' ')} ${thought.thought}`, 40).filter((word) => word.length >= 4 && !GENERIC.has(word)).map(stem)
   if (wanted.length === 0) return true
   const have = new Set(keywords(text, 80).map(stem))
   return wanted.some((word) => have.has(word))
