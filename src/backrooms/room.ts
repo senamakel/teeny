@@ -6,6 +6,9 @@ import type { BackroomsAgent } from './agent.js'
  * The room itself: agents take turns, each spoken to with the previous
  * line, each answering in its own voice. The seed opens it. Every few
  * turns the mood shifts for whoever is speaking, so the register moves.
+ * Halfway through, the wire is put back in front of whoever is speaking:
+ * a hot room drifts to its habits within a few turns, and the seed is the
+ * one thing that makes tonight different from every other night.
  * Two silent turns in a row end it; a room where nobody talks is over.
  */
 export async function runBackrooms(input: {
@@ -35,8 +38,10 @@ export async function runBackrooms(input: {
         tone = next
       }
     }
+    const wire = index > 0 && index === Math.floor(input.turns / 2)
+    const notes = [tone ? `the mood shifts: ${tone}` : undefined, wire ? wireAgain(input.seed) : undefined].filter((note) => note !== undefined)
     const others = input.agents.filter((other) => other !== speaker).map((other) => other.spec.marker)
-    let spoken = await speaker.agent.speak({ message, ...(tone ? { systemNote: `the mood shifts: ${tone}` } : {}) })
+    let spoken = await speaker.agent.speak({ message, ...(notes.length > 0 ? { systemNote: notes.join('\n') } : {}) })
     let text = clean(spoken.text, speaker.spec.marker, others)
     if (looksLikeSalad(text)) {
       // A hot model sometimes comes apart mid-turn. One more go, shorter; then the turn is lost.
@@ -47,7 +52,7 @@ export async function runBackrooms(input: {
       text = clean(spoken.text, speaker.spec.marker, others)
       if (looksLikeSalad(text)) text = ''
     }
-    const turn: BackroomsTurn = { who: speaker.spec.id, text: text || '...', tools: spoken.tools, ...(tone ? { tone } : {}) }
+    const turn: BackroomsTurn = { who: speaker.spec.id, text: text || '...', tools: spoken.tools, ...(tone ? { tone } : {}), ...(wire ? { wire: true as const } : {}) }
     transcript.push(turn)
     input.onTurn?.(turn, index)
     silent = text ? 0 : silent + 1
@@ -88,6 +93,16 @@ function opener(seed: Seed, others: boolean): string {
     seed.title ? `${seed.title}\n${seed.text}` : seed.text,
     '',
     'go.',
+  ].join('\n')
+}
+
+/** The seed, put back in front of a speaker mid-room, as the thing tonight is about. */
+export function wireAgain(seed: Seed): string {
+  const what = (seed.title ?? seed.text).replace(/\s+/g, ' ').slice(0, 200)
+  return [
+    `the wire again, in case the room forgot: ${what}`,
+    'that is what tonight is about. whatever the lab is doing right now, it is doing because of that:',
+    'bring it back in, as a thing that is happening in here, in one specific object or line.',
   ].join('\n')
 }
 

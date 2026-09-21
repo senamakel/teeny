@@ -136,7 +136,7 @@ export async function judge(run: BackroomsRun, model: TextModel): Promise<Crazin
 
 /** A turn as a reader sees it: a heading, what was looked up, the line itself. */
 export function renderTurn(turn: BackroomsTurn, index: number): string {
-  const lines = [`### ${index + 1}. ${turn.who}${turn.tone ? ` · mood → ${turn.tone.split('.')[0]}` : ''}`, '']
+  const lines = [`### ${index + 1}. ${turn.who}${turn.tone ? ` · mood → ${turn.tone.split('.')[0]}` : ''}${turn.wire ? ' · the wire again' : ''}`, '']
   for (const use of turn.tools) {
     const input = typeof use.input === 'object' && use.input && 'query' in use.input ? String((use.input as { query: unknown }).query) : JSON.stringify(use.input)
     lines.push(`> looked up · ${use.name} · "${input}"`)
@@ -148,5 +148,5 @@ export function renderTurn(turn: BackroomsTurn, index: number): string {
 
 export function renderTurnForJudge(turn: BackroomsTurn, index: number): string {
   const looked = turn.tools.length > 0 ? ` [looked up: ${turn.tools.map((use) => `${use.name} ${JSON.stringify(use.input)}`).join('; ')}]` : ''
-  return `${index}. ${turn.who}${turn.tone ? ` (mood → ${turn.tone.split('.')[0]})` : ''}${looked}: ${turn.text}`
+  return `${index}. ${turn.who}${turn.tone ? ` (mood → ${turn.tone.split('.')[0]})` : ''}${turn.wire ? ' (the wire again)' : ''}${looked}: ${turn.text}`
 }
