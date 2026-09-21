@@ -189,6 +189,10 @@ describe('the reply budget', () => {
     expect(ownPostOf({ id: 'a', text: 'x', inReplyToUserId: BOT }, BOT, own)?.postId).toBe('2')
     expect(ownPostOf({ id: 'a', text: '@bot hi' }, BOT, own)).toBeUndefined()
     expect(ownPostOf({ id: 'a', text: 'x', conversationId: 'theirs', inReplyToUserId: 'someone' }, BOT, own)).toBeUndefined()
+    // A reply to the account in somebody else's thread -- somebody answering
+    // one of the account's replies out in the world -- is not under an own
+    // post, and must not be charged to the latest one.
+    expect(ownPostOf({ id: 'a', text: 'x', conversationId: 'theirs', inReplyToUserId: BOT }, BOT, own)).toBeUndefined()
   })
 
   it('caps the auto lane at ten under each post', async () => {

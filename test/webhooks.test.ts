@@ -401,10 +401,10 @@ describe('X Activity API deliveries', () => {
   it('takes a reply to the account as one, and keeps the reply target', async () => {
     const { mentionsFromActivity } = await import('../src/webhooks/activity.js')
     const mentions = mentionsFromActivity(
-      event('post.reply.create', { id: '901', text: 'nice one', author_id: '42', in_reply_to_user_id: BOT }),
+      event('post.reply.create', { id: '901', text: 'nice one', author_id: '42', in_reply_to_user_id: BOT, conversation_id: '800' }),
       options,
     )
-    expect(mentions).toEqual([{ id: '901', text: 'nice one', authorId: '42', inReplyToUserId: BOT }])
+    expect(mentions).toEqual([{ id: '901', text: 'nice one', authorId: '42', conversationId: '800', inReplyToUserId: BOT }])
   })
 
   it('answers neither the account itself nor an event that is not a post', async () => {
