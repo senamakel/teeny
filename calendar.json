@@ -16,14 +16,6 @@
       "media": "image",
       "aspect": "landscape",
       "brief": "Friday, end of the week: a post about building in the open. Check GitHub activity with web_search if it helps, but do not invent shipped features. Tiny at a workbench or a terminal, satisfied. No exclamation marks."
-    },
-    {
-      "name": "sunday-still",
-      "cron": "0 12 * * 0",
-      "channels": ["telegram"],
-      "media": "video",
-      "aspect": "square",
-      "brief": "A quiet Sunday clip for the group: Tiny doing nothing in particular, a few seconds of calm. One short line of text with it, or none."
     }
   ]
 }
