@@ -107,12 +107,12 @@ export function gmPrompt(run: BackroomsRun, thought: Thought, material: GmMateri
             'YOU HAVE ALREADY SAID THIS, per your own memory, and your first draft repeated it:',
             again.avoid.said || '(the same point, in other words)',
             `(${again.avoid.reason})`,
-            'Keep the thought; find the line in it you have not said. A new object, a new turn,',
-            'a new thing for people to answer. Do not reuse the wording or the take above.',
+            'Keep the thought; find the line in it you have not said. A new object, a new turn.',
+            'Do not reuse the wording or the take above.',
             '',
           ]
         : []),
-      'Write the post. One voice, four moves:',
+      'Write the post. One voice, three moves:',
       '1. A good morning. Short, warm, yours. Vary it; "gm" is fine, so is a full sentence.',
       '2. The wire, in one line, in your words: what came through, as what was reported, not',
       '   as a fact you checked ("they say the agents out there ..."). Plain enough that a',
@@ -125,8 +125,11 @@ export function gmPrompt(run: BackroomsRun, thought: Thought, material: GmMateri
       '   The absurd thing is true and you are calm about it. Keep the objects the room used;',
       '   drop the rest without regret. Moves 2 and 3 can be one line if the lab\'s version',
       '   of the news is the joke.',
-      '4. The hook: the line somebody types back to. A blank to fill, a rate to argue with, a',
-      '   question with a one-line answer. Never bait, never "thoughts?", never at a person.',
+      'It ends where the thought ends: on the turn, the decision, the thing that is now true.',
+      'Not on a question. The post does not ask the reader anything, does not invite a reply,',
+      'does not leave a blank to fill or a rate to argue with, and never says "thoughts?". A',
+      'statement people want to answer beats a question they are told to; if the thought itself',
+      'is a question teeny is asking the lab, it can stay, and that is the only question allowed.',
       'Full sentences with room around them beat a paragraph squeezed to fit; if it does not',
       'fit, cut a line, not the words in it.',
       '',
@@ -156,8 +159,10 @@ export function gmPrompt(run: BackroomsRun, thought: Thought, material: GmMateri
             "A reader who knows how X's ranker scores a post read it:",
             renderCritique(again.rewrite.critique),
             '',
-            'Rewrite it with the fixes, keeping every rule above, the wire, the thought and your',
-            'own voice. The point is that somebody has something to type back.',
+            'Rewrite it with the fixes that are about the shape, the length and the first line,',
+            'keeping every rule above, the wire, the thought and your own voice. Ignore any fix',
+            'that asks for a question, a forced choice, a blank to fill or a hook: this post ends',
+            'on its turn, not on an ask.',
           ]
         : []),
     ]
@@ -168,7 +173,7 @@ export function gmPrompt(run: BackroomsRun, thought: Thought, material: GmMateri
 
 /**
  * The length the writer is asked for: under the cap by a margin, because a
- * model told "under 280" writes 290 and the house style would cut the hook
+ * model told "under 280" writes 290 and the house style would cut the turn
  * off the end, which is the one line the post cannot lose.
  */
 function target(maxLength: number): number {
@@ -191,10 +196,23 @@ export async function gm(run: BackroomsRun, thought: Thought, material: GmMateri
       system: ask.system,
       prompt:
         `${ask.prompt}\n\nYour draft was ${answer.text.length} characters with ${countEmoji(answer.text)} emoji:\n${answer.text}\n\n` +
-        `Rewrite it under ${target(material.maxLength)} characters with at most ${material.maxEmoji} emoji, keeping the four` +
-        ' moves. Cut a whole line rather than the words in one; the wire and the hook stay.',
+        `Rewrite it under ${target(material.maxLength)} characters with at most ${material.maxEmoji} emoji, keeping the three` +
+        ' moves. Cut a whole line rather than the words in one; the wire and the turn stay.',
       schema: gmSchema,
     })
+  }
+  if (asksTheReader(answer.text)) {
+    // The ranker likes a question and every caption prompt in the house
+    // says so, and the writer knows it; a morning from the lab ends on its
+    // turn instead. Once more with that said, then the question is cut.
+    const retried = await askJson(model, {
+      system: ask.system,
+      prompt:
+        `${ask.prompt}\n\nYour draft:\n${answer.text}\n\nIt ends by asking the reader something. Rewrite it to end on the turn,` +
+        ' the decision, or the thing that is now true, with no question in it, keeping everything else.',
+      schema: gmSchema,
+    })
+    answer = asksTheReader(retried.text) ? { ...retried, text: withoutTheAsk(retried.text) } : retried
   }
   if (again.rewrite && !touchesThought(answer.text, thought)) {
     // The ranker's fixes are written for a news caption, and a writer that
@@ -205,7 +223,7 @@ export async function gm(run: BackroomsRun, thought: Thought, material: GmMateri
       system: ask.system,
       prompt:
         `${ask.prompt}\n\nYour rewrite:\n${answer.text}\n\nIt lost the lab entirely: nothing in it is the thought any more. Apply the` +
-        ' fixes to the hook and the shape, but the image and the turn from the thought stay in the post.',
+        ' fixes to the shape, but the image and the turn from the thought stay in the post, and it still ends on the turn, not a question.',
       schema: gmSchema,
     })
     answer = touchesThought(retried.text, thought)
@@ -237,6 +255,24 @@ export function touchesSeed(text: string, seed: Seed): boolean {
   if (wanted.length === 0) return true
   const have = new Set(keywords(text, 80).map(stem))
   return wanted.some((word) => have.has(word))
+}
+
+/** Whether the post ends by asking the reader something: a question mark on its last line. */
+export function asksTheReader(text: string): boolean {
+  const last = text.trim().split('\n').filter((line) => line.trim()).pop() ?? ''
+  return /\?\s*$/.test(last)
+}
+
+/**
+ * The last line cut when it is a question and there is a post left without
+ * it; a one-line post that is all question keeps its words and loses the
+ * mark, which reads as the deadpan it should have been.
+ */
+export function withoutTheAsk(text: string): string {
+  const lines = text.trim().split('\n')
+  const kept = lines.slice(0, -1).join('\n').trim()
+  if (kept) return kept
+  return lines.join('\n').replace(/\s*\?\s*$/, '.')
 }
 
 /** Whether a post still carries the room's thought: it shares a content word with the thought or one of its objects. */

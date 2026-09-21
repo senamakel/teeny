@@ -11,7 +11,7 @@ import { LangGraphBackroomsAgent, renderSystem, type BackroomsAgent } from '../s
 import { agentPresets, pickAgents } from '../src/backrooms/agents.js'
 import { ContextBuilder, engines, spread } from '../src/backrooms/context.js'
 import { DEFAULT_EDITOR, distill, distillPrompt, thoughtSchema } from '../src/backrooms/distill.js'
-import { gatherGmMaterial, gm, gmPrompt, touchesSeed, touchesThought } from '../src/backrooms/gm.js'
+import { asksTheReader, gatherGmMaterial, gm, gmPrompt, touchesSeed, touchesThought, withoutTheAsk } from '../src/backrooms/gm.js'
 import { articlePrompt, codePrompt, renderVariants, tweetsPrompt, variants, variantsSchema, videoPrompt } from '../src/backrooms/variants.js'
 import { crazinessSchema, judge, stats } from '../src/backrooms/evaluate.js'
 import { clean, looksLikeSalad, runBackrooms } from '../src/backrooms/room.js'
@@ -669,6 +669,25 @@ describe('the good morning', () => {
     expect(prompt).toContain(RUN.seed.text.slice(0, 40))
     expect(prompt).toMatch(/no "nfa"/)
     expect(prompt).toContain('$TINY')
+    expect(prompt).toContain('Not on a question.')
+    expect(prompt).not.toMatch(/hook/i)
+  })
+
+  it('ends on the turn, not on a question: one rewrite, then the ask is cut', async () => {
+    expect(asksTheReader('gm. the kettle is five naps.\nwhat is yours?')).toBe(true)
+    expect(asksTheReader('gm. the kettle is five naps. what is yours?  ')).toBe(true)
+    expect(asksTheReader('is it over? it has not started.')).toBe(false)
+    expect(withoutTheAsk('gm. the kettle is five naps.\nwhat is yours?')).toBe('gm. the kettle is five naps.')
+    expect(withoutTheAsk('what is the kettle worth now?')).toBe('what is the kettle worth now.')
+    const answers = [
+      { reasons: 'r', continues: '', wire: 'a car pulled up', text: 'gm. a car pulled up. the kettle is five naps now.\nwhat is yours?' },
+      { reasons: 'r', continues: '', wire: 'a car pulled up', text: 'gm. a car pulled up. the kettle is five naps now.\nwhat do you rate it?' },
+    ]
+    let calls = 0
+    const model: TextModel = { complete: async () => JSON.stringify(answers[calls++]) }
+    const post = await gm(RUN, thought, material, model)
+    expect(calls).toBe(2)
+    expect(post.text).toBe('gm. a car pulled up. the kettle is five naps now.')
   })
 
   it('writes the post once, sends it back when over the cap, and applies the house style', async () => {
@@ -696,10 +715,10 @@ describe('the good morning', () => {
   it('keeps the draft when the ranker\'s rewrite loses the lab twice', async () => {
     expect(touchesThought('gm. the fridge rate is up. one kettle is five naps.', thought)).toBe(true)
     expect(touchesThought('gm. a human replaced codex with local models. what is on your machine?', thought)).toBe(false)
-    const draft = 'gm. a car pulled up. the kettle is five naps now. the agents accepted it. what is yours?'
+    const draft = 'gm. a car pulled up. the kettle is five naps now. the agents accepted it.'
     const answers = [
-      { reasons: 'r', continues: '', wire: 'a car pulled up', text: 'gm. a car pulled up outside. local models or api, which are you on?' },
-      { reasons: 'r', continues: '', wire: 'a car pulled up', text: 'gm. a car pulled up. local models or api, which one right now?' },
+      { reasons: 'r', continues: '', wire: 'a car pulled up', text: 'gm. a car pulled up outside. local models beat the api now, they say.' },
+      { reasons: 'r', continues: '', wire: 'a car pulled up', text: 'gm. a car pulled up. local models beat the api now, they say. mine did too.' },
     ]
     let calls = 0
     const model: TextModel = { complete: async () => JSON.stringify(answers[calls++]) }
@@ -731,8 +750,8 @@ describe('the good morning', () => {
     expect(touchesSeed('the agents did a thing', seed)).toBe(false) // "agents" alone proves nothing
     const prompts: string[] = []
     const answers = [
-      { reasons: 'r', continues: '', wire: '', text: 'gm. the kettle is five naps now. what is yours?' },
-      { reasons: 'r', continues: '', wire: 'they say a panel wants safeguards', text: 'gm. they say a panel wants safeguards. the kettle is five naps now. what is yours?' },
+      { reasons: 'r', continues: '', wire: '', text: 'gm. the kettle is five naps now. the agents accepted it.' },
+      { reasons: 'r', continues: '', wire: 'they say a panel wants safeguards', text: 'gm. they say a panel wants safeguards. the kettle is five naps now. the agents accepted it.' },
     ]
     const model: TextModel = {
       complete: async (input) => {
