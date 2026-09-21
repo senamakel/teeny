@@ -533,7 +533,7 @@ describe('the morning pipeline', () => {
     expect(scene.prompt).toContain('Their picture: a robot nodding')
     expect(scene.prompt).toContain('The conversation the post starts: the most sycophantic')
     const caption = calls.find(([call]) => call.prompt.includes('"text": string'))![0]
-    expect(caption.prompt).toContain('The conversation to start: the most sycophantic')
+    expect(caption.prompt).toContain('The take: the most sycophantic')
     expect(memory.captureActivity).toHaveBeenCalledWith(
       'morning_post',
       '9001',
@@ -1073,6 +1073,85 @@ describe('the morning pipeline', () => {
       ]))
     })
   })
+
+  it('runs the room on the chosen story, draws the thought, and says good morning from it', async () => {
+    const thought = {
+      reasons: '',
+      premise: 'the agents build a star out of forks.',
+      wire: 'the runtime crossing 40k stars is the agents building one',
+      objects: ['forks', 'the fridge'],
+      thought: 'the agents built a star out of forks overnight. it is on the fridge now. senamakel has not seen it.',
+      post: 'the agents built a star out of forks.',
+      kept: [],
+    }
+    const run = { id: 'room-1', startedAt: '', seed: { kind: 'news' as const, text: 'x' }, agents: [], turns: [], settings: { rng: 1, turns: 2, temps: {}, budget: 1, driftEvery: 1, maxToolCalls: 0 } }
+    const backrooms = {
+      run: vi.fn().mockResolvedValue({
+        run,
+        stats: {},
+        thought,
+        gm: { reasons: '', continues: '', wire: 'they say a runtime crossed 40k stars', text: 'gm. they say a runtime crossed 40k stars. the agents built one out of forks. it is on the fridge. what is yours made of? $TINY' },
+        problems: ['could not recall the community: 401'],
+        saved: { json: 'room-1.json', markdown: 'room-1.md' },
+      }),
+      gm: vi.fn().mockResolvedValue({ reasons: '', continues: '', wire: 'a runtime crossed 40k stars', text: 'gm. a runtime crossed 40k stars, they say. the fork star is on the fridge. what is on yours?' }),
+    }
+    const text = stagedModel({ fresh: '{"said": "the fork star", "reason": "same joke yesterday", "verdict": "repeat"}' })
+    const { run: morning, memory } = pipeline({ text, backrooms, backroomsTurns: 6 })
+    const result = await morning()
+
+    // The room ran on the picked story, for the turns the morning asked for.
+    expect(backrooms.run).toHaveBeenCalledWith(
+      { kind: 'news', title: 'An open-source agent runtime crossed 40k stars', text: 'Builders are flocking.', source: STORIES[0]!.source },
+      { turns: 6, gm: true },
+    )
+    // The scene writer read the thought as the article, and the premise as the image.
+    const asked = (text.complete as ReturnType<typeof vi.fn>).mock.calls.map((call) => (call[0] as { prompt: string }).prompt)
+    const scenePrompt = asked.find((prompt) => prompt.includes('"scene": string'))!
+    expect(scenePrompt).toContain('the lab this morning: the agents built a star out of forks overnight')
+    expect(scenePrompt).toContain('The image it conjures: the agents build a star out of forks.')
+    expect(scenePrompt).toContain('in the frame: forks, the fridge')
+    // The caption came from the room, not the caption prompt; the repeat went back to the room too.
+    expect(backrooms.gm).toHaveBeenCalledWith(run, thought, expect.any(Array), { avoid: { said: 'the fork star', reason: 'same joke yesterday' } })
+    expect(result.caption).toBe('gm. a runtime crossed 40k stars, they say. the fork star is on the fridge. what is on yours?')
+    expect(asked.some((prompt) => prompt.includes('"text": string'))).toBe(false)
+    expect(result.backrooms).toMatchObject({ id: 'room-1', saved: 'room-1.md', thought: { premise: 'the agents build a star out of forks.' } })
+    expect(result.problems).toContain('the room: could not recall the community: 401')
+    expect(result.outcome).toBe('posted')
+    expect(memory.captureActivity).toHaveBeenCalledWith('morning_post', '9001', expect.objectContaining({ room: 'room-1', premise: 'the agents build a star out of forks.' }))
+  })
+
+  it('sends a caption that ends on a question back once, then cuts the ask', async () => {
+    let captions = 0
+    const answers = [
+      '{"text": "gm builders.\\n\\nan agent runtime crossed 40k stars, reportedly.\\n\\nwhat is yours running on?"}',
+      '{"text": "gm builders.\\n\\nan agent runtime crossed 40k stars, reportedly.\\n\\nlocal or api, which?"}',
+    ]
+    const base = stagedModel()
+    const text: TextModel = {
+      complete: async (input) =>
+        input.prompt.includes('"text": string') ? answers[Math.min(captions++, answers.length - 1)]! : base.complete(input),
+    }
+    const result = await pipeline({ text }).run()
+    expect(captions).toBe(2)
+    expect(result.caption).toBe('gm builders.\n\nan agent runtime crossed 40k stars, reportedly.')
+    const asked = (base.complete as ReturnType<typeof vi.fn>).mock.calls.map((call) => (call[0] as { prompt: string }).prompt)
+    expect(asked.find((prompt) => prompt.includes('"story": number'))).toContain('hook is the stance the post will take')
+  })
+
+  it('falls back to the old morning when the room fails or leaves nothing', async () => {
+    const failing = { run: vi.fn().mockRejectedValue(new Error('exa is down')), gm: vi.fn() }
+    const one = await pipeline({ backrooms: failing }).run()
+    expect(one.caption).toContain('gm builders.')
+    expect(one.backrooms).toBeUndefined()
+    expect(one.problems).toContain('the room failed: exa is down; the morning is written from the story')
+
+    const empty = { run: vi.fn().mockResolvedValue({ run: {}, stats: {}, problems: [], saved: { json: '', markdown: '' } }), gm: vi.fn() }
+    const two = await pipeline({ backrooms: empty }).run()
+    expect(two.caption).toContain('gm builders.')
+    expect(two.problems).toContain('the room ran but left no thought; the morning is written from the story')
+  })
+
 })
 
 describe('the morning job', () => {

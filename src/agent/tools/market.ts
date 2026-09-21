@@ -9,7 +9,7 @@ import { relativeStrength, type GlobalMarketClient } from '../../market/global.j
 import { analyse } from '../../ta/analysis.js'
 import { readProgress } from '../../ta/progress.js'
 import type { PublishedChartPost } from '../../harness/chart-harness.js'
-import { applyHouseStyle, countEmoji } from '../house-style.js'
+import { applyHouseStyle, asksTheReader, countEmoji, withoutTheAsk } from '../house-style.js'
 import { MAX_POST_LENGTH, refuseUnsafe } from './x.js'
 import type { SafetyGate } from '../../safety/gate.js'
 import type { XTools } from '../../types.js'
@@ -408,7 +408,9 @@ export function createMarketTools(options: MarketToolOptions): StructuredToolInt
       if (chartId && !chart) {
         return `Refused: no chart with id ${chartId}. Call render_chart and use the id it returns.`
       }
-      const { text } = applyHouseStyle(drafted, { maxEmoji, maxLength: MAX_POST_LENGTH })
+      // The post ends on its read, not on an ask: a closing question is cut
+      // here rather than argued about with the agent.
+      const { text } = applyHouseStyle(asksTheReader(drafted) ? withoutTheAsk(drafted) : drafted, { maxEmoji, maxLength: MAX_POST_LENGTH })
       const refused = await refuseUnsafe(text, options.safety, {
         surface: 'chart',
         kind: 'draft',

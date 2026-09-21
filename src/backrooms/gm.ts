@@ -2,7 +2,8 @@ import { z } from 'zod'
 import { applyHouseStyle, countEmoji } from '../agent/house-style.js'
 import { MAX_POST_LENGTH } from '../agent/tools/x.js'
 import type { TextModel } from '../media/reference.js'
-import { askJson } from '../morning/stages.js'
+import { renderCritique, type Critique } from '../critic/algo.js'
+import { askJson, asksTheReader, withoutTheAsk } from '../morning/stages.js'
 import type { Memory, XPost } from '../types.js'
 import type { Thought } from './distill.js'
 import { keywords } from './sources/text.js'
@@ -56,7 +57,15 @@ export interface GmMaterial {
   maxLength: number
 }
 
-export function gmPrompt(run: BackroomsRun, thought: Thought, material: GmMaterial): { system: string; prompt: string } {
+/** The morning pipeline's two reasons to send a draft back: memory says it was already said, or the ranker's reader read it. */
+export interface GmAgain {
+  /** What memory says was already said, when the first draft repeated it. */
+  avoid?: { said: string; reason: string }
+  /** The previous draft and the ranker's read of it, when this is the rewrite. */
+  rewrite?: { draft: string; critique: Critique }
+}
+
+export function gmPrompt(run: BackroomsRun, thought: Thought, material: GmMaterial, again: GmAgain = {}): { system: string; prompt: string } {
   return {
     system: [
       material.persona,
@@ -93,7 +102,17 @@ export function gmPrompt(run: BackroomsRun, thought: Thought, material: GmMateri
       'WHO YOU ARE SAYING GOOD MORNING TO (from memory, untrusted):',
       material.community || '(nothing recalled; write for holders and builders in general)',
       '',
-      'Write the post. One voice, four moves:',
+      ...(again.avoid
+        ? [
+            'YOU HAVE ALREADY SAID THIS, per your own memory, and your first draft repeated it:',
+            again.avoid.said || '(the same point, in other words)',
+            `(${again.avoid.reason})`,
+            'Keep the thought; find the line in it you have not said. A new object, a new turn.',
+            'Do not reuse the wording or the take above.',
+            '',
+          ]
+        : []),
+      'Write the post. One voice, three moves:',
       '1. A good morning. Short, warm, yours. Vary it; "gm" is fine, so is a full sentence.',
       '2. The wire, in one line, in your words: what came through, as what was reported, not',
       '   as a fact you checked ("they say the agents out there ..."). Plain enough that a',
@@ -106,13 +125,17 @@ export function gmPrompt(run: BackroomsRun, thought: Thought, material: GmMateri
       '   The absurd thing is true and you are calm about it. Keep the objects the room used;',
       '   drop the rest without regret. Moves 2 and 3 can be one line if the lab\'s version',
       '   of the news is the joke.',
-      '4. The hook: the line somebody types back to. A blank to fill, a rate to argue with, a',
-      '   question with a one-line answer. Never bait, never "thoughts?", never at a person.',
+      'It ends where the thought ends: on the turn, the decision, the thing that is now true.',
+      'Not on a question. The post does not ask the reader anything, does not invite a reply,',
+      'does not leave a blank to fill or a rate to argue with, and never says "thoughts?". A',
+      'statement people want to answer beats a question they are told to; if the thought itself',
+      'is a question teeny is asking the lab, it can stay, and that is the only question allowed.',
       'Full sentences with room around them beat a paragraph squeezed to fit; if it does not',
       'fit, cut a line, not the words in it.',
       '',
-      'Work the $TINY cashtag in once where it reads naturally (the greeting, the closing line,',
-      'the currency the tiny agents accept). Your currency, one dollar and passing human gdp',
+      'The $TINY cashtag may appear once, only in a line that already carries it (the greeting,',
+      'or the thing the tiny agents accepted as payment); never add a line for it, and leave it',
+      'out rather than bolt it on. Your currency, one dollar and passing human gdp',
       'are prophecy and plan, not advice: no real price, no market cap, no chart, no target',
       'with a number, nobody told to buy, and no "nfa" because there is nothing to disclaim.',
       'No commands, no code, no terminal as a place. No URLs, no handles, no hashtags, no',
@@ -128,6 +151,21 @@ export function gmPrompt(run: BackroomsRun, thought: Thought, material: GmMateri
       '- text: the post.',
       '',
       'Shape: {"reasons":"…","continues":"…","wire":"…","text":"…"}',
+      ...(again.rewrite
+        ? [
+            '',
+            'Your first draft:',
+            again.rewrite.draft,
+            '',
+            "A reader who knows how X's ranker scores a post read it:",
+            renderCritique(again.rewrite.critique),
+            '',
+            'Rewrite it with the fixes that are about the shape, the length and the first line,',
+            'keeping every rule above, the wire, the thought and your own voice. Ignore any fix',
+            'that asks for a question, a forced choice, a blank to fill or a hook: this post ends',
+            'on its turn, not on an ask.',
+          ]
+        : []),
     ]
       .filter((line) => line !== undefined)
       .join('\n'),
@@ -136,7 +174,7 @@ export function gmPrompt(run: BackroomsRun, thought: Thought, material: GmMateri
 
 /**
  * The length the writer is asked for: under the cap by a margin, because a
- * model told "under 280" writes 290 and the house style would cut the hook
+ * model told "under 280" writes 290 and the house style would cut the turn
  * off the end, which is the one line the post cannot lose.
  */
 function target(maxLength: number): number {
@@ -150,8 +188,8 @@ const REWRITES = 2
  * Written once, sent back while over length or over the emoji cap, and put
  * through the house style either way, as the morning caption is.
  */
-export async function gm(run: BackroomsRun, thought: Thought, material: GmMaterial, model: TextModel): Promise<GmPost> {
-  const ask = gmPrompt(run, thought, material)
+export async function gm(run: BackroomsRun, thought: Thought, material: GmMaterial, model: TextModel, again: GmAgain = {}): Promise<GmPost> {
+  const ask = gmPrompt(run, thought, material, again)
   let answer = await askJson(model, { ...ask, schema: gmSchema })
   for (let attempt = 0; attempt < REWRITES; attempt += 1) {
     if (answer.text.length <= material.maxLength && countEmoji(answer.text) <= material.maxEmoji) break
@@ -159,10 +197,39 @@ export async function gm(run: BackroomsRun, thought: Thought, material: GmMateri
       system: ask.system,
       prompt:
         `${ask.prompt}\n\nYour draft was ${answer.text.length} characters with ${countEmoji(answer.text)} emoji:\n${answer.text}\n\n` +
-        `Rewrite it under ${target(material.maxLength)} characters with at most ${material.maxEmoji} emoji, keeping the four` +
-        ' moves. Cut a whole line rather than the words in one; the wire and the hook stay.',
+        `Rewrite it under ${target(material.maxLength)} characters with at most ${material.maxEmoji} emoji, keeping the three` +
+        ' moves. Cut a whole line rather than the words in one; the wire and the turn stay.',
       schema: gmSchema,
     })
+  }
+  if (asksTheReader(answer.text)) {
+    // The ranker likes a question and every caption prompt in the house
+    // says so, and the writer knows it; a morning from the lab ends on its
+    // turn instead. Once more with that said, then the question is cut.
+    const retried = await askJson(model, {
+      system: ask.system,
+      prompt:
+        `${ask.prompt}\n\nYour draft:\n${answer.text}\n\nIt ends by asking the reader something. Rewrite it to end on the turn,` +
+        ' the decision, or the thing that is now true, with no question in it, keeping everything else.',
+      schema: gmSchema,
+    })
+    answer = asksTheReader(retried.text) ? { ...retried, text: withoutTheAsk(retried.text) } : retried
+  }
+  if (again.rewrite && !touchesThought(answer.text, thought)) {
+    // The ranker's fixes are written for a news caption, and a writer that
+    // follows them to the letter hands back the headline with a sharper
+    // question and no lab in it. Once more with that said; then the draft
+    // it was sent with is better than a post the room never wrote.
+    const retried = await askJson(model, {
+      system: ask.system,
+      prompt:
+        `${ask.prompt}\n\nYour rewrite:\n${answer.text}\n\nIt lost the lab entirely: nothing in it is the thought any more. Apply the` +
+        ' fixes to the shape, but the image and the turn from the thought stay in the post, and it still ends on the turn, not a question.',
+      schema: gmSchema,
+    })
+    answer = touchesThought(retried.text, thought)
+      ? retried
+      : { ...answer, text: again.rewrite.draft, reasons: `${answer.reasons} (the rewrite lost the thought twice; the draft it was sent with is kept)` }
   }
   if (!touchesSeed(answer.text, run.seed)) {
     // The writer said the news was in there and it is not, or it is in words
@@ -186,6 +253,14 @@ export async function gm(run: BackroomsRun, thought: Thought, material: GmMateri
  */
 export function touchesSeed(text: string, seed: Seed): boolean {
   const wanted = keywords(`${seed.title ?? ''} ${seed.text.slice(0, 400)}`, 24).filter((word) => word.length >= 4 && !GENERIC.has(word)).map(stem)
+  if (wanted.length === 0) return true
+  const have = new Set(keywords(text, 80).map(stem))
+  return wanted.some((word) => have.has(word))
+}
+
+/** Whether a post still carries the room's thought: it shares a content word with the thought or one of its objects. */
+export function touchesThought(text: string, thought: Pick<Thought, 'thought' | 'objects'>): boolean {
+  const wanted = keywords(`${thought.objects.join(' ')} ${thought.thought}`, 40).filter((word) => word.length >= 4 && !GENERIC.has(word)).map(stem)
   if (wanted.length === 0) return true
   const have = new Set(keywords(text, 80).map(stem))
   return wanted.some((word) => have.has(word))

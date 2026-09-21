@@ -5,6 +5,10 @@ import { withSeed } from '../media/reference.js'
 import type { MediaBudget, MediaStore } from '../media/store.js'
 import type { ImageGenerator, ImageReader, StoredMedia, VideoGenerator } from '../media/types.js'
 import type { SafetyGate } from '../safety/gate.js'
+import type { Backrooms, RunResult as BackroomsResult } from '../backrooms/wiring.js'
+import type { GmPost } from '../backrooms/gm.js'
+import type { Thought } from '../backrooms/distill.js'
+import type { BackroomsRun } from '../backrooms/types.js'
 import { renderCritique, type Critic, type Critique } from '../critic/algo.js'
 import type { Memory, XTools } from '../types.js'
 import { gatherNews, renderStories, type NewsSource, type Story } from './news.js'
@@ -14,10 +18,12 @@ import {
   askJson,
   captionPrompt,
   captionSchema,
+  asksTheReader,
   checkQuestion,
   checkSchema,
   extractJson,
   freshnessPrompt,
+  withoutTheAsk,
   freshnessSchema,
   pickPrompt,
   pickSchema,
@@ -91,6 +97,19 @@ export interface MorningPipelineOptions {
    * problems and the first draft goes out.
    */
   critic?: Critic
+  /**
+   * The backrooms, when the morning comes from the lab instead of from a
+   * headline. The picker still chooses the story, and that story seeds a
+   * room; the room's one thought is what the picture is drawn from, and
+   * the good-morning post is written from it with the soul, the lore and
+   * the last posts around it, instead of by the caption prompt. Everything
+   * after the caption (freshness, the critic, the gate) is unchanged. A room
+   * that fails is a problem line and the old morning, so the morning is
+   * never missing because the lab was.
+   */
+  backrooms?: MorningBackrooms
+  /** How many turns the room runs for the morning. Defaults to the backrooms' own setting. */
+  backroomsTurns?: number
 }
 
 /**
@@ -138,6 +157,8 @@ export interface MorningResult {
    */
   freshness: { subject: Array<Freshness & { story: number; headline: string }>; post?: Freshness }
   recalled: { history: string; community: string }
+  /** The room, when the morning came from the lab: the thought the picture and the post were made from. */
+  backrooms?: { id: string; thought: Thought; gm: GmPost; saved: string }
 }
 
 /**
@@ -244,6 +265,7 @@ export class MorningPipeline {
     let story: Story | undefined
     let scene!: Scene
     let sceneRefused: string | undefined
+    let room: RoomResult | undefined
     for (let attempt = 1; attempt <= PICK_ATTEMPTS; attempt += 1) {
       const last = attempt === PICK_ATTEMPTS
       pick = await askJson(options.text, {
@@ -286,18 +308,28 @@ export class MorningPipeline {
         }
       }
 
+      // The room, on the chosen story, before the scene: the picture is of
+      // what the lab did with the news, not of the news. One thought comes
+      // back, and the scene writer reads it as the article. A room that
+      // fails, or a thought without one, is the old morning on the same
+      // story, and a line in the problems.
+      room = options.backrooms ? await this.room(pick, story, problems) : undefined
+      if (room) log('room ran', { id: room.run.id, premise: room.thought.premise, wire: room.thought.wire, objects: room.thought.objects })
+
       // The article itself, for the scene: the excerpt is two sentences and
       // a picture built from two sentences is a picture of a desk. Unreadable
       // is fine; the headline and the picked visual carry it. A post from the
       // timeline is its own article: the text, and what its picture showed.
-      const article =
-        story?.kind === 'x'
+      const article = room
+        ? [`the lab this morning: ${room.thought.thought}`, room.thought.objects.length > 0 ? `in the frame: ${room.thought.objects.join(', ')}` : undefined].filter(Boolean).join('\n')
+        : story?.kind === 'x'
           ? [`${story.source}: ${story.excerpt}`, story.media ? `Their picture: ${story.media}` : undefined].filter(Boolean).join('\n')
           : story
             ? await options.news.read(story.url, { maxCharacters: ARTICLE_CHARACTERS }).catch(() => '')
             : ''
+      const drawn = room ? sceneOf(pick, room.thought) : pick
       scene = await askJson(options.text, {
-        ...scenePrompt({ pick, article, seedLook: seed?.look }),
+        ...scenePrompt({ pick: drawn, article, seedLook: seed?.look }),
         schema: sceneSchema,
       })
       log('scene written', { attempt, seed: seed?.url, concepts: scene.concepts, cue: scene.storyCue })
@@ -309,7 +341,7 @@ export class MorningPipeline {
       problems.push(`the content filter refused the scene (${sceneRefused}); rewriting it`)
       log('scene refused', { attempt, category: sceneRefused, take: 1 })
       scene = await askJson(options.text, {
-        ...scenePrompt({ pick, article, seedLook: seed?.look, refused: { category: sceneRefused, scene: scene.scene } }),
+        ...scenePrompt({ pick: drawn, article, seedLook: seed?.look, refused: { category: sceneRefused, scene: scene.scene } }),
         schema: sceneSchema,
       })
       log('scene rewritten', { attempt, concepts: scene.concepts, cue: scene.storyCue })
@@ -426,14 +458,16 @@ export class MorningPipeline {
     // fresh, but the joke on it may be one the account has made -- and
     // rewritten once around what was already said; then the ranker's reader.
     const attached: MorningResult['attached'] = video ? 'video' : image ? 'image' : 'none'
-    let caption = await this.caption(context, { pick, attached, community })
+    let caption = room ? room.gm.text : await this.caption(context, { pick, attached, community })
     if (attached !== 'none') {
       const fresh = await this.freshness(context, 'post', caption, problems)
       if (fresh) {
         freshness.post = fresh
         if (fresh.verdict !== 'fresh') {
           problems.push(`the caption repeated what was already said (${fresh.reason}); rewritten`)
-          caption = await this.caption(context, { pick, attached, community, avoid: { said: fresh.said, reason: fresh.reason } })
+          caption = room
+            ? await this.morningAgain(room, problems, { avoid: { said: fresh.said, reason: fresh.reason } })
+            : await this.caption(context, { pick, attached, community, avoid: { said: fresh.said, reason: fresh.reason } })
           const again = await this.freshness(context, 'post', caption, problems)
           if (again) freshness.post = again
           log('caption rewritten as a repeat', { was: fresh.verdict, now: again?.verdict ?? 'unread' })
@@ -446,7 +480,9 @@ export class MorningPipeline {
       if (read) {
         critiques.caption = read
         if (read.verdict !== 'worthy') {
-          caption = await this.caption(context, { pick, attached, community, rewrite: { draft: caption, critique: read } })
+          caption = room
+            ? await this.morningAgain(room, problems, { rewrite: { draft: caption, critique: read } })
+            : await this.caption(context, { pick, attached, community, rewrite: { draft: caption, critique: read } })
           const again = await this.critique('caption', { kind: 'caption', text: caption, media: shows, context: about(pick) }, problems)
           if (again) critiques.caption = again
           log('caption rewritten on the critic\'s read', { was: read.verdict, now: again?.verdict ?? 'unread' })
@@ -496,6 +532,7 @@ export class MorningPipeline {
       ...(critiques.script || critiques.caption ? { critiques } : {}),
       freshness,
       recalled: { history, community },
+      ...(room ? { backrooms: { id: room.run.id, thought: room.thought, gm: room.gm, saved: room.saved } } : {}),
     }
 
     // 8. Post, or say what would have been posted.
@@ -515,6 +552,55 @@ export class MorningPipeline {
     const result: MorningResult = { ...base, outcome: 'posted', postedId: posted.id }
     await this.capture(now, result)
     return result
+  }
+
+  /**
+   * The room on the chosen story. The story is the seed (a timeline post as
+   * a mention, a headline as news); the room runs, distills, and writes the
+   * good morning. Any of that missing is undefined and a problem line.
+   */
+  private async room(pick: Pick, story: Story | undefined, problems: string[]): Promise<RoomResult | undefined> {
+    const { backrooms } = this.options
+    if (!backrooms) return undefined
+    // A timeline post goes in without its author: the room plays with what
+    // was said, and a handle in the seed is a real person the lore would
+    // otherwise pull into the lab by name.
+    const seed =
+      story?.kind === 'x'
+        ? { kind: 'mention' as const, text: story.excerpt, source: 'the timeline' }
+        : story
+          ? { kind: 'news' as const, title: story.title, text: story.excerpt, source: story.source }
+          : { kind: 'text' as const, title: pick.headline, text: `${pick.headline}. ${pick.angle}` }
+    try {
+      const result: BackroomsResult = await backrooms.run(seed, {
+        ...(this.options.backroomsTurns !== undefined ? { turns: this.options.backroomsTurns } : {}),
+        gm: true,
+      })
+      if (!result.thought) {
+        problems.push('the room ran but left no thought; the morning is written from the story')
+        return undefined
+      }
+      if (!result.gm) {
+        problems.push('the room left a thought but no good morning; the morning is written from the story')
+        return undefined
+      }
+      problems.push(...result.problems.map((problem) => `the room: ${problem}`))
+      return { run: result.run, thought: result.thought, gm: result.gm, saved: result.saved.markdown }
+    } catch (error) {
+      problems.push(`the room failed: ${messageOf(error)}; the morning is written from the story`)
+      return undefined
+    }
+  }
+
+  /** The good morning again, from the same room, with the reason it was sent back in front of the writer. */
+  private async morningAgain(
+    room: RoomResult,
+    problems: string[],
+    again: { avoid?: { said: string; reason: string }; rewrite?: { draft: string; critique: Critique } },
+  ): Promise<string> {
+    const post = await this.options.backrooms!.gm(room.run, room.thought, problems, again)
+    room.gm = post
+    return post.text
   }
 
   /**
@@ -540,6 +626,18 @@ export class MorningPipeline {
     const ask = captionPrompt(context, { ...rest, maxEmoji, maxLength: MAX_POST_LENGTH, ...(avoid ? { avoid } : {}) })
     if (rewrite) ask.prompt = rewriteWith(ask.prompt, rewrite.draft, rewrite.critique)
     let { text } = await askJson(this.options.text, { ...ask, schema: captionSchema })
+    if (asksTheReader(text)) {
+      // The ranker likes a question and the model knows it; the morning
+      // ends on its take instead. Once more with that said, then the ask is cut.
+      const retry = await askJson(this.options.text, {
+        system: ask.system,
+        prompt:
+          `${ask.prompt}\n\nYour draft:\n${text}\n\nIt ends by asking the reader something. Rewrite it to end on your take, the` +
+          ' joke, or a wish for the day, with no question in it, keeping everything else.',
+        schema: captionSchema,
+      })
+      text = asksTheReader(retry.text) ? withoutTheAsk(retry.text) : retry.text
+    }
     if (text.length > MAX_POST_LENGTH || countEmoji(text) > maxEmoji) {
       const retry = await askJson(this.options.text, {
         system: ask.system,
@@ -657,10 +755,37 @@ export class MorningPipeline {
         ...(result.script ? { script: result.script.script, clip: result.script.summary } : {}),
         attached: result.attached,
         published: result.outcome === 'posted',
+        ...(result.backrooms
+          ? { room: result.backrooms.id, premise: result.backrooms.thought.premise, thought: result.backrooms.thought.thought, wire: result.backrooms.thought.wire }
+          : {}),
       })
       .catch((error: unknown) => {
         result.problems.push(`could not remember the post: ${messageOf(error)}`)
       })
+  }
+}
+
+/** The two backrooms calls the morning makes: the room on the story, and the good morning again. */
+export type MorningBackrooms = { run: Backrooms['run']; gm: Backrooms['gm'] }
+
+interface RoomResult {
+  run: BackroomsRun
+  thought: Thought
+  gm: GmPost
+  saved: string
+}
+
+/**
+ * The pick as the scene writer sees it when the morning came from the lab:
+ * the headline stays (the picture still has to say which story this is),
+ * the image is the room's premise and the angle is the thought itself, so
+ * the scene is of what the lab did with the news rather than of the news.
+ */
+function sceneOf(pick: Pick, thought: Thought): Pick {
+  return {
+    ...pick,
+    visual: thought.premise.slice(0, 300),
+    angle: thought.thought.slice(0, 300),
   }
 }
 
@@ -705,8 +830,9 @@ export function rewriteWith(prompt: string, draft: string, critique: Critique): 
     "A reader who knows how X's ranker scores a post read it:",
     renderCritique(critique),
     '',
-    'Rewrite it with the fixes, keeping every rule above and your own voice. The point is',
-    'that somebody has something to type back: a stance they can push on, a question with',
-    'a one-line answer, a blank to fill. Never at a person, never political, never a price.',
+    'Rewrite it with the fixes that are about the shape, the length and the first line,',
+    'keeping every rule above and your own voice. Ignore any fix that asks for a question,',
+    'a forced choice, a blank to fill or a hook: the post ends on its take, not on an ask.',
+    'Never at a person, never political, never a price.',
   ].join('\n')
 }
