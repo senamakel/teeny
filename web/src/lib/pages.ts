@@ -50,6 +50,14 @@ export const PAGES: PageMeta[] = [
     lede: 'This is the whole list. A test asserts it exactly, so adding a capability is a deliberate act that fails the suite until someone decides.',
     scene: 'grid',
   },
+  {
+    slug: '/articles',
+    label: 'Articles',
+    eyebrow: 'Articles',
+    title: 'The long ones, twice a week',
+    lede: 'A room of tiny agents is opened on something from the wire and read down to one thought. The thought is planned, written a section at a time, proof-read against a checklist of the ways machines write, drawn, and published as an article on X. Every one of them is here in full.',
+    scene: 'shards',
+  },
 ]
 
 export function pageBySlug(slug: string): PageMeta {

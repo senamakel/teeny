@@ -131,3 +131,44 @@
 html {
   scroll-behavior: smooth;
 }
+
+/* An article's body: the little markdown the bot writes, set for reading. */
+@layer components {
+  .article {
+    @apply text-base leading-relaxed sm:text-lg;
+  }
+  .article > p {
+    @apply my-5;
+  }
+  .article > p:first-child > em {
+    @apply not-italic text-muted-foreground;
+  }
+  .article h2 {
+    @apply mt-12 mb-4 text-2xl font-semibold tracking-tight;
+  }
+  .article h3 {
+    @apply mt-8 mb-3 text-xl font-semibold tracking-tight;
+  }
+  .article ul,
+  .article ol {
+    @apply my-5 pl-6;
+  }
+  .article ul {
+    @apply list-disc;
+  }
+  .article ol {
+    @apply list-decimal;
+  }
+  .article li {
+    @apply my-1;
+  }
+  .article blockquote {
+    @apply my-6 border-l-2 border-primary/60 pl-4 text-muted-foreground;
+  }
+  .article hr {
+    @apply my-10;
+  }
+  .article figure {
+    @apply my-8;
+  }
+}
