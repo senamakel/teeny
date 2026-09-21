@@ -1,7 +1,9 @@
 import 'dotenv/config'
 import { readFileSync } from 'node:fs'
 import { createExaClient } from '../agent/tools/exa.js'
+import { publishSaved } from '../article/publish.js'
 import { renderStructure } from '../article/stages.js'
+import { FileArticleStore } from '../article/store.js'
 import { buildArticlePipeline } from '../article/wiring.js'
 import type { SavedExtras } from '../backrooms/store.js'
 import type { BackroomsRun } from '../backrooms/types.js'
@@ -26,6 +28,7 @@ import { lexicalGate } from '../safety/gate.js'
  *   npm run article-dry-run -- --origin                      # the first article: the lore introduced, teeny waking up
  *   npm run article-dry-run -- --rooms 1 --no-proof --no-flow
  *   npm run article-dry-run -- --publish                     # publishes, if DRY_RUN=false
+ *   npm run article-dry-run -- --publish-saved <slug>        # publishes a reviewed record as it is, if DRY_RUN=false
  *
  * Every run is saved under ARTICLES_DIR as a record with each stage's
  * output, so a rehearsal can be read file by file. Pictures spend the same
@@ -74,6 +77,30 @@ const flag = (name: string): string | undefined => {
 }
 const has = (name: string): boolean => argv.includes(`--${name}`)
 const publish = has('publish') && !config.DRY_RUN
+if (flag('publish-saved')) {
+  if (config.DRY_RUN) {
+    console.error('DRY_RUN is on; nothing is published')
+    process.exit(1)
+  }
+  const slug = flag('publish-saved')!
+  console.log(`\nPublishing ${slug} as it was saved. THIS WILL PUBLISH.\n`)
+  const published = await publishSaved(slug, {
+    articles: new FileArticleStore(config.ARTICLES_DIR),
+    x: new XApiClient({
+      username: config.X_BOT_USERNAME,
+      apiKey: config.X_API_KEY,
+      apiSecret: config.X_API_SECRET,
+      accessToken: config.X_ACCESS_TOKEN,
+      accessTokenSecret: config.X_ACCESS_TOKEN_SECRET,
+      ...(config.X_BEARER_TOKEN ? { bearerToken: config.X_BEARER_TOKEN } : {}),
+    }),
+    memory: new CortexMemory({ apiUrl: config.CORTEX_API_URL, actor: config.CORTEX_ACTOR, bearer: config.CORTEX_TOKEN }, config.CORTEX_SCOPE),
+    logger: { info: (object, message) => console.log(`  ${message ?? ''} ${JSON.stringify(object)}`) },
+  })
+  console.log(`\nPUBLISHED: article ${published.xArticleId}, post ${published.postId}`)
+  console.log(`https://x.com/${config.X_BOT_USERNAME.replace(/^@/, '')}/status/${published.postId}\n`)
+  process.exit(0)
+}
 
 const memory = new CortexMemory(
   { apiUrl: config.CORTEX_API_URL, actor: config.CORTEX_ACTOR, bearer: config.CORTEX_TOKEN },
