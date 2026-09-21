@@ -261,6 +261,7 @@ describe('the caption prompt', () => {
     expect(prompt).toContain('$TINY with the market cap of $DRB')
     expect(prompt).toContain('37x')
     expect(prompt).toContain('#9 of 12 on the board')
+    expect(prompt).toContain('It ends on the aside, not on a question.')
     expect(prompt).toContain('#5 on the board')
     expect(prompt).toContain('not a forecast')
     expect(prompt).toContain("$DRB is somebody else's token")
@@ -417,6 +418,17 @@ describe('the pipeline', () => {
     const result = await new MoonPipeline(pipelineOptions({ text: { complete } })).run()
     expect(complete).toHaveBeenCalledTimes(2)
     expect(result.caption).toBe('short')
+  })
+
+  it('sends a caption that ends on a question back once, then cuts the ask', async () => {
+    const complete = vi
+      .fn()
+      .mockResolvedValueOnce('{"text":"the picture does the maths.\\nwhich rung are you watching?"}')
+      .mockResolvedValueOnce('{"text":"the picture does the maths.\\nwhich one is yours?"}')
+    const result = await new MoonPipeline(pipelineOptions({ text: { complete } })).run()
+    expect(complete).toHaveBeenCalledTimes(2)
+    expect(result.caption).toBe('the picture does the maths.')
+    expect((complete.mock.calls[1]![0] as { prompt: string }).prompt).toContain('It ends by asking the reader something')
   })
 
   it('fails plainly when nothing on the board is above the token', async () => {

@@ -261,23 +261,7 @@ export const checkSchema = z.object({
   reason: z.string().default(''),
 })
 
-/** Whether the post ends by asking the reader something: a question mark on its last line. */
-export function asksTheReader(text: string): boolean {
-  const last = text.trim().split('\n').filter((line) => line.trim()).pop() ?? ''
-  return /\?\s*$/.test(last)
-}
-
-/**
- * The last line cut when it is a question and there is a post left without
- * it; a one-line post that is all question keeps its words and loses the
- * mark, which reads as the deadpan it should have been.
- */
-export function withoutTheAsk(text: string): string {
-  const lines = text.trim().split('\n')
-  const kept = lines.slice(0, -1).join('\n').trim()
-  if (kept) return kept
-  return lines.join('\n').replace(/\s*\?\s*$/, '.')
-}
+export { asksTheReader, withoutTheAsk } from '../agent/house-style.js'
 
 export function checkQuestion(sheet: string | undefined): string {
   return [
