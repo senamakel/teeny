@@ -213,6 +213,63 @@ export interface XCreateOptions {
   mediaIds?: string[]
 }
 
+/**
+ * The body of an X Article as the Articles API takes it: a list of text
+ * blocks in reading order, and the entities (images, dividers) the atomic
+ * blocks point at by index. Only the subset of the format the article
+ * pipeline emits is named here; X accepts more.
+ */
+export type XArticleBlockType =
+  | 'unstyled'
+  | 'header-one'
+  | 'header-two'
+  | 'header-three'
+  | 'unordered-list-item'
+  | 'ordered-list-item'
+  | 'blockquote'
+  | 'atomic'
+
+export interface XArticleInlineStyle {
+  offset: number
+  length: number
+  style: 'bold' | 'italic' | 'strikethrough'
+}
+
+export interface XArticleBlock {
+  text: string
+  type: XArticleBlockType
+  /** Offsets and lengths in UTF-16 code units of `text`, as X counts them. */
+  inlineStyleRanges?: XArticleInlineStyle[]
+  /** `key` is an index into the article's `entities`. */
+  entityRanges?: Array<{ key: number; offset: number; length: number }>
+}
+
+export interface XArticleEntity {
+  /** The index into `entities`, as a string; X keys entities that way. */
+  key: string
+  value: {
+    type: 'image' | 'divider' | 'link'
+    mutability: 'immutable' | 'mutable'
+    data: {
+      mediaItems?: Array<{ mediaCategory: string; mediaId: string }>
+      caption?: string
+      url?: string
+    }
+  }
+}
+
+export interface XArticleContentState {
+  blocks: XArticleBlock[]
+  entities: XArticleEntity[]
+}
+
+export interface XArticleDraft {
+  title: string
+  contentState: XArticleContentState
+  /** A media id from `uploadMedia`, shown above the title. */
+  coverMediaId?: string
+}
+
 export interface XMedia {
   data: Uint8Array
   /**
@@ -238,6 +295,12 @@ export interface XTools {
   likePost(postId: string): Promise<void>
   /** The public counters of the account's own posts given, for the ones X still has. */
   postMetrics(ids: string[]): Promise<XOwnPostMetrics[]>
+  /**
+   * Creates and publishes an X Article under the account. Publishing makes a
+   * post on the timeline; `postId` is that post. X only allows this on a
+   * Premium+ account, and refuses with an error otherwise.
+   */
+  publishArticle(draft: XArticleDraft): Promise<{ articleId: string; postId: string }>
 }
 
 /**

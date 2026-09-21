@@ -315,6 +315,7 @@ function pipeline(overrides: Partial<Omit<MorningPipelineOptions, 'videos'>> & {
     uploadMedia: vi.fn().mockResolvedValue({ mediaId: 'm1' }),
     likePost: vi.fn().mockResolvedValue(undefined),
     postMetrics: vi.fn().mockResolvedValue([]),
+    publishArticle: vi.fn().mockResolvedValue({ articleId: 'a1', postId: '9002' }),
   }
   const memory: Memory = {
     captureActivity: vi.fn().mockResolvedValue(undefined),

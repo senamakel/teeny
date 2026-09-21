@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-import type { XCreateOptions, XTools } from '../types.js'
+import type { XArticleDraft, XCreateOptions, XTools } from '../types.js'
 import type { PostLedger } from './ledger.js'
 
 export type Claim =
@@ -110,7 +110,7 @@ export class CadenceHeld extends Error {
  * a reply passes straight through. This is the backstop under the jobs'
  * own checks, and the only check an ad-hoc agent task gets.
  */
-export function paced<T extends Pick<XTools, 'createPost'>>(x: T, cadence: Cadence): T {
+export function paced<T extends Pick<XTools, 'createPost'> & Partial<Pick<XTools, 'publishArticle'>>>(x: T, cadence: Cadence): T {
   const createPost = async (text: string, options: XCreateOptions = {}): Promise<{ id: string }> => {
     if (options.replyToPostId) return x.createPost(text, options)
     const kind = cadence.kindNow() ?? 'post'
@@ -120,9 +120,20 @@ export function paced<T extends Pick<XTools, 'createPost'>>(x: T, cadence: Caden
     await cadence.record({ postId: posted.id, kind, text })
     return posted
   }
+  // An article is an own post too: publishing puts one on the timeline.
+  const publishArticle = async (draft: XArticleDraft): Promise<{ articleId: string; postId: string }> => {
+    if (!x.publishArticle) throw new Error('this client cannot publish articles')
+    const kind = cadence.kindNow() ?? 'article'
+    const claim = await cadence.claim(kind)
+    if (!claim.ok) throw new CadenceHeld(claim)
+    const published = await x.publishArticle(draft)
+    await cadence.record({ postId: published.postId, kind, text: draft.title })
+    return published
+  }
   return new Proxy(x, {
     get(target, property, receiver) {
       if (property === 'createPost') return createPost
+      if (property === 'publishArticle' && typeof target.publishArticle === 'function') return publishArticle
       const value = Reflect.get(target, property, receiver) as unknown
       return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value
     },
