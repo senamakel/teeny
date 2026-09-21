@@ -27,6 +27,7 @@
     "morning-dry-run": "tsx src/scripts/morning-dry-run.ts",
     "calendar-dry-run": "tsx src/scripts/calendar-dry-run.ts",
     "moon-dry-run": "tsx src/scripts/moon-dry-run.ts",
+    "quote-dry-run": "tsx src/scripts/quote-dry-run.ts",
     "narrative-dry-run": "tsx src/scripts/narrative-dry-run.ts",
     "backrooms": "tsx src/scripts/backrooms-dry-run.ts",
     "article-dry-run": "tsx src/scripts/article-dry-run.ts"

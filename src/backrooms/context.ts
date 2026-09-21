@@ -30,13 +30,11 @@ export interface ContextSources {
 
 /** Things in the lore worth asking memory and the boards about. */
 const PROBES = [
-  'the kettle',
   'senamakel',
   'the tiny agents',
   'the visitors',
   'the ledger',
   'naps',
-  'the fridge rate',
   'the terminal typing by itself',
   'the currency',
   'one dollar',
@@ -71,8 +69,8 @@ export class ContextBuilder {
     const [past, memory, live, forum] = await Promise.all([
       this.past(random, problems),
       this.memory([...probes.slice(0, 4), ...seedWords.slice(0, 2)], problems),
-      this.live(seedWords, probes[4] ?? 'the kettle', problems),
-      this.forum(seedWords, probes[5] ?? 'the kettle', random, problems),
+      this.live(seedWords, probes[4] ?? 'the tiny agents', problems),
+      this.forum(seedWords, probes[5] ?? 'the tiny agents', random, problems),
     ])
 
     const blocks: ContextBlock[] = [

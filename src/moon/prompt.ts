@@ -76,6 +76,8 @@ export function moonCaptionPrompt(
       `- ${tokenTag} once, where it reads naturally; it is your own token and this is what it is doing today.`,
       '- No "buy", no "target", no "wen", no "will", no "guaranteed", no rocket count-down, no promise.',
       '  You are allowed to like the number. You are not allowed to sell it.',
+      '- It ends on the aside, not on a question. The post does not ask the reader anything, does',
+      '  not invite a reply, does not leave a blank to fill, and never says "thoughts?".',
       '',
       `Under ${input.maxLength} characters. At most ${input.maxEmoji} emoji. No URLs, no handles, no hashtags,`,
       'nothing political. Plain text, line breaks allowed.',

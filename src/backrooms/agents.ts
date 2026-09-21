@@ -4,7 +4,7 @@ import type { AgentSpec, ToolName } from './types.js'
 /**
  * The serial's voice is a terminal's; the backrooms are not. A room full of
  * shell commands reads as a screenshot of a shell, and the story has to be
- * a story: a robot, a kettle, a ledger, people.
+ * a story: a robot, a ledger, people.
  */
 export const NO_TERMINAL = [
   'this is not a terminal and you are not a shell. no commands, no paths, no flags, no manpages,',

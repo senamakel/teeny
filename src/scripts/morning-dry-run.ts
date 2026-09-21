@@ -98,6 +98,13 @@ for (const check of result.freshness.subject) {
   console.log(`  [${check.story}] ${check.headline}: ${check.verdict.toUpperCase()} (${check.reason})${check.said ? `\n      said before: ${check.said}` : ''}`)
 }
 if (result.freshness.subject.length === 0) console.log('  (the subject could not be checked)')
+if (result.backrooms) {
+  console.log(`\nTHE ROOM (${result.backrooms.id})`)
+  console.log(`  ${result.backrooms.thought.premise}`)
+  if (result.backrooms.thought.wire) console.log(`  the wire: ${result.backrooms.thought.wire}`)
+  console.log(`  ${result.backrooms.thought.thought}`)
+  console.log(`  saved: ${result.backrooms.saved}`)
+}
 console.log('\nSEED')
 console.log(result.seed ? `${result.seed.url}\n${result.seed.look}` : '(no reference sheet)')
 console.log('\nCONCEPTS')

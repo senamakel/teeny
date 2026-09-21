@@ -150,6 +150,13 @@ describe('market tools', () => {
     expect(output).toContain('with the chart attached')
   })
 
+  it('cuts a closing question off the post rather than arguing with the agent', async () => {
+    const { tools, x } = build()
+    await tools.get('render_chart')!.invoke({ timeframe: '1h', bars: 60 } as never)
+    await tools.get('post_chart')!.invoke({ text: 'the level held. we are still here.\nwhere do you see the next base?', chartId: 'chart_1' } as never)
+    expect(x.createPost).toHaveBeenCalledWith('the level held. we are still here.', { mediaIds: ['media-1'] })
+  })
+
   it('refuses an id it never rendered instead of posting a bare text', async () => {
     const { tools, x } = build()
     const output = (await tools.get('post_chart')!.invoke({

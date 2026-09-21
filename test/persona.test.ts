@@ -119,5 +119,8 @@ describe('the critic step in the chart prompt', () => {
     expect(withCritic).toContain('$TINY on the timeframe')
     expect(withCritic).toContain('10. post_chart once')
     expect(withCritic).toContain('11. remember a one-line note')
+    // The post ends on its read: the critic's ask for a question is ignored, and the rule is in the prompt either way.
+    expect(withCritic).toContain('Ignore any fix that asks for a question')
+    expect(without).toContain('It ends on your read, not on a question.')
   })
 })

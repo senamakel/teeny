@@ -30,6 +30,8 @@ import { buildMorningPipeline } from './morning/wiring.js'
 import { MorningJob, MORNING_CALENDAR_SLOT } from './jobs/morning-job.js'
 import { buildMoonPipeline } from './moon/wiring.js'
 import { MoonJob } from './jobs/moon-job.js'
+import { buildQuotePipeline } from './quote/wiring.js'
+import { QuoteJob } from './jobs/quote-job.js'
 import { NarrativeJob } from './jobs/narrative-job.js'
 import { ArticleJob } from './jobs/article-job.js'
 import { buildArticlePipeline } from './article/wiring.js'
@@ -298,6 +300,11 @@ async function release(hold: Hold): Promise<string> {
   if (where.surface === 'moon') {
     return 'recorded; the moon chart runs again tomorrow'
   }
+  // Nor the quote post: the post it was over is logged as quoted, so
+  // tomorrow's run picks another one.
+  if (where.surface === 'quote') {
+    return 'recorded; the quote post runs again tomorrow'
+  }
   return 'recorded; nothing here can publish it'
 }
 // Every role writes to it and the ingest role serves it, so it lives in the
@@ -392,6 +399,8 @@ const rota = { days: config.POST_ROTA_DAYS, anchor: config.POST_ROTA_ANCHOR }
 const runsMorning = config.MORNING_ENABLED && (role === 'all' || role === 'morning')
 // And the moon chart, for the same reason.
 const runsMoon = config.MOON_ENABLED && (role === 'all' || role === 'moon')
+// And the quote post, the third post of the day.
+const runsQuote = config.QUOTE_ENABLED && (role === 'all' || role === 'quote')
 // And the serial, which publishes an episode on its own schedule.
 const runsNarrative = config.NARRATIVE_ENABLED && (role === 'all' || role === 'narrative')
 // And the article, twice a week. A rehearsal until ARTICLE_PUBLISH is on.
@@ -571,6 +580,27 @@ if (runsMoon) {
   })
   cron.schedule(config.MOON_CRON, () => {
     void moonJob.run().catch((error: unknown) => app.log.error({ err: error }, 'moon job failed'))
+  })
+}
+
+if (runsQuote) {
+  const quoteJob = new QuoteJob({
+    pipeline: buildQuotePipeline(config, {
+      memory,
+      x,
+      persona,
+      botUsername,
+      dryRun: config.DRY_RUN,
+      logger: app.log,
+      safety,
+      ledger: inferences,
+    }),
+    logger: app.log,
+    journal,
+    cadence,
+  })
+  cron.schedule(config.QUOTE_CRON, () => {
+    void quoteJob.run().catch((error: unknown) => app.log.error({ err: error }, 'quote job failed'))
   })
 }
 
@@ -774,6 +804,7 @@ app.log.info(
       ? `at "${config.MORNING_CRON}", ${media?.videos ? 'video' : 'image'}, ${config.MORNING_NEWS_TOPICS.length} topics`
       : false,
     moon: runsMoon ? `${config.MOON_COIN_ID} against ${config.MOON_CATEGORY} at "${config.MOON_CRON}", rota slot ${config.MOON_ROTA_SLOT}` : false,
+    quote: runsQuote ? `at "${config.QUOTE_CRON}", ${config.QUOTE_POSTS_PER_SEARCH} posts a search over ${config.QUOTE_HOURS}h` : false,
     narrative: runsNarrative
       ? `${config.NARRATIVE_BRANCHES} rooms of ${config.NARRATIVE_TURNS} exchanges at "${config.NARRATIVE_CRON}"`
       : false,

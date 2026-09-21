@@ -34,7 +34,7 @@ export const videoSchema = z.object({
 })
 
 export const codeSchema = z.object({
-  /** e.g. `fridge-rate.sh`, `naps.py`, `LEDGER.md`, `tn.h` */
+  /** e.g. `naps.py`, `LEDGER.md`, `tn.h` */
   filename: z.string().min(1),
   language: z.string().min(1),
   /** The file the tiny agents left on the desk: runnable-looking, straight-faced, the joke in the comments. */
@@ -96,7 +96,7 @@ export function articlePrompt(run: BackroomsRun, thought: Thought): { system: st
       'write the article: 600 to 900 words, markdown with two or three short headings, in teeny\'s',
       'voice. it tells the thought as something that happened in the lab, in order, with the objects',
       'above, and it ends on the turn. it may open on the seed (what came through the wire) and it',
-      'may explain the fridge rate once. it is a story a stranger can follow: whole paragraphs,',
+      'may explain the currency once. it is a story a stranger can follow: whole paragraphs,',
       'cause and effect, what teeny did and what it made of it, not a sequence of fragments and not',
       'the transcript pasted back. no headings that explain the joke.',
       '',
@@ -161,7 +161,7 @@ export function codePrompt(run: BackroomsRun, thought: Thought): { system: strin
       'write one file, 30 to 80 lines, that is this thought as code: a script, a module, a config, a',
       'makefile, a ledger format, a protocol header, whatever the thought is. pick the language the',
       'tiny agents would have used. the comments carry the story; the code carries the logic of the',
-      'fridge rate, the ledger, the agents, whatever the thought turned on. the comments are teeny',
+      'currency, the ledger, the agents, whatever the thought turned on. the comments are teeny',
       'explaining the code, not the transcript quoted; the program should do something on its own',
       'terms that is the thought, and its output should be the turn.',
       '',

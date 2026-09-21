@@ -10,7 +10,7 @@ import { LangGraphBackroomsAgent } from './agent.js'
 import { agentPresets, pickAgents } from './agents.js'
 import { ContextBuilder } from './context.js'
 import { distill, type Thought } from './distill.js'
-import { gatherGmMaterial, gm as writeGm, type GmPost } from './gm.js'
+import { gatherGmMaterial, gm as writeGm, type GmAgain, type GmPost } from './gm.js'
 import { judge, stats, type Craziness, type RunStats } from './evaluate.js'
 import { variants as makeVariants, type Variants } from './variants.js'
 import { runBackrooms } from './room.js'
@@ -64,8 +64,12 @@ export interface Backrooms {
   /** The last layers on their own, for a run already on disk. */
   distill(run: BackroomsRun): Promise<Thought>
   variants(run: BackroomsRun, thought: Thought): Promise<Variants>
-  /** The good-morning post from a thought; `problems` collects the sources that could not be read. */
-  gm(run: BackroomsRun, thought: Thought, problems?: string[]): Promise<GmPost>
+  /**
+   * The good-morning post from a thought; `problems` collects the sources
+   * that could not be read, `again` is the morning pipeline sending a draft
+   * back (a repeat per memory, or the ranker's read).
+   */
+  gm(run: BackroomsRun, thought: Thought, problems?: string[], again?: GmAgain): Promise<GmPost>
 }
 
 export interface RunResult {
@@ -119,8 +123,8 @@ export function buildBackrooms(config: Config, deps: BackroomsDeps): Backrooms {
     botUsername: deps.botUsername,
     maxEmoji: deps.maxEmoji ?? config.MAX_EMOJI_PER_POST,
   }
-  const writeMorning = async (run: BackroomsRun, thought: Thought, problems: string[] = []): Promise<GmPost> =>
-    writeGm(run, thought, await gatherGmMaterial(gmSources, problems), editor)
+  const writeMorning = async (run: BackroomsRun, thought: Thought, problems: string[] = [], again: GmAgain = {}): Promise<GmPost> =>
+    writeGm(run, thought, await gatherGmMaterial(gmSources, problems), editor, again)
 
   return {
     forums,
