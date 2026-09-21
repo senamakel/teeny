@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { TextModel } from '../src/media/reference.js'
 import {
+  applyFindings,
   loadHumanizer,
   proofFixPrompt,
   proofPrompt,
@@ -154,32 +155,58 @@ describe('the proof-reader', () => {
     expect(m.calls).toEqual(['review'])
   })
 
-  it('applies the findings and reads again', async () => {
+  it('applies a finding that quotes the text exactly by hand, then reads again', async () => {
     const fixed = draft.replace('the door — it was open — an inch.', 'the door was open an inch.')
-    const m = model({ review: [fixIt, clean], fix: `\`\`\`markdown\n${fixed}\n\`\`\`` })
+    const m = model({ review: [fixIt, clean] })
     const out = await proofread(m, { skill, markdown: draft, sample: 's' })
     expect(out.applied).toBe(true)
     expect(out.markdown).toBe(fixed)
     expect(out.after).toEqual(clean)
-    expect(m.calls).toEqual(['review', 'fix', 'review'])
+    // No model was asked to fix anything: the quote was exact.
+    expect(m.calls).toEqual(['review', 'review'])
   })
 
-  it('refuses a fix that changed the shape or said there was nothing to fix', async () => {
+  it('asks the model only about findings it cannot apply by hand', async () => {
+    const vague = { verdict: 'fix', findings: [{ section: 's2', pattern: '3 shallow -ing', quote: 'sat there', fix: 'cut the trailing clause' }], voice: 'yes' }
+    const fixed = draft.replace('the lock sat there.', 'the lock sat.')
+    const m = model({ review: [vague, clean], fix: `\`\`\`markdown\n${fixed}\n\`\`\`` })
+    const out = await proofread(m, { skill, markdown: draft, sample: 's' })
+    expect(out.applied).toBe(true)
+    expect(out.markdown).toBe(fixed)
+    expect(m.calls).toEqual(['review', 'fix', 'review'])
+    const asked = (m.fixer.complete as ReturnType<typeof vi.fn>).mock.calls[0]![0] as { prompt: string }
+    expect(asked.prompt).toContain('[s2] 3 shallow -ing')
+  })
+
+  it('refuses a model fix that changed the shape or said there was nothing to fix, keeping what was done by hand', async () => {
+    const vague = { verdict: 'fix', findings: [{ section: 's2', pattern: '3', quote: 'sat there', fix: 'cut it' }], voice: 'yes' }
     for (const [fix, reason] of [
       ['Nothing to fix.', 'the fix said there was nothing to fix'],
       [draft.replace('## the lock', '## the key'), 'the headings changed'],
       [draft.replace('![the lock](image:s2)\n\n', ''), 'an image placeholder moved or went missing'],
       ['_dek_\n\n## the gap\n\n![the door](image:s1)\n\n## the lock\n\n![the lock](image:s2)', /of the length$/],
     ] as const) {
-      const m = model({ review: [fixIt], fix })
+      const m = model({ review: [vague], fix })
       const out = await proofread(m, { skill, markdown: draft, sample: 's' })
       expect(out.applied).toBe(false)
       expect(out.markdown).toBe(draft)
       expect(out.refused).toMatch(reason)
       expect(m.calls).toEqual(['review', 'fix'])
     }
+    // One exact finding and one vague one: the exact one lands even when the model's part is refused.
+    const mixed = { verdict: 'fix', findings: [...fixIt.findings, ...vague.findings], voice: 'yes' }
+    const m = model({ review: [mixed, clean], fix: 'Nothing to fix.' })
+    const out = await proofread(m, { skill, markdown: draft, sample: 's' })
+    expect(out.applied).toBe(true)
+    expect(out.markdown).toContain('the door was open an inch.')
+    expect(out.refused).toMatch(/applied by hand$/)
     expect(structurallySame(draft, draft)).toBeUndefined()
     expect(unfence('```md\nx\n```')).toBe('x')
+    expect(applyFindings('a b c', [{ section: '', pattern: '1', quote: 'b', fix: 'B' }, { section: '', pattern: '2', quote: 'z', fix: 'Z' }])).toEqual({
+      markdown: 'a B c',
+      applied: [{ section: '', pattern: '1', quote: 'b', fix: 'B' }],
+      left: [{ section: '', pattern: '2', quote: 'z', fix: 'Z' }],
+    })
   })
 
   it('loads the skill without its frontmatter', () => {

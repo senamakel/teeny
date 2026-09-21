@@ -141,6 +141,30 @@ export interface ProofResult {
   after?: Proof
 }
 
+/**
+ * The findings that quote the text exactly are applied by hand, in place;
+ * a model is asked only about the rest, and its answer is held to the
+ * same shape as the draft. What the model could not do, the hand-applied
+ * fixes still did.
+ */
+export function applyFindings(markdown: string, findings: Finding[]): { markdown: string; applied: Finding[]; left: Finding[] } {
+  let text = markdown
+  const applied: Finding[] = []
+  const left: Finding[] = []
+  for (const finding of findings) {
+    const quote = finding.quote.trim()
+    // A fix that is an instruction ("cut it", "shorten") rather than words is the model's.
+    const literal = quote.length > 0 && text.includes(quote) && !/^(cut|remove|delete|shorten|rewrite|replace|drop|split|merge)\b/i.test(finding.fix.trim())
+    if (literal) {
+      text = text.split(quote).join(finding.fix.trim())
+      applied.push(finding)
+    } else {
+      left.push(finding)
+    }
+  }
+  return { markdown: text, applied, left }
+}
+
 export async function proofread(
   models: { reviewer: TextModel; fixer: TextModel },
   input: { skill: string; markdown: string; sample: string },
@@ -149,17 +173,23 @@ export async function proofread(
   if (review.verdict === 'clean' || review.findings.length === 0) {
     return { markdown: input.markdown, review, applied: false }
   }
-  const raw = await models.fixer.complete(proofFixPrompt(input.skill, input.markdown, review.findings, input.sample))
-  const fixed = unfence(raw)
-  const refused = structurallySame(input.markdown, fixed)
-  if (refused) return { markdown: input.markdown, review, applied: false, refused }
+  const byHand = applyFindings(input.markdown, review.findings)
+  let fixed = byHand.markdown
+  let refused: string | undefined
+  if (byHand.left.length > 0) {
+    const raw = await models.fixer.complete(proofFixPrompt(input.skill, fixed, byHand.left, input.sample))
+    const candidate = unfence(raw)
+    refused = structurallySame(fixed, candidate)
+    if (!refused) fixed = candidate
+  }
+  if (fixed === input.markdown) return { markdown: input.markdown, review, applied: false, ...(refused ? { refused } : {}) }
   let after: Proof | undefined
   try {
     after = await askJson(models.reviewer, { ...proofPrompt(input.skill, fixed, input.sample), schema: proofSchema })
   } catch {
     // The second read is for the record; the fix stands without it.
   }
-  return { markdown: fixed, review, applied: true, ...(after ? { after } : {}) }
+  return { markdown: fixed, review, applied: true, ...(refused ? { refused: `${refused}; the fixes quoted exactly were applied by hand` } : {}), ...(after ? { after } : {}) }
 }
 
 /** A model returning markdown sometimes wraps it in a fence anyway. */

@@ -27,6 +27,8 @@ export interface ArticleMaterial {
   thought: Thought
   /** The engine tonight is about, one of the lore's; absent when the room drew its own. */
   engine?: string
+  /** An editorial note the piece is held to, e.g. that it is the first one and introduces everything. */
+  brief?: string
   /** The lore as teeny may know it: goals, cast, bits, and only the latent items already surfaced. */
   lore: string
 }
@@ -110,6 +112,7 @@ export function structurePrompt(
       ...(m.engine
         ? [`tonight the story is about ${m.engine}`, '(that is a note to you, the writer, about which part of the lore to lean on; the words "engine", "tonight" and "the others rest" are not in the story.)', '']
         : []),
+      ...(m.brief ? ['the brief for this piece, from the editor:', m.brief, ''] : []),
       'what you may draw on (and nothing that has not come out yet):',
       m.lore,
       '',
@@ -118,6 +121,8 @@ export function structurePrompt(
       'purpose, two to five beats that can be shown rather than explained, a word target (the targets',
       `add up to ${options.words}), and one image brief: the single frame an image model draws for`,
       'that scene, specific about the room, the light, where teeny is, what the tiny agents carry;',
+      'say "teeny" and "the tiny agents" and nothing about what they look like (the image model',
+      'has a sheet for that; a brief that describes a mug or a box gets a mug or a box drawn);',
       'no text, letters, numbers or writing anywhere in the frame. the cover is the whole piece in',
       'one frame, the same rules. the title is lowercase, under 60 characters, no colon. the dek is',
       'one sentence a stranger reads before deciding to click. the angle says what the piece is',
@@ -142,6 +147,7 @@ export function checkStructurePrompt(structure: Structure, m: ArticleMaterial): 
       'the plan:',
       renderStructure(structure),
       '',
+      ...(m.brief ? ['the brief the plan must serve:', m.brief, ''] : []),
       'what came through the wire, which the piece may use freely (real places, companies and',
       'institutions in the news are fine; real people only as obvious satire):',
       `${m.run.seed.title ? `${m.run.seed.title} — ` : ''}${m.run.seed.text.slice(0, 400)}`,
@@ -198,6 +204,7 @@ export function sectionPrompt(
     prompt: [
       `the piece: "${structure.title}" — ${structure.dek}`,
       `the angle: ${structure.angle}`,
+      ...(m.brief ? [`the brief: ${m.brief}`] : []),
       `the closing image, which the last section lands on: ${structure.closing}`,
       '',
       'the thought it came from, in your words:',

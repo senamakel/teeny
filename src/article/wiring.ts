@@ -48,6 +48,8 @@ export function buildArticlePipeline(
     from?: { run: BackroomsRun; thought: Thought; judge?: Craziness; path?: string }
     topic?: string
     engine?: string
+    seedText?: string
+    brief?: string
   },
 ): ArticlePipeline {
   const model = (source: string, temperature: number): OpenAITextModel =>
@@ -108,6 +110,8 @@ export function buildArticlePipeline(
     ...(options.from ? { from: options.from } : {}),
     ...(options.topic ? { topic: options.topic } : {}),
     ...(options.engine ? { engine: options.engine } : {}),
+    ...(options.seedText ? { seedText: options.seedText } : {}),
+    ...(options.brief ? { brief: options.brief } : {}),
     ...(options.logger ? { logger: options.logger } : {}),
   })
 }

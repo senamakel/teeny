@@ -283,6 +283,16 @@ describe('the article pipeline', () => {
     expect(budget).not.toHaveBeenCalled()
   })
 
+  it('opens the room on a given text and holds the plan to a brief', async () => {
+    const o = options({ seedText: 'the night teeny came alive', brief: 'the first article: introduce everything', structureOnly: true })
+    await new ArticlePipeline(o).run()
+    expect(o.seed).not.toHaveBeenCalled()
+    expect(o.backrooms.run.mock.calls[0]![0]).toMatchObject({ kind: 'text', text: 'the night teeny came alive', source: 'the editor' })
+    const asked = (o.editor.complete as ReturnType<typeof vi.fn>).mock.calls.map((call) => (call[0] as { prompt: string }).prompt)
+    expect(asked[0]).toContain('the brief for this piece, from the editor:\nthe first article: introduce everything')
+    expect(asked[1]).toContain('the brief the plan must serve:\nthe first article: introduce everything')
+  })
+
   it('splits the markdown at the section headings', () => {
     expect(splitSections('_dek_\n\n## one\n\na\n\n## two\n\nb')).toEqual(['_dek_', '## one\n\na', '## two\n\nb'])
   })

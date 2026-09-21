@@ -88,6 +88,10 @@ export interface ArticlePipelineOptions {
   from?: { run: BackroomsRun; thought: Thought; judge?: Craziness; path?: string }
   topic?: string
   engine?: string
+  /** Open the room on this text instead of the wire. */
+  seedText?: string
+  /** An editorial note the plan, the sections and the check are held to. */
+  brief?: string
   random?: () => number
   now?: () => number
   logger?: { info: (object: unknown, message?: string) => void }
@@ -184,7 +188,7 @@ export class ArticlePipeline {
       return { ...base, outcome: 'skipped' }
     }
     record.set({ runId: run.id, thought, ...(judge ? { judge } : {}), ...(rooms.find((room) => room.runId === run!.id)?.saved ? { runPath: rooms.find((room) => room.runId === run!.id)!.saved! } : {}) })
-    const m: ArticleMaterial = { run, thought, ...(engine ? { engine } : {}), lore }
+    const m: ArticleMaterial = { run, thought, ...(engine ? { engine } : {}), ...(options.brief ? { brief: options.brief } : {}), lore }
 
     // 4. The plan, checked once before a word of prose exists.
     const planning = { sectionsMax: options.sectionsMax, words: options.words }
@@ -400,6 +404,7 @@ export class ArticlePipeline {
   /** From the wire on one of the topics, or as a last resort the engine itself. */
   private async findSeed(engine: string | undefined, random: () => number, problems: string[]): Promise<Seed> {
     const { options } = this
+    if (options.seedText) return { kind: 'text', text: options.seedText, source: 'the editor' }
     const topic = options.topic ?? options.topics[Math.floor(random() * options.topics.length)] ?? 'ai agents'
     try {
       const seed = await options.seed(topic)

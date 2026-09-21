@@ -117,7 +117,9 @@ export function buildBackrooms(config: Config, deps: BackroomsDeps): Backrooms {
         driftEvery: options.driftEvery ?? 4,
         maxToolCalls: options.maxToolCalls ?? config.BACKROOMS_TOOL_CALLS,
       }
-      const id = runId(new Date(), seed.title ?? seed.text.slice(0, 40))
+      // The rng goes into the id: two rooms opened on the same seed in the
+      // same minute would otherwise share a name and one would overwrite the other.
+      const id = `${runId(new Date(), seed.title ?? seed.text.slice(0, 40))}-${settings.rng.toString(36)}`
       const random = rng(settings.rng)
       const contexts: AgentContext[] = []
       for (const spec of specs) {
