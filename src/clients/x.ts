@@ -219,16 +219,24 @@ export class XApiClient implements XClient, XTools {
    * "who am I", which the app-only bearer cannot answer: it identifies the app,
    * not the account.
    */
-  async identity(): Promise<{ id: string; username: string }> {
+  async identity(): Promise<{ id: string; username: string; followers?: number }> {
     if (!this.cachedIdentity) {
-      const response = await this.writeClient.users.getMe({ userFields: ['username'] })
+      const response = await this.writeClient.users.getMe({ userFields: ['username', 'public_metrics'] })
       const id = response.data?.id
       if (!id) {
         throw new Error(
           `X did not identify the authenticated account: ${JSON.stringify(response.errors ?? response)}`,
         )
       }
-      this.cachedIdentity = { id, username: response.data?.username ?? this.username }
+      // The follower count rides along for the serial's world state; absent
+      // (an older token scope, a field X left out) the identity is still one.
+      const followers = (response.data as { public_metrics?: { followers_count?: number } } | undefined)
+        ?.public_metrics?.followers_count
+      this.cachedIdentity = {
+        id,
+        username: response.data?.username ?? this.username,
+        ...(typeof followers === 'number' ? { followers } : {}),
+      }
     }
     return this.cachedIdentity
   }
@@ -269,7 +277,7 @@ export class XApiClient implements XClient, XTools {
     }
   }
 
-  private cachedIdentity: { id: string; username: string } | undefined
+  private cachedIdentity: { id: string; username: string; followers?: number } | undefined
 
   async createPost(text: string, options: XCreateOptions = {}): Promise<{ id: string }> {
     const response = await this.writeClient.posts.create({

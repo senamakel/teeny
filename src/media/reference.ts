@@ -79,6 +79,12 @@ export class OpenAITextModel implements TextModel {
       /** Where the call is written down, and what it is called there. */
       ledger?: InferenceLedger
       source?: string
+      /**
+       * Sampling temperature. Low by default: the sheet and the morning's
+       * stages want the same answer twice. The narrative writers' room asks
+       * for a hot one, because a cold model never says the absurd thing.
+       */
+      temperature?: number
     },
   ) {}
 
@@ -92,7 +98,7 @@ export class OpenAITextModel implements TextModel {
     const response = await doFetch(`${this.options.baseUrl.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
       headers: { authorization: `Bearer ${this.options.apiKey}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ model: this.options.model, temperature: 0.2, messages }),
+      body: JSON.stringify({ model: this.options.model, temperature: this.options.temperature ?? 0.2, messages }),
       signal: AbortSignal.timeout(90_000),
     })
     const body = (await response.json().catch(() => ({}))) as CompletionResponse & {
