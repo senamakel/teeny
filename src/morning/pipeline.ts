@@ -580,12 +580,20 @@ export class MorningPipeline {
         problems.push('the room ran but left no thought; the morning is written from the story')
         return undefined
       }
-      if (!result.gm) {
-        problems.push('the room left a thought but no good morning; the morning is written from the story')
-        return undefined
-      }
       problems.push(...result.problems.map((problem) => `the room: ${problem}`))
-      return { run: result.run, thought: result.thought, gm: result.gm, saved: result.saved.markdown }
+      let morning = result.gm
+      if (!morning) {
+        // The room ran and the thought is good; the one call that failed was
+        // the write-up, usually a timeout. Once more before the whole room is
+        // thrown away for a caption from the headline.
+        try {
+          morning = await backrooms.gm(result.run, result.thought, problems)
+        } catch (error) {
+          problems.push(`the room left a thought but no good morning (${messageOf(error)}); the morning is written from the story`)
+          return undefined
+        }
+      }
+      return { run: result.run, thought: result.thought, gm: morning, saved: result.saved.markdown }
     } catch (error) {
       problems.push(`the room failed: ${messageOf(error)}; the morning is written from the story`)
       return undefined

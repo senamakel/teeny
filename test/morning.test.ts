@@ -1151,6 +1151,20 @@ describe('the morning pipeline', () => {
     const two = await pipeline({ backrooms: empty }).run()
     expect(two.caption).toContain('gm builders.')
     expect(two.problems).toContain('the room ran but left no thought; the morning is written from the story')
+
+    // A thought without a good morning gets the write-up tried once more before the room is dropped.
+    const thought = { reasons: '', premise: 'p', wire: '', objects: [], thought: 'the agents built a star out of forks.', post: 'p', kept: [] }
+    const late = {
+      run: vi.fn().mockResolvedValue({ run: { id: 'room-2' }, stats: {}, thought, problems: [], saved: { json: '', markdown: 'room-2.md' } }),
+      gm: vi.fn().mockResolvedValue({ reasons: '', continues: '', wire: 'a runtime crossed 40k stars', text: 'gm. a runtime crossed 40k stars, they say. the fork star is on the fridge.' }),
+    }
+    const three = await pipeline({ backrooms: late }).run()
+    expect(late.gm).toHaveBeenCalledTimes(1)
+    expect(three.caption).toBe('gm. a runtime crossed 40k stars, they say. the fork star is on the fridge.')
+    const never = { ...late, gm: vi.fn().mockRejectedValue(new Error('timeout')) }
+    const four = await pipeline({ backrooms: never }).run()
+    expect(four.caption).toContain('gm builders.')
+    expect(four.problems).toContain('the room left a thought but no good morning (timeout); the morning is written from the story')
   })
 
 })
