@@ -38,6 +38,8 @@ import { ContentAgent } from './agent/content-model.js'
 import { loadCalendar } from './calendar/calendar.js'
 import { CalendarJob } from './jobs/calendar-job.js'
 import { buildWebhookForwarder } from './webhooks/forward.js'
+import { ActivityIntake } from './webhooks/intake.js'
+import { ActivityStream } from './clients/activity-stream.js'
 import { Cadence, CadenceHeld, paced } from './cadence/cadence.js'
 import { MongoPostLedger } from './cadence/ledger.js'
 import { MongoPeople } from './cadence/people.js'
@@ -303,6 +305,22 @@ const forwarder = config.WEBHOOK_FORWARD_URL
 const brain = config.BRAIN_DATA_DIR
   ? new BrainReader({ dir: config.BRAIN_DATA_DIR, slug: config.BRAIN_COMPANY })
   : undefined
+// One intake for both of X's transports, the webhook and the activity
+// stream, so an event both carry is handled once. The logger does not exist
+// yet; the intake only runs after `app` does.
+const intake = new ActivityIntake({
+  memory,
+  logger: {
+    debug: (detail: unknown, event?: string) => app.log.debug(detail, event),
+    info: (detail: unknown, event?: string) => app.log.info(detail, event),
+    warn: (detail: unknown, event?: string) => app.log.warn(detail, event),
+    error: (detail: unknown, event?: string) => app.log.error(detail, event),
+  },
+  queue,
+  botUserId: () => x.userId(),
+  botUsername,
+  people,
+})
 const app = buildServer({
   memory,
   consumerSecret: config.X_API_SECRET,
@@ -310,6 +328,7 @@ const app = buildServer({
   ...(brain ? { brain } : {}),
   ...(forwarder ? { forwarder } : {}),
   people,
+  intake,
   logger: { level: config.LOG_LEVEL },
   ...(useAgent ? { agent: new LangGraphAgent({ ...agentOptions, ...(critic ? { critic } : {}) }) } : {}),
   ...(config.AGENT_API_TOKEN ? { agentToken: config.AGENT_API_TOKEN } : {}),
@@ -376,6 +395,20 @@ if (runsIngest) {
   cron.schedule(config.INGEST_CRON, () => {
     void ingestJob.run().catch((error: unknown) => app.log.error({ err: error }, 'ingest failed'))
   })
+}
+
+// The stream is the transport that still carries post events; the webhook
+// carries likes and follows. One connection per app, so the ingest role only.
+const activityStream =
+  runsIngest && config.ACTIVITY_STREAM_ENABLED && config.X_BEARER_TOKEN
+    ? new ActivityStream({
+        bearerToken: config.X_BEARER_TOKEN,
+        logger: app.log,
+        onEvent: (payload) => intake.deliver(payload, 'stream'),
+      })
+    : undefined
+if (activityStream) {
+  void activityStream.run().catch((error: unknown) => app.log.error({ err: error }, 'activity stream stopped'))
 }
 
 if (runsReplies) {
@@ -599,6 +632,7 @@ if (runsTelegram && config.TELEGRAM_BOT_TOKEN) {
   void bot.start()
   const shutdown = (): void => {
     bot.stop()
+    activityStream?.stop()
     void bot.drain().finally(() => process.exit(0))
   }
   process.once('SIGTERM', shutdown)
@@ -634,6 +668,11 @@ app.log.info(
     videoGen: media?.videos ? `${config.VIDEO_GEN_MODEL}, ${config.MEDIA_VIDEOS_PER_DAY}/day` : false,
     role,
     ingestCron: runsIngest ? config.INGEST_CRON : false,
+    activityStream: activityStream
+      ? 'on'
+      : runsIngest && config.ACTIVITY_STREAM_ENABLED
+        ? 'off, no X_BEARER_TOKEN'
+        : false,
     replyGapMs: runsReplies
       ? `${config.REPLY_MIN_INTERVAL_MS}-${config.REPLY_MAX_INTERVAL_MS} random`
       : false,

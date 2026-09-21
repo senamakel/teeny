@@ -336,9 +336,28 @@ a receiver that is slow or down never costs a mention here, and a copy that
 does not arrive is logged and lost -- there is no replay, so the receiver
 should not be the only reader of anything it cannot afford to miss.
 
+### The stream
+
+Since 2026-08 X delivers only `like.create` and `follow.follow` to the
+webhook and silently drops every `post.*` event, for this app and others
+([devcommunity 273644](https://devcommunity.x.com/t/273644), acknowledged
+by X staff, unresolved as of 2026-09-17). Confirmed here on 2026-09-21: 20
+minutes of captured deliveries were all likes while three mentions went by,
+and 64 of the 70 mentions queued in the preceding 48 hours had been found by
+the cron, minutes late. The same subscriptions deliver every event, posts
+included, over `GET /2/activity/stream` within seconds, so the agent holds
+that stream open too (`ACTIVITY_STREAM_ENABLED`, on by default, needs
+`X_BEARER_TOKEN`). One connection per app; it runs in the ingest role. A
+`post.mention.create` that arrives shows up as `queued mentions from
+activity` with `source: "stream"` in the bot's log. Note that X holds the
+response headers for the first keep-alive, so "activity stream connected"
+appears about 20 seconds after start.
+
 The cron poll is the safety net under all of it: a webhook delivery that fails
-is retried for a while and then dropped, and an account that misses a mention
-entirely has no way to notice.
+is retried for a while and then dropped, a stream reconnect leaves a gap, and
+an account that misses a mention entirely has no way to notice. With the
+stream on it is a backstop, not the main reader, and `INGEST_CRON` in `.env`
+can run hourly rather than every few minutes.
 
 Read the operational endpoints over SSH:
 
