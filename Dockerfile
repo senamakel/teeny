@@ -27,6 +27,8 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/SOUL.md ./SOUL.md
 COPY --from=builder /app/CONTEXT.md ./CONTEXT.md
 COPY --from=builder /app/skills ./skills
+# The serial's bible and voice: the article's rooms read them at boot.
+COPY --from=builder /app/narrative ./narrative
 COPY --from=builder /app/assets ./assets
 COPY --from=builder /app/calendar.json ./calendar.json
 

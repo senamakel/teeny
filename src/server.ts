@@ -15,6 +15,7 @@ import type { WebhookForwarder } from './webhooks/forward.js'
 import { ActivityIntake } from './webhooks/intake.js'
 import { redactInference, type InferenceLedger, type Lane } from './ledger/ledger.js'
 import type { BrainReader } from './ledger/brain.js'
+import type { ArticleStore } from './article/store.js'
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -90,6 +91,8 @@ export function buildServer(options: {
   ledger?: InferenceLedger
   /** The brain's checkout, served at GET /brain: roster, workflows, the latest runs. */
   brain?: BrainReader
+  /** The articles on disk, served at GET /articles for the site: the published ones, or every rehearsal with `?all=1`. */
+  articles?: ArticleStore
   /** The content filter. An ad-hoc task it holds is refused before the agent sees it. */
   safety?: Pick<SafetyGate, 'inbound' | 'refreshApprovedLinks'>
   /**
@@ -196,6 +199,36 @@ export function buildServer(options: {
       runs: Math.min(Math.max(Number(query.runs) || 40, 1), 200),
       steps: Math.min(Math.max(Number(query.steps) || 300, 1), 1000),
     })
+  })
+
+  app.get('/articles', async (request, reply) => {
+    if (!options.articles) return reply.code(503).send({ error: 'no article store is configured' })
+    const query = request.query as { all?: string; limit?: string }
+    const articles = await options.articles.list({
+      all: query.all === '1' || query.all === 'true',
+      limit: Math.min(Math.max(Number(query.limit) || 50, 1), 200),
+    })
+    return { source: 'live', generatedAt: new Date().toISOString(), articles }
+  })
+
+  app.get('/articles/:slug', async (request, reply) => {
+    if (!options.articles) return reply.code(503).send({ error: 'no article store is configured' })
+    const { slug } = request.params as { slug: string }
+    const query = request.query as { all?: string }
+    const article = await options.articles.get(slug)
+    if (!article) return reply.code(404).send({ error: 'no such article' })
+    if (query.all === '1' || query.all === 'true') return article
+    // The operator's detail stays with the operator; the site gets the piece.
+    const { problems: _problems, error: _error, critique: _critique, proof: _proof, judge: _judge, contentState: _contentState, ...published } = article
+    return published
+  })
+
+  app.get('/articles/:slug/media/:file', async (request, reply) => {
+    if (!options.articles) return reply.code(503).send({ error: 'no article store is configured' })
+    const { slug, file } = request.params as { slug: string; file: string }
+    const media = await options.articles.media(slug, file)
+    if (!media) return reply.code(404).send({ error: 'no such file' })
+    return reply.type(media.mimeType).header('cache-control', 'public, max-age=86400').send(Buffer.from(media.data))
   })
 
   app.get('/webhooks/x', async (request, reply) => {
