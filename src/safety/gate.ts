@@ -162,7 +162,11 @@ export class SafetyGate {
     }
     const cleaned = links.text
 
-    const result = await this.outboundDecision(cleaned, links.removed.length > 0)
+    // The serial's own posts are read under the narrative profile; every
+    // other outbound draft under the strict one. The hold, if any, is still
+    // recorded as outbound: it is the account's text either way.
+    const direction: Direction = context?.surface === 'narrative' ? 'narrative' : 'outbound'
+    const result = await this.outboundDecision(cleaned, links.removed.length > 0, direction)
     if (context) {
       if (!result.ok) {
         await this.hold({
@@ -191,8 +195,12 @@ export class SafetyGate {
     return { decision: result, text: cleaned, fixes }
   }
 
-  private async outboundDecision(cleaned: string, linksCut: boolean): Promise<SafetyDecision> {
-    const match = screenText(cleaned, 'outbound')
+  private async outboundDecision(
+    cleaned: string,
+    linksCut: boolean,
+    direction: Direction = 'outbound',
+  ): Promise<SafetyDecision> {
+    const match = screenText(cleaned, direction)
     if (match) {
       this.logger?.warn({ category: match.category, term: match.term }, 'safety: outbound held by the screen')
       return { ok: false, category: match.category, reason: `contains "${match.term}"`, by: 'screen' }
@@ -201,7 +209,7 @@ export class SafetyGate {
     if (linksCut && !/[a-z0-9]/i.test(cleaned)) {
       return { ok: false, category: 'links', reason: 'the draft was only a disallowed link', by: 'links' }
     }
-    return this.ask(cleaned, 'outbound')
+    return this.ask(cleaned, direction)
   }
 
   private async ask(text: string, direction: Direction): Promise<SafetyDecision> {
@@ -209,7 +217,7 @@ export class SafetyGate {
     const verdict = await this.judge.judge({ text, direction })
     if (verdict.verdict === 'clean') return { ok: true }
     const category = verdict.category ?? 'unknown'
-    this.logger?.[direction === 'outbound' ? 'warn' : 'info'](
+    this.logger?.[direction === 'inbound' ? 'info' : 'warn'](
       { direction, category, reason: verdict.reason },
       `safety: ${direction} held by the judge`,
     )

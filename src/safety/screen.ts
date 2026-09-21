@@ -6,7 +6,14 @@
  */
 import { IDIOMS, LEXICON, type ProhibitedCategory } from './lexicon.js'
 
-export type Direction = 'inbound' | 'outbound'
+/**
+ * Which reading of the lexicon applies. `outbound` is the account's own
+ * words, strictest. `narrative` is also the account's own words, published
+ * under its name as an episode of its serial: the hard categories are read
+ * exactly as strictly, and only the entries marked outbound-only (profanity)
+ * are let through, because the serial swears and the reply voice does not.
+ */
+export type Direction = 'inbound' | 'outbound' | 'narrative'
 
 export interface ScreenMatch {
   category: ProhibitedCategory
