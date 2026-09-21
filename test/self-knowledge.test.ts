@@ -168,7 +168,7 @@ describe('the drafter is told all of it', () => {
 })
 
 describe('price and targets', () => {
-  it('every prompt that talks about the token carries the goal and the NFA rule', async () => {
+  it('every prompt that talks about the token carries the goal, the prophecy and no disclaimer rule', async () => {
     const { chatPrompt, contentPrompt } = await import('../src/agent/prompt.js')
     const { chartPrompt } = await import('../src/agent/chart-prompt.js')
     const options = { botUsername: 'teenydroid', dryRun: true }
@@ -180,9 +180,13 @@ describe('price and targets', () => {
     ]) {
       expect(prompt).toContain('$2B')
       expect(prompt).toContain('GOAT')
-      expect(prompt.toLowerCase()).toContain('nfa')
+      expect(prompt).toMatch(/no "nfa"|never write "nfa"|no disclaimer/i)
+      expect(prompt).not.toMatch(/carries "nfa"|with "nfa" on|ends with "nfa"/i)
       expect(prompt).not.toMatch(/no price predictions/i)
     }
-    expect(contentPrompt({ ...options, channels: ['x'] })).toContain('NFA')
+    for (const prompt of [systemPrompt(options), draftPrompt(options), chatPrompt({ ...options, channelHandle: 'teenythebot' })]) {
+      expect(prompt).toContain('$1 prophecy')
+    }
+    expect(contentPrompt({ ...options, channels: ['x'] })).toMatch(/never with "nfa"/)
   })
 })
