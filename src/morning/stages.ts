@@ -104,7 +104,11 @@ export const pickSchema = z.object({
     .array(
       z.object({
         story: z.number().int().min(0),
-        talk: z.string().max(200).describe('What the first replies would say, in a line.'),
+        // Three sample replies run long; a long one is cut, not a reason to reject the pick.
+        talk: z
+          .string()
+          .transform((value) => value.slice(0, 300))
+          .describe('What the first replies would say, in a line.'),
       }),
     )
     .max(3)
