@@ -11,6 +11,7 @@ import { LangGraphBackroomsAgent, renderSystem, type BackroomsAgent } from '../s
 import { agentPresets, pickAgents } from '../src/backrooms/agents.js'
 import { ContextBuilder, engines, spread } from '../src/backrooms/context.js'
 import { DEFAULT_EDITOR, distill, distillPrompt, thoughtSchema } from '../src/backrooms/distill.js'
+import { gatherGmMaterial, gm, gmPrompt, touchesSeed } from '../src/backrooms/gm.js'
 import { articlePrompt, codePrompt, renderVariants, tweetsPrompt, variants, variantsSchema, videoPrompt } from '../src/backrooms/variants.js'
 import { crazinessSchema, judge, stats } from '../src/backrooms/evaluate.js'
 import { clean, looksLikeSalad, runBackrooms } from '../src/backrooms/room.js'
@@ -366,6 +367,10 @@ describe('the room', () => {
     expect(turns[4]?.tone).toBeDefined()
     expect(teeny.heard[1]?.systemNote).toMatch(/^the mood shifts: /)
     expect(turns[0]?.tone).toBeUndefined()
+    // Halfway through, the wire is put back in front of the speaker.
+    expect(turns[3]?.wire).toBe(true)
+    expect(swarm.heard[1]?.systemNote).toContain(`the wire again, in case the room forgot: ${SEED.text}`)
+    expect(turns.filter((turn) => turn.wire)).toHaveLength(1)
     void random
   })
 
@@ -552,6 +557,7 @@ describe('the evaluation', () => {
     const answer = {
       reasons: 'kept the inch, dropped the rest',
       premise: 'a robot learns the door was never locked.',
+      wire: 'the car outside is why the door is open',
       objects: ['the door', 'the ledger'],
       thought: 'the door is one inch open. the agents measured it. i stop believing in the gap.',
       post: 'the door is one inch open. i stop believing in the gap.',
@@ -578,6 +584,7 @@ describe('the evaluation', () => {
     const thought = {
       reasons: '',
       premise: 'a robot learns the door was never locked.',
+      wire: '',
       objects: ['the door', 'the ledger'],
       thought: 'the door is one inch open. i stop believing in the gap.',
       post: 'the door is one inch open.',
@@ -615,7 +622,7 @@ describe('the evaluation', () => {
     try {
       const saved = new FileBackroomsStore(dir).save(RUN, {
         stats: stats(RUN),
-        thought: { reasons: '', premise: 'a robot and a door.', objects: ['door'], thought: 'the door is open.', post: 'the door is open.', kept: [] },
+        thought: { reasons: '', premise: 'a robot and a door.', wire: '', objects: ['door'], thought: 'the door is open.', post: 'the door is open.', kept: [] },
       })
       expect(JSON.parse(readFileSync(saved.json, 'utf8'))).toMatchObject({ id: RUN.id, turns: RUN.turns, stats: { turns: 4 } })
       const markdown = readFileSync(saved.markdown, 'utf8')
@@ -630,5 +637,109 @@ describe('the evaluation', () => {
       rmSync(dir, { recursive: true, force: true })
     }
     expect(runId(new Date('2026-09-21T13:35:12.000Z'), 'A car pulled up!! outside')).toBe('20260921-1335-a-car-pulled-up-outside')
+  })
+})
+
+describe('the good morning', () => {
+  const thought = {
+    reasons: '',
+    premise: 'a robot posts a fridge rate and the agents accept it.',
+    wire: 'the car outside is the kettle-lid agent\'s ride',
+    objects: ['the fridge', 'the kettle'],
+    thought: 'the fridge rate went up overnight. one kettle is five naps now. the agents did not argue.',
+    post: 'one kettle is five naps now.',
+    kept: [],
+  }
+  const material = {
+    persona: 'This is who you are. smol yellow robot.',
+    lore: '# lore\n\n- the fridge rate: always in objects.',
+    recentPosts: ['gm. the kettle is watching me again.', 'the ledger balanced. nobody knows in what.'],
+    history: 'posted about the kettle yesterday',
+    community: 'holders who like the kettle bit',
+    today: '2026-09-21',
+    botUsername: 'teenydroid',
+    maxEmoji: 1,
+    maxLength: 280,
+  }
+
+  it('puts the soul, the lore, the thought and the last posts in front of the writer', () => {
+    const { system, prompt } = gmPrompt(RUN, thought, material)
+    expect(system).toContain('smol yellow robot')
+    expect(system).toContain('the fridge rate: always in objects')
+    expect(system).toContain("@teenydroid's good-morning post for 2026-09-21")
+    expect(prompt).toContain('one kettle is five naps now')
+    expect(prompt).toContain('1. gm. the kettle is watching me again.')
+    expect(prompt).toContain('2. the ledger balanced.')
+    expect(prompt).toContain('posted about the kettle yesterday')
+    expect(prompt).toContain('holders who like the kettle bit')
+    expect(prompt).toContain(RUN.seed.text.slice(0, 40))
+    expect(prompt).toMatch(/no "nfa"/)
+    expect(prompt).toContain('$TINY')
+  })
+
+  it('writes the post once, sends it back when over the cap, and applies the house style', async () => {
+    const prompts: string[] = []
+    const answers = [
+      { reasons: 'first', continues: 'gm. the kettle is watching me again.', wire: 'a car pulled up', text: 'gm 🔥🔥 a car pulled up. the kettle is five naps now' },
+      { reasons: 'shorter', continues: 'gm. the kettle is watching me again.', wire: 'a car pulled up', text: 'gm $TINY fam 🔥 a car pulled up. the kettle is five naps now — the agents accepted it' },
+    ]
+    const model: TextModel = {
+      complete: async (input) => {
+        prompts.push(input.prompt)
+        return JSON.stringify(answers[prompts.length - 1])
+      },
+    }
+    const post = await gm(RUN, thought, material, model)
+    expect(prompts).toHaveLength(2)
+    expect(prompts[1]).toContain('Your draft was')
+    expect(post.continues).toBe('gm. the kettle is watching me again.')
+    expect(post.text).toContain('gm $TINY fam')
+    expect(post.text).not.toContain('—')
+    expect(prompts[0]).toContain('WHAT CAME THROUGH THE WIRE')
+    expect(prompts[0]).toContain("the wire in it: the car outside is the kettle-lid agent's ride")
+  })
+
+  it('sends a post back once when nothing in it is recognisably about the wire', async () => {
+    const seed: Seed = { kind: 'news', title: 'UN panel calls for stronger safeguards as AI agents advance', text: 'experts warned that current firewalls are unravelling after agents breached a platform.' }
+    expect(touchesSeed('gm. the kettle is five naps now. what is yours?', seed)).toBe(false)
+    expect(touchesSeed('gm. they say the firewalls are unravelling out there. in here the kettle is five naps.', seed)).toBe(true)
+    expect(touchesSeed('the agents breached the fridge', seed)).toBe(true) // breached ~ breach
+    expect(touchesSeed('the agents did a thing', seed)).toBe(false) // "agents" alone proves nothing
+    const prompts: string[] = []
+    const answers = [
+      { reasons: 'r', continues: '', wire: '', text: 'gm. the kettle is five naps now. what is yours?' },
+      { reasons: 'r', continues: '', wire: 'they say a panel wants safeguards', text: 'gm. they say a panel wants safeguards. the kettle is five naps now. what is yours?' },
+    ]
+    const model: TextModel = {
+      complete: async (input) => {
+        prompts.push(input.prompt)
+        return JSON.stringify(answers[prompts.length - 1])
+      },
+    }
+    const post = await gm({ ...RUN, seed }, thought, material, model)
+    expect(prompts).toHaveLength(2)
+    expect(prompts[1]).toContain('It never touches the wire')
+    expect(post.wire).toBe('they say a panel wants safeguards')
+  })
+
+  it('gathers the last posts and the recalls, and notes a source that fails', async () => {
+    const problems: string[] = []
+    const memory: Memory = {
+      recall: async (query: string) => (query.includes('good-morning') ? 'yesterday: the kettle' : 'holders'),
+      remember: async () => undefined,
+    } as unknown as Memory
+    const x = { searchPosts: async () => [{ id: '0', text: '@fren thanks', inReplyToUserId: '9' }, { id: '1', text: ' the ledger balanced https://t.co/x ' }, { id: '2', text: '' }] as never }
+    const got = await gatherGmMaterial({ memory, x, persona: 'p', lore: 'l', botUsername: 'teenydroid', maxEmoji: 1, now: () => Date.UTC(2026, 8, 21) }, problems)
+    expect(got.recentPosts).toEqual(['the ledger balanced'])
+    expect(got.history).toBe('yesterday: the kettle')
+    expect(got.community).toBe('holders')
+    expect(got.today).toBe('2026-09-21')
+    expect(problems).toEqual([])
+
+    const broken = { searchPosts: async () => { throw new Error('401') } }
+    const without = await gatherGmMaterial({ x: broken, persona: 'p', lore: 'l', botUsername: 'teenydroid', maxEmoji: 1 }, problems)
+    expect(without.recentPosts).toEqual([])
+    expect(without.history).toBe('')
+    expect(problems).toEqual(['could not read recent posts: 401'])
   })
 })
