@@ -192,6 +192,17 @@ describe('the job', () => {
     expect(entry.tools[0]!.result).toContain(thought.premise)
   })
 
+  it('journals under its own name when it is the evening one', async () => {
+    const pipeline = { run: vi.fn().mockResolvedValue(result()) }
+    const journal = { record: vi.fn().mockResolvedValue(undefined) } as unknown as Journal
+    const cadence = { claim: vi.fn().mockResolvedValue({ ok: true }), within: vi.fn((_kind: string, run: () => Promise<unknown>) => run()) }
+    const job = new LoreJob({ pipeline, logger: { info: vi.fn(), error: vi.fn() }, journal, cadence: cadence as never, now: () => NOW, name: 'lore-evening' })
+    expect(await job.run()).toBeDefined()
+    expect(cadence.claim).toHaveBeenCalledWith('lore-evening')
+    expect(cadence.within).toHaveBeenCalledWith('lore-evening', expect.any(Function))
+    expect(journal.record).toHaveBeenCalledWith(expect.objectContaining({ id: 'lore-evening:2026-09-22', trigger: 'lore' }))
+  })
+
   it('journals a failure and rethrows', async () => {
     const pipeline = { run: vi.fn().mockRejectedValue(new Error('ladder down')) }
     const journal = { record: vi.fn().mockResolvedValue(undefined) } as unknown as Journal
