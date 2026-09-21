@@ -91,15 +91,15 @@ export class ReplyBudget {
 
 /**
  * The own post a reply sits under, if it is one. A root post is its own
- * conversation on X, so the conversation id names it directly; a delivery
- * without one that is still a reply to the account is taken to be about the
- * latest post, which is where nearly all of them land.
+ * conversation on X, so the conversation id names it directly, and a reply
+ * whose conversation is not one of the account's posts is a reply to the
+ * account out in somebody else's thread, not a comment under its own. Only
+ * a delivery with no conversation at all (the old Account Activity shape)
+ * that is still a reply to the account is taken to be about the latest
+ * post, which is where nearly all of them land.
  */
 export function ownPostOf(post: XPost, botUserId: string, own: OwnPost[]): OwnPost | undefined {
-  if (post.conversationId) {
-    const match = own.find((entry) => entry.postId === post.conversationId)
-    if (match) return match
-  }
+  if (post.conversationId) return own.find((entry) => entry.postId === post.conversationId)
   if (post.inReplyToUserId === botUserId) return own[0]
   return undefined
 }

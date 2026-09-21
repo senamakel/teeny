@@ -133,6 +133,10 @@ function fromV2Post(post: Record<string, unknown>, includes?: ActivityIncludes):
     ...(authorId ? { authorId } : {}),
     ...(author?.username ? { authorUsername: author.username } : {}),
     ...(typeof post.created_at === 'string' ? { createdAt: new Date(post.created_at).toISOString() } : {}),
+    // The conversation is what tells a comment under one of the account's own
+    // posts from a reply to the account out in somebody else's thread. Without
+    // it the reply budget charged every reply to the latest own post.
+    ...(typeof post.conversation_id === 'string' ? { conversationId: post.conversation_id } : {}),
     ...(typeof post.in_reply_to_user_id === 'string' ? { inReplyToUserId: post.in_reply_to_user_id } : {}),
   }
 }
