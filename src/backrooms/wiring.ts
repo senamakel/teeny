@@ -41,6 +41,8 @@ export interface RunOptions {
   budget?: number
   maxToolCalls?: number
   driftEvery?: number
+  /** What tonight is about, one of the lore's engines; drawn at random when absent. */
+  engine?: string
   score?: boolean
   /** Whether the transcript is read down to one thought at the end. On unless asked otherwise. */
   distill?: boolean
@@ -124,6 +126,7 @@ export function buildBackrooms(config: Config, deps: BackroomsDeps): Backrooms {
         const context = await builder.build(spec, seed, draw, {
           budget: settings.budget,
           tools: settings.maxToolCalls > 0 ? spec.tools : [],
+          ...(options.engine ? { engine: options.engine } : {}),
         })
         contexts.push(context)
         deps.logger?.info(

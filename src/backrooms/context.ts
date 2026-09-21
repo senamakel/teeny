@@ -57,11 +57,14 @@ export class ContextBuilder {
     agent: AgentSpec,
     seed: Seed,
     random: () => number,
-    options: { budget: number; tools: ToolName[] },
+    options: { budget: number; tools: ToolName[]; engine?: string },
   ): Promise<AgentContext> {
     const problems: string[] = []
     const tone = pickTone(random)
-    const engine = pickEngine(this.sources.lore, random)
+    // A caller that has already chosen what tonight is about says so; the
+    // draw is still made so the rest of the context is the same for one rng.
+    const drawn = pickEngine(this.sources.lore, random)
+    const engine = options.engine ?? drawn
     const seedWords = keywords(`${seed.title ?? ''} ${seed.text}`, 4)
     const probes = shuffle([...PROBES], random)
 

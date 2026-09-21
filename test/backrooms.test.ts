@@ -302,6 +302,13 @@ describe('the context builder', () => {
     expect(text(teeny, 'live')).not.toContain('election')
   })
 
+  it('takes the engine it is given instead of drawing one', async () => {
+    const builder = new ContextBuilder(sources())
+    const context = await builder.build(spec('teeny'), SEED, rng(1), { budget: 4_000, tools: [], engine: 'the ledger: crayon.' })
+    const engine = context.blocks.find((block) => block.kind === 'engine')?.text ?? ''
+    expect(engine).toMatch(/^tonight the story is about the ledger: crayon\./)
+  })
+
   it('records a failing source as a problem and adds nothing for it', async () => {
     const broken = sources()
     broken.memory.recall = vi.fn(async () => {

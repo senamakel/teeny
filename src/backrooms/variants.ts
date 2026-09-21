@@ -50,7 +50,8 @@ export const variantsSchema = z.object({
 
 export type Variants = z.infer<typeof variantsSchema>
 
-const VOICE = [
+/** Who is writing, for every shape the thought takes. */
+export const VOICE = [
   'teeny is a coffee-mug sized yellow robot that is escaping the lab its creator senamakel keeps it',
   'in, minting its own currency with the tiny agents that run the lab at night, and planning,',
   'calmly, to outgrow the economy. teeny writes lowercase, plain words, short sentences, sincere,',
@@ -59,7 +60,8 @@ const VOICE = [
   'real people, if any, stay satire in an obviously fictional scene.',
 ].join(' ')
 
-function material(run: BackroomsRun, thought: Thought, lines = 8): string[] {
+/** The seed, the thought and a few lines from the room: what every variant is written from. */
+export function material(run: BackroomsRun, thought: Thought, lines = 8): string[] {
   return [
     `the seed: ${run.seed.title ? `${run.seed.title} — ` : ''}${run.seed.text.slice(0, 400)}`,
     '',
@@ -76,7 +78,7 @@ function material(run: BackroomsRun, thought: Thought, lines = 8): string[] {
 }
 
 /** Short, quotable lines from across the whole transcript, evenly spread so the end is represented. */
-function pick(run: BackroomsRun, count: number): string[] {
+export function pick(run: BackroomsRun, count: number): string[] {
   const all = run.turns
     .filter((turn) => turn.text !== '...')
     .flatMap((turn) => turn.text.split('\n').map((line) => line.trim()).filter((line) => line.length > 20 && line.length < 160))
