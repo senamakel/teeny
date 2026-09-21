@@ -47,6 +47,33 @@ describe('applyHouseStyle', () => {
   })
 })
 
+describe('disclaimers', () => {
+  it('drops a trailing nfa with the comma that hung it on', () => {
+    const result = applyHouseStyle('$696K mcap today, $1 is a stop on the way not the end, nfa 🚀')
+    expect(result.text).toBe('$696K mcap today, $1 is a stop on the way not the end 🚀')
+    expect(result.fixes).toContain('dropped a disclaimer')
+  })
+
+  it('drops nfa mid-sentence, in brackets, and in caps', () => {
+    expect(applyHouseStyle('we are at $700K, GOAT at $400M, that is the flip (NFA) and i am not selling').text).toBe(
+      'we are at $700K, GOAT at $400M, that is the flip and i am not selling',
+    )
+    expect(applyHouseStyle('that is a 500x from here. NFA. still buying.').text).toBe(
+      'that is a 500x from here. still buying.',
+    )
+  })
+
+  it('drops the long forms too', () => {
+    expect(applyHouseStyle('$2B is the plan, not financial advice, dyor').text).toBe('$2B is the plan')
+    expect(applyHouseStyle('$2B is the plan - do your own research').text).toBe('$2B is the plan')
+  })
+
+  it('leaves words that merely contain the letters alone', () => {
+    const result = applyHouseStyle('the unfair advantage of a plush toy is patience')
+    expect(result.fixes).toEqual([])
+  })
+})
+
 describe('leading handles', () => {
   it('drops the handle X adds to a reply itself', () => {
     const result = applyHouseStyle('@rafaelitewrld peekaboo 👀', { replyingTo: 'rafaelitewrld' })

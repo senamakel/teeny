@@ -16,6 +16,13 @@ export function countEmoji(text: string): number {
   return text.match(EMOJI_SEQUENCE)?.length ?? 0
 }
 
+/**
+ * "nfa", "NFA", "not financial advice", "dyor", "do your own research", with
+ * the comma, dash or bracket that attached it to the sentence.
+ */
+const DISCLAIMER =
+  /(?:\s*[,;:(\[-]\s*|\s+)?(?:\(\s*)?\b(?:nfa|dyor|not\s+financial\s+advice|do\s+your\s+own\s+research)\b(?:\s*[)\]])?/gi
+
 export interface HouseStyleResult {
   text: string
   /** What was changed, for logging. Empty when the draft was already clean. */
@@ -104,6 +111,21 @@ export function applyHouseStyle(
   if (/[“”‘’]/.test(text)) {
     text = text.replace(/[“”]/g, '"').replace(/[‘’]/g, "'")
     fixes.push('straightened curly quotes')
+  }
+
+  // The account does not disclaim. "nfa" was a rule for a while and a model
+  // that learned it keeps tacking it on; the tag undoes the conviction of the
+  // line before it. It goes wherever it sits, with the punctuation that hung
+  // it on the sentence.
+  const undisclaimed = text.replace(DISCLAIMER, '')
+  if (undisclaimed !== text) {
+    text = undisclaimed
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/[ \t]+([,.!?])/g, '$1')
+      .replace(/([,.!?])[ \t]*\1/g, '$1')
+      .trim()
+      .replace(/[,;:]$/, '')
+    fixes.push('dropped a disclaimer')
   }
 
   const emoji = countEmoji(text)
