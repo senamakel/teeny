@@ -86,7 +86,7 @@ const schema = z.object({
   X_SEARCH_MAX_RESULTS: z.coerce.number().int().min(10).max(100).default(10),
   // `all` runs every role in one process. Split them to scale or restart the
   // reply side without pausing ingestion, which is the half with a deadline.
-  SERVICE_ROLE: z.enum(['all', 'ingest', 'reply', 'api', 'chart', 'morning', 'moon', 'calendar', 'narrative']).default('all'),
+  SERVICE_ROLE: z.enum(['all', 'ingest', 'reply', 'api', 'chart', 'morning', 'moon', 'calendar', 'narrative', 'quote']).default('all'),
   INGEST_CRON: z.string().default('*/5 * * * *'),
   // The X Activity API's stream, `GET /2/activity/stream`, read next to the
   // webhook. On because the webhook stopped delivering `post.*` events in
@@ -260,11 +260,12 @@ const schema = z.object({
 
   // --- the posting rota ----------------------------------------------------
   // The moon chart and the candlestick chart take turns rather than both
-  // posting every day: slot 0 the moon, slot 1 the chart, and with a
-  // three-day rota the third day is quiet. Days are counted in UTC from the
-  // anchor, which is slot 0. Each job keeps its daily cron and skips the
-  // days that are not its turn; a slot past the rota's length never posts.
-  POST_ROTA_DAYS: z.coerce.number().int().min(1).max(14).default(3),
+  // posting every day: slot 0 the moon, slot 1 the chart, so the afternoon
+  // slot alternates between the two and every day has one. A longer rota
+  // leaves the extra days quiet. Days are counted in UTC from the anchor,
+  // which is slot 0. Each job keeps its daily cron and skips the days that
+  // are not its turn; a slot past the rota's length never posts.
+  POST_ROTA_DAYS: z.coerce.number().int().min(1).max(14).default(2),
   POST_ROTA_ANCHOR: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).default('2026-09-14'),
   MOON_ROTA_SLOT: z.coerce.number().int().min(0).default(0),
   CHART_ROTA_SLOT: z.coerce.number().int().min(0).default(1),
@@ -275,10 +276,10 @@ const schema = z.object({
   // yardstick, the implied price drawn as a picture, two lines under it. Off
   // by default, because it publishes; single-homed like the chart.
   MOON_ENABLED: offByDefault,
-  // 20:00 UTC: afternoon in New York, evening in Europe, when the timeline
-  // that shares this kind of post is awake. The chart posts at 15:00 and the
-  // morning at 08:00, so the three are spread across the day.
-  MOON_CRON: z.string().default('0 20 * * *'),
+  // 15:00 UTC, the chart's slot: the two share it and the rota says whose
+  // day it is. With the morning at 07:00 and the quote at 23:00 the three
+  // posts of a day are eight hours apart, which is what the cadence wants.
+  MOON_CRON: z.string().default('0 15 * * *'),
   // The account's own token, by CoinGecko id, and the category the yardsticks
   // come from: coingecko.com/en/categories/<MOON_CATEGORY>.
   MOON_COIN_ID: z.string().min(1).default('tiny-humans-ai'),
@@ -301,6 +302,31 @@ const schema = z.object({
   MOON_MIN_MULTIPLE: z.coerce.number().min(1).default(2),
   MOON_MAX_MULTIPLE: z.coerce.number().min(1).default(2_000),
   MOON_OUTPUT_DIR: z.string().default('data/moon'),
+
+  // --- the quote post ------------------------------------------------------
+  // Once a day, somebody else's post lifted onto the timeline with a line
+  // over it: a holder bullish on $TINY, somebody posting the ticker or the
+  // contract with something to say, or somebody who talked to the account.
+  // Two X searches a run, a filter, one model call, a quote post. Off by
+  // default, because it publishes; single-homed like the chart.
+  QUOTE_ENABLED: offByDefault,
+  // 23:00 UTC: eight hours after the afternoon chart, eight before the
+  // morning post. The third post of the day.
+  QUOTE_CRON: z.string().default('0 23 * * *'),
+  // The ticker search, X syntax. People paste the contract as
+  // `solana:<address>`, and X has no `solana:` operator, so the address is
+  // a quoted phrase. Retweets and the account's own posts are cut by the
+  // pipeline; a second search reads the account's mentions.
+  QUOTE_QUERY: z.string().min(1).default('$TINY OR "2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump"'),
+  // How far back "recent" reaches, and how many posts each search reads
+  // (X floors a page at 10 and bills every post).
+  QUOTE_HOURS: z.coerce.number().int().min(1).max(168).default(48),
+  QUOTE_POSTS_PER_SEARCH: z.coerce.number().int().min(10).max(100).default(50),
+  // An author quoted inside this window is not quoted again, so a stranger
+  // posting the ticker every hour does not get the timeline every night.
+  QUOTE_AUTHOR_COOLDOWN_DAYS: z.coerce.number().int().min(0).max(90).default(7),
+  // What has been quoted, on the data volume. A post is quoted once, ever.
+  QUOTE_LOG_PATH: z.string().default('data/quotes.json'),
 
   // --- the serial ----------------------------------------------------------
   // Teeny's own story, an episode at a time: a writers' room between a hot
