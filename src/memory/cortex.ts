@@ -44,6 +44,33 @@ function personIds(person: Person): string | string[] {
   return person.aliases?.length ? [person.id, ...person.aliases] : person.id
 }
 
+/**
+ * Generous for prose, so the cap only bites when the budget was ignored: a
+ * pack is mostly English and JSON, which run three to four characters a token.
+ */
+const CHARS_PER_TOKEN = 6
+const PACK_SEPARATOR = '\n\n---\n\n'
+
+/**
+ * The store's token budget is a request, not a guarantee. A scope whose
+ * derived layers were still being built answered a 1,200-token holistic recall
+ * with its entire event log -- 3.9 million characters -- which as a prompt is
+ * not a worse reply but no reply at all. Cut at an item boundary, newest-first
+ * order kept, so what survives is whole memories rather than half of one.
+ */
+export function capPack(block: string, maxChars: number): string {
+  if (block.length <= maxChars) return block
+  const kept: string[] = []
+  let length = 0
+  for (const item of block.split(PACK_SEPARATOR)) {
+    const added = item.length + (kept.length ? PACK_SEPARATOR.length : 0)
+    if (length + added > maxChars) break
+    kept.push(item)
+    length += added
+  }
+  return kept.length ? kept.join(PACK_SEPARATOR) : block.slice(0, maxChars)
+}
+
 export class CortexMemory implements Memory, ChatMemory {
   private readonly client: V1Client
   private readonly reader: V1Client
@@ -156,7 +183,7 @@ export class CortexMemory implements Memory, ChatMemory {
       budgets: { max_tokens: metadata ? 600 : 1_200 },
       ...(metadata ? { filters: metadata } : {}),
     })
-    return pack.context_block
+    return capPack(pack.context_block ?? '', (metadata ? 600 : 1_200) * CHARS_PER_TOKEN)
   }
 
   /** The bot's own turn in the same conversation, kept about the same person. */

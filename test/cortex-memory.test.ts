@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { CortexMemory } from '../src/memory/cortex.js'
+import { capPack, CortexMemory } from '../src/memory/cortex.js'
 
 /**
  * The client against a fake transport. Every other test stubs `Memory`
@@ -104,5 +104,30 @@ describe('CortexMemory captures', () => {
     const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny')
 
     await expect(memory.captureMention({ id: '42', text: 'gm', authorId: '7' })).resolves.toBeUndefined()
+  })
+})
+
+describe('capPack', () => {
+  it('cuts an over-budget pack at a memory boundary', () => {
+    const items = Array.from({ length: 1_000 }, (_, index) => `memory ${index} `.repeat(20))
+    const capped = capPack(items.join('\n\n---\n\n'), 1_000)
+
+    expect(capped.length).toBeLessThanOrEqual(1_000)
+    expect(capped.startsWith('memory 0 ')).toBe(true)
+    // Whole items only: the last one kept ends where an item ends.
+    expect(capped.split('\n\n---\n\n').every((item) => item === items[Number(item.split(' ')[1])])).toBe(true)
+  })
+
+  it('leaves a pack inside its budget alone, and hard-cuts a single giant item', () => {
+    expect(capPack('short', 100)).toBe('short')
+    expect(capPack('x'.repeat(500), 100)).toHaveLength(100)
+  })
+
+  it('applies to what recall returns', async () => {
+    const { fetch } = transport(() => pack(Array.from({ length: 5_000 }, () => 'a like event').join('\n\n---\n\n')))
+    const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny')
+
+    const text = await memory.recall('q')
+    expect(text.length).toBeLessThan(1_200 * 6 + 100)
   })
 })

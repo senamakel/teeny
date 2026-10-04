@@ -115,6 +115,8 @@ async function main(): Promise<void> {
       exact: Boolean(turn.value?.text.includes('EXCHANGES WITH')),
       recall: about.value === undefined ? 'error' : recalls(about.value, exchanges) ? 'hit' : 'miss',
       recallMs: about.ms,
+      // Over the cap means the store ignored its budget and the client cut it.
+      packChars: about.value?.length ?? 0,
       turnMs: turn.ms,
       ownPosts: newest?.text ? Boolean(turn.value?.text.includes((newest.text ?? '').slice(0, 40).replace(/\s+/g, ' '))) : 'none in window',
       degraded: turn.value?.degraded.join(',') || (turn.error ? 'all' : ''),
