@@ -8,9 +8,9 @@ import {
   type XTools,
 } from '../types.js'
 import type { ArticleStore } from '../article/store.js'
-import { summariseRecall } from '../journal/journal.js'
 import type { ImageReader } from '../media/types.js'
 import type { SafetyGate } from '../safety/gate.js'
+import { TurnContext } from '../memory/context.js'
 
 function isSour(tone: ReplyDraft['incomingTone']): boolean {
   return tone === 'negative' || tone === 'hostile'
@@ -57,7 +57,17 @@ export class ReplyHarness {
      * the card, as it did before there were articles.
      */
     private readonly articles?: Pick<ArticleStore, 'findByPostId'>,
-  ) {}
+    /**
+     * What the turn starts with: exact history with the person, the account's
+     * own recent posts from the ledger, and memory. Omit and memory alone is
+     * asked both questions, which is how every turn worked before.
+     */
+    context?: TurnContext,
+  ) {
+    this.context = context ?? new TurnContext({ memory })
+  }
+
+  private readonly context: TurnContext
 
   async generate(post: XPost): Promise<ReplyDraft> {
     // Recall first, capture second. The other order puts the post being
@@ -82,36 +92,26 @@ export class ReplyHarness {
       )
       .join('\n')
 
-    // Two recalls: what is relevant to this post, and what the account itself
-    // has been doing lately. The second is not a nicety. Asked "much higher for
-    // tiny?", the account replied "I'm just a mascot who doesn't read charts"
-    // -- hours after publishing a chart of its own token. It had no idea,
-    // because nothing ever told it what it had posted.
-    // Both recalls fail soft. A reply drafted without memory is a worse reply;
-    // a reply that never goes out because the memory service returned a 401 is
-    // a person on the timeline being ignored, and the mention does not come
-    // back -- the queue marks it failed and nothing retries it.
-    const [recalled, ownActivity] = await Promise.all([
-      Promise.resolve(
-        this.memory.recall(
-          'What context, past interactions, product facts, and tone are relevant to replying to ' +
-            `this X post? ${post.text}` +
-            (article ? `\n\nIt is a reply under the account's own article "${article.title}": ${article.dek}` : '') +
-            (conversation ? `\n\nThe conversation it sits in:\n${conversation}` : ''),
-          person ? { person } : {},
-        ),
-      ).catch(() => ''),
-      Promise.resolve(
-        this.memory.recall(
-          'What has this account itself posted recently? Include its daily chart posts, the ' +
-            'market reads it published, and anything it has said publicly in the last few days.',
-        ),
-      ).catch(() => ''),
-    ])
-
-    const memory = ownActivity.trim()
-      ? `${recalled}\n\nWHAT YOU YOURSELF HAVE POSTED RECENTLY:\n${ownActivity}`
-      : recalled
+    // What is relevant to this post, what was said to this person before, and
+    // what the account itself has been doing lately. The last is not a nicety.
+    // Asked "much higher for tiny?", the account replied "I'm just a mascot who
+    // doesn't read charts" -- hours after publishing a chart of its own token.
+    // It had no idea, because nothing ever told it what it had posted.
+    // Every source fails soft, and says so. A reply drafted without memory is
+    // a worse reply; a reply that never goes out because the memory service
+    // returned a 401 is a person on the timeline being ignored, and the mention
+    // does not come back -- the queue marks it failed and nothing retries it.
+    const gathered = await this.context.gather({
+      query:
+        'What context, past interactions, product facts, and tone are relevant to replying to ' +
+        `this X post? ${post.text}` +
+        (article ? `\n\nIt is a reply under the account's own article "${article.title}": ${article.dek}` : '') +
+        (conversation ? `\n\nThe conversation it sits in:\n${conversation}` : ''),
+      ...(person ? { person } : {}),
+      ...(post.authorId ? { authorId: post.authorId } : {}),
+      postId: post.id,
+    })
+    const memory = gathered.text
 
     const drafted = await this.model.reply({
       post,
@@ -125,9 +125,7 @@ export class ReplyHarness {
     // recalled, not the drafter's paraphrase of it.
     const draft: ReplyDraft = {
       ...drafted,
-      // Deduplicated: the two recalls overlap whenever memory has little on
-      // the person and answers both with the same general context.
-      recalled: [...new Set([...summariseRecall(recalled, 3), ...summariseRecall(ownActivity, 2)])],
+      recalled: gathered.recalled,
     }
 
     // Sour and abusive posts are answered but not kept. Memory is what the

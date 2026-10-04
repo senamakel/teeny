@@ -6,6 +6,7 @@ import {
   type ChatReply,
   type ChatTurn,
 } from '../types.js'
+import { TurnContext } from '../memory/context.js'
 
 function isSour(tone: ChatReply['incomingTone']): boolean {
   return tone === 'negative' || tone === 'hostile'
@@ -19,7 +20,13 @@ export class ChatHarness {
   constructor(
     private readonly memory: ChatMemory,
     private readonly model: ChatModel,
-  ) {}
+    /** What the turn starts with; omit and memory alone is asked, as before. */
+    context?: TurnContext,
+  ) {
+    this.context = context ?? new TurnContext({ memory })
+  }
+
+  private readonly context: TurnContext
 
   async generate(message: ChatMessage, history: ChatTurn[] = []): Promise<ChatReply> {
     // Recall first, capture second, or the turn reads its own input back as
@@ -29,29 +36,17 @@ export class ChatHarness {
       .map((turn) => `${turn.from === 'bot' ? 'you' : turn.authorName ?? 'someone'}: ${turn.text}`)
       .join('\n')
 
-    // Both recalls fail soft: a message drafted without memory is a worse
-    // message, and one that never goes out because the memory service is down
-    // is a person in a DM being ignored.
-    const [recalled, ownActivity] = await Promise.all([
-      Promise.resolve(
-        this.memory.recall(
-          'What context, past interactions, product facts, and tone are relevant to answering ' +
-            `this Telegram message? ${message.text}` +
-            (conversation ? `\n\nThe conversation it sits in:\n${conversation}` : ''),
-          { person },
-        ),
-      ).catch(() => ''),
-      Promise.resolve(
-        this.memory.recall(
-          'What has this account itself posted recently? Include its daily chart posts, the ' +
-            'market reads it published, and anything it has said publicly in the last few days.',
-        ),
-      ).catch(() => ''),
-    ])
-
-    const memory = ownActivity.trim()
-      ? `${recalled}\n\nWHAT YOU YOURSELF HAVE POSTED RECENTLY:\n${ownActivity}`
-      : recalled
+    // Every source fails soft, and says so: a message drafted without memory
+    // is a worse message, and one that never goes out because the memory
+    // service is down is a person in a DM being ignored.
+    const gathered = await this.context.gather({
+      query:
+        'What context, past interactions, product facts, and tone are relevant to answering ' +
+        `this Telegram message? ${message.text}` +
+        (conversation ? `\n\nThe conversation it sits in:\n${conversation}` : ''),
+      person,
+    })
+    const memory = gathered.text
 
     const draft = await this.model.reply({
       message,

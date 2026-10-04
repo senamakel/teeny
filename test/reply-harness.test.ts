@@ -249,8 +249,11 @@ describe('when memory is down', () => {
     const model: LanguageModel = { reply: vi.fn().mockResolvedValue({ text: 'hi' }) }
     await new ReplyHarness(broken(), model).generate({ id: '1', text: 'gm' })
 
+    // Said out loud rather than left blank: an empty memory reads as "never
+    // met this person", and the drafter used to say exactly that.
     const passed = (model.reply as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as { memory: string }
-    expect(passed.memory).toBe('')
+    expect(passed.memory).toContain('MEMORY WAS UNAVAILABLE THIS TURN')
+    expect(passed.memory).not.toContain('401')
   })
 
   it('does not fail the reply because the mention could not be stored', async () => {
