@@ -206,3 +206,19 @@ describe('article config', () => {
     expect(loadConfig({ ...REQUIRED, ARTICLE_MODEL_TIMEOUT_SECONDS: '600' }).ARTICLE_MODEL_TIMEOUT_SECONDS).toBe(600)
   })
 })
+
+describe('memory config', () => {
+  it('gives a recall seconds, reads exact history by default, and keeps the brief on', () => {
+    const config = loadConfig(REQUIRED)
+    expect(config.CORTEX_RECALL_TIMEOUT_MS).toBe(15_000)
+    expect(config.MEMORY_EXCHANGES).toBe(6)
+    expect(config.LEARNINGS_ENABLED).toBe(true)
+    expect(config.LEARNINGS_PATH).toBe('data/memory/LEARNINGS.md')
+    expect(config.PEOPLE_LINKS).toEqual([])
+  })
+
+  it('parses linked people into person ids and drops what does not parse', () => {
+    const config = loadConfig({ ...REQUIRED, PEOPLE_LINKS: ' x:7=telegram:9 , nonsense, x:8= ,' })
+    expect(config.PEOPLE_LINKS).toEqual([['user:x-7', 'user:telegram-9']])
+  })
+})

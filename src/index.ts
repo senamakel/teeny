@@ -16,6 +16,10 @@ import { TokenMarket } from './market/market.js'
 import { ChartJob } from './jobs/chart-job.js'
 import { LangGraphAgent, type AgentOptions } from './agent/graph.js'
 import { loadPersona } from './agent/soul.js'
+import { TurnContext } from './memory/context.js'
+import { reportCortexHealth } from './memory/health.js'
+import { reflect } from './learnings/reflect.js'
+import { OpenAITextModel } from './media/reference.js'
 import { AgentReplyModel } from './agent/reply-model.js'
 import { GiphyClient } from './clients/giphy.js'
 import { CortexMemory } from './memory/cortex.js'
@@ -69,6 +73,7 @@ const memory = new CortexMemory(
     bearer: config.CORTEX_TOKEN,
   },
   config.CORTEX_SCOPE,
+  { recallMs: config.CORTEX_RECALL_TIMEOUT_MS, captureMs: config.CORTEX_CAPTURE_TIMEOUT_MS },
 )
 const rawX = new XApiClient({
   username: config.X_BOT_USERNAME,
@@ -137,6 +142,7 @@ const persona = loadPersona({
   soulPath: config.SOUL_PATH,
   contextPath: config.CONTEXT_PATH,
   skillsDir: config.SKILLS_DIR,
+  ...(config.LEARNINGS_ENABLED ? { learningsPath: config.LEARNINGS_PATH } : {}),
 })
 /**
  * Read-only market access for the reply drafter and the task agent.
@@ -238,6 +244,12 @@ const critic = config.ALGO_CRITIC
 
 const agentOptions: AgentOptions = {
   memory,
+  // recall_memory's `about`: a handle becomes the X person memory files the
+  // exchanges under, by way of the people the webhook has seen.
+  findPerson: async (username) => {
+    const known = await people.byUsername(username)
+    return known ? { id: `user:x-${known.userId}`, ...(known.username ? { username: known.username } : {}) } : undefined
+  },
   x,
   persona,
   safety,
@@ -473,6 +485,63 @@ if (activityStream) {
   void activityStream.run().catch((error: unknown) => app.log.error({ err: error }, 'activity stream stopped'))
 }
 
+/**
+ * What every reply and chat turn starts with: the exact exchanges with the
+ * person from the mention queue, the account's own posts from the ledger, and
+ * memory for everything else, each failing on its own.
+ */
+const turnContext = new TurnContext({
+  memory,
+  ownPosts: ledger,
+  exchanges: (authorId, limit, options) => queue.exchangesWith(authorId, limit, options),
+  links: config.PEOPLE_LINKS,
+  limits: {
+    exchanges: config.MEMORY_EXCHANGES,
+    ownPostsHours: config.MEMORY_OWN_POSTS_HOURS,
+    ownPostsLimit: config.MEMORY_OWN_POSTS_LIMIT,
+  },
+  logger: app.log,
+})
+
+// The store's own report, at boot and hourly: an embedding outage degrades
+// every recall without failing any of them, so nothing else would say so.
+void reportCortexHealth(config.CORTEX_API_URL, app.log)
+cron.schedule(config.CORTEX_HEALTH_CRON, () => {
+  void reportCortexHealth(config.CORTEX_API_URL, app.log)
+})
+
+// The learnings brief. One writer, like every posting job: the file is read
+// by every process, and two writers would race to rewrite it.
+if (config.LEARNINGS_ENABLED && (role === 'all' || role === 'morning')) {
+  const writeLearnings = () =>
+    reflect({
+      path: config.LEARNINGS_PATH,
+      text: new OpenAITextModel({
+        baseUrl: config.LLM_BASE_URL,
+        apiKey: config.LLM_API_KEY,
+        model: config.LLM_MODEL,
+        source: 'learnings',
+        timeoutMs: config.ARTICLE_MODEL_TIMEOUT_SECONDS * 1_000,
+        ledger: inferences,
+      }),
+      ledger,
+      journal,
+      people,
+      memory,
+      botUsername,
+      days: config.LEARNINGS_DAYS,
+      maxChars: config.LEARNINGS_MAX_CHARS,
+      logger: app.log,
+    })
+  cron.schedule(config.LEARNINGS_CRON, () => {
+    void writeLearnings().catch((error: unknown) => app.log.warn({ err: error }, 'learnings: the brief could not be rewritten'))
+  })
+  // The first brief should not wait for tomorrow's five o'clock.
+  if (!persona.learnings) {
+    void writeLearnings().catch((error: unknown) => app.log.warn({ err: error }, 'learnings: the first brief could not be written'))
+  }
+}
+
 if (runsReplies) {
   const replyJob = new ReplyJob({
     x,
@@ -485,6 +554,7 @@ if (runsReplies) {
       media?.reader,
       safety,
       articles,
+      turnContext,
     ),
     queue,
     logger: app.log,
@@ -778,6 +848,7 @@ if (runsTelegram && config.TELEGRAM_BOT_TOKEN) {
     harness: new ChatHarness(
       memory,
       new AgentChatModel({ ...agentOptions, channelHandle: me.username }),
+      turnContext,
     ),
     logger: app.log,
     bot: { id: me.id, username: me.username },
@@ -823,6 +894,17 @@ app.log.info(
     soul: Boolean(persona.soul),
     context: Boolean(persona.context),
     skills: persona.skills.map((skill) => skill.name),
+    learnings: config.LEARNINGS_ENABLED
+      ? persona.learnings
+        ? `${persona.learnings.length} chars from ${config.LEARNINGS_PATH}`
+        : `none yet; first brief from ${config.LEARNINGS_PATH} at boot`
+      : false,
+    memory: {
+      recallTimeoutMs: config.CORTEX_RECALL_TIMEOUT_MS,
+      exchanges: config.MEMORY_EXCHANGES,
+      ownPostsHours: config.MEMORY_OWN_POSTS_HOURS,
+      linkedPeople: config.PEOPLE_LINKS.length,
+    },
     exa: Boolean(config.EXA_API_KEY),
     safety: config.SAFETY_JUDGE
       ? `lexicon + links + judge on ${config.SAFETY_JUDGE_MODEL ?? config.LLM_MODEL}`
