@@ -36,7 +36,7 @@ export function buildQuotePipeline(
     }),
     memory: options.memory,
     log: new FileQuoteLog(config.QUOTE_LOG_PATH),
-    persona: renderPersona(options.persona),
+    persona: () => renderPersona(options.persona),
     botUsername: options.botUsername,
     trustedHandles: config.TRUSTED_HANDLES,
     ownTokenAddresses: [...new Set([...config.OWN_TOKEN_ADDRESSES, ...(config.CHART_TOKEN_ADDRESS ? [config.CHART_TOKEN_ADDRESS] : [])])],

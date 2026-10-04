@@ -1,3 +1,4 @@
+import { personaText, type LivePersona } from '../agent/soul.js'
 import { applyHouseStyle, countEmoji } from '../agent/house-style.js'
 import { MAX_POST_LENGTH } from '../agent/tools/x.js'
 import type { TextModel } from '../media/reference.js'
@@ -13,7 +14,7 @@ export interface QuotePipelineOptions {
   text: TextModel
   memory: Pick<Memory, 'recall' | 'captureActivity'>
   log: QuoteLog
-  persona: string
+  persona: LivePersona
   botUsername: string
   trustedHandles: string[]
   ownTokenAddresses: string[]
@@ -115,7 +116,7 @@ export class QuotePipeline {
 
     // 3. The choice and the words, one call.
     const ask = quotePrompt(
-      { persona: options.persona, botUsername: options.botUsername, today, now: nowIso },
+      { persona: personaText(options.persona), botUsername: options.botUsername, today, now: nowIso },
       { candidates: found.candidates, history, today, maxEmoji: options.maxEmoji, maxLength: MAX_POST_LENGTH },
     )
     let pick = await askJson(options.text, { ...ask, schema: quotePickSchema })

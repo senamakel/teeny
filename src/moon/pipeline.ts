@@ -1,3 +1,4 @@
+import { personaText, type LivePersona } from '../agent/soul.js'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { applyHouseStyle, countEmoji } from '../agent/house-style.js'
@@ -17,7 +18,7 @@ export interface MoonPipelineOptions {
   text: TextModel
   memory: Memory
   x: XTools
-  persona: string
+  persona: LivePersona
   botUsername: string
   dryRun: boolean
   /** Off, nothing is uploaded or posted even when dryRun is off. The rehearsal script's guard. */
@@ -213,7 +214,7 @@ export class MoonPipeline {
     today: string
   }): Promise<string> {
     const { maxEmoji } = this.options
-    const context = { persona: this.options.persona, botUsername: this.options.botUsername, today: input.today }
+    const context = { persona: personaText(this.options.persona), botUsername: this.options.botUsername, today: input.today }
     const ask = moonCaptionPrompt(context, {
       ...input,
       boardName: this.options.boardName,
