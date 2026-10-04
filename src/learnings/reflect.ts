@@ -5,6 +5,7 @@ import type { People, PersonRecord } from '../cadence/people.js'
 import type { Journal, Reflection } from '../journal/journal.js'
 import type { TextModel } from '../media/reference.js'
 import type { Memory } from '../types.js'
+import { cutAt } from '../memory/text.js'
 
 /**
  * The headings the brief is written under, in order. Fixed so that one day's
@@ -59,7 +60,7 @@ function day(iso: string): string {
 
 function clip(text: string, max: number): string {
   const flat = text.replace(/\s+/g, ' ').trim()
-  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat
+  return flat.length > max ? `${cutAt(flat, max - 1)}…` : flat
 }
 
 function renderPost(post: OwnPost): string {

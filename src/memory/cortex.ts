@@ -1,4 +1,5 @@
 import { V1Client } from 'cortexdbai/v1'
+import { cutAt } from './text.js'
 import {
   chatPersonOf,
   personOf,
@@ -31,6 +32,16 @@ function ignoreIdempotencyConflict(error: unknown): void {
 export interface CortexTimeouts {
   recallMs?: number
   captureMs?: number
+  /**
+   * Whether to run the second, person-filtered pack. Off by default: on the
+   * shared v0.9.9 store a holistic recall filtered on `observed_actor` does not
+   * come back -- it ran past every deadline, kept running server-side after the
+   * client gave up, and once a few replies had each left one behind, every read
+   * on the store stalled (2026-10-05). The exact history with a person comes
+   * from the mention queue now; the person is named in the general query so
+   * memory still leans toward them.
+   */
+  personPass?: boolean
 }
 
 /**
@@ -68,7 +79,7 @@ export function capPack(block: string, maxChars: number): string {
     kept.push(item)
     length += added
   }
-  return kept.length ? kept.join(PACK_SEPARATOR) : block.slice(0, maxChars)
+  return kept.length ? kept.join(PACK_SEPARATOR) : cutAt(block, maxChars)
 }
 
 export class CortexMemory implements Memory, ChatMemory {
@@ -88,7 +99,10 @@ export class CortexMemory implements Memory, ChatMemory {
   ) {
     this.client = new V1Client({ ...options, ...(timeouts.captureMs ? { timeoutMs: timeouts.captureMs } : {}) })
     this.reader = new V1Client({ ...options, ...(timeouts.recallMs ? { timeoutMs: timeouts.recallMs } : {}) })
+    this.personPass = timeouts.personPass ?? false
   }
+
+  private readonly personPass: boolean
 
   async captureActivity(
     kind: string,
@@ -138,6 +152,11 @@ export class CortexMemory implements Memory, ChatMemory {
 
   async recall(query: string, options: { person?: Person } = {}): Promise<string> {
     const { person } = options
+    if (person && !this.personPass) {
+      const named = person.username ? `About @${person.username}: ${query}` : query
+      const general = await this.recallPack(named)
+      return general.trim() ? `GENERAL CONTEXT:\n${general}` : ''
+    }
     // Two passes, because they answer different questions: what the account
     // knows about this person, and what it knows about the topic. One query
     // over everything buries a quiet person's history under general context.

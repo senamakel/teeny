@@ -39,7 +39,7 @@ const asJson = argv.includes('--json')
 const memory = new CortexMemory(
   { apiUrl: config.CORTEX_API_URL, actor: config.CORTEX_ACTOR, bearer: config.CORTEX_TOKEN },
   config.CORTEX_SCOPE,
-  { recallMs: config.CORTEX_RECALL_TIMEOUT_MS, captureMs: config.CORTEX_CAPTURE_TIMEOUT_MS },
+  { recallMs: config.CORTEX_RECALL_TIMEOUT_MS, captureMs: config.CORTEX_CAPTURE_TIMEOUT_MS, personPass: config.CORTEX_PERSON_RECALL },
 )
 const mongo = { uri: config.MONGO_URI, database: config.MONGO_DATABASE }
 const queue = new MongoMentionQueue(mongo)

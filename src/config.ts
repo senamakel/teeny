@@ -62,6 +62,10 @@ const schema = z.object({
   // recall that then timed out anyway.
   CORTEX_RECALL_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(120_000).default(15_000),
   CORTEX_CAPTURE_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(120_000).default(30_000),
+  // The second, person-filtered recall pack. Off: on the shared store it ran
+  // past every deadline and the abandoned queries stalled all reads. The exact
+  // history with a person comes from the mention queue instead.
+  CORTEX_PERSON_RECALL: offByDefault,
   // When the store's own readiness report is read. A store that cannot embed
   // still answers, by keyword alone, so nothing else notices: from 2026-10-04
   // it embedded nothing for a day and every recall degraded in silence.

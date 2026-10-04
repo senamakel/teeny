@@ -73,7 +73,7 @@ const memory = new CortexMemory(
     bearer: config.CORTEX_TOKEN,
   },
   config.CORTEX_SCOPE,
-  { recallMs: config.CORTEX_RECALL_TIMEOUT_MS, captureMs: config.CORTEX_CAPTURE_TIMEOUT_MS },
+  { recallMs: config.CORTEX_RECALL_TIMEOUT_MS, captureMs: config.CORTEX_CAPTURE_TIMEOUT_MS, personPass: config.CORTEX_PERSON_RECALL },
 )
 const rawX = new XApiClient({
   username: config.X_BOT_USERNAME,

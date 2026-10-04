@@ -35,7 +35,7 @@ describe('CortexMemory.recall', () => {
     const { fetch, calls } = transport((call) =>
       pack(JSON.stringify(call.body).includes('observed_actor') ? 'they asked about the roadmap' : 'the project ships weekly'),
     )
-    const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny')
+    const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny', { personPass: true })
 
     const text = await memory.recall('what about the roadmap?', { person: { id: 'user:x-1', username: 'ana' } })
 
@@ -49,7 +49,7 @@ describe('CortexMemory.recall', () => {
 
   it('matches every id a linked person is known by', async () => {
     const { fetch, calls } = transport(() => pack(''))
-    const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny')
+    const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny', { personPass: true })
 
     await memory.recall('hi', { person: { id: 'user:x-1', aliases: ['user:telegram-9'] } })
 
@@ -61,14 +61,14 @@ describe('CortexMemory.recall', () => {
     const { fetch } = transport((call) =>
       call.body.filters ? new Response('{"error_code":"DB_UNAVAILABLE"}', { status: 503 }) : pack('the project ships weekly'),
     )
-    const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny')
+    const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny', { personPass: true })
 
     await expect(memory.recall('q', { person: { id: 'user:x-1' } })).resolves.toBe('GENERAL CONTEXT:\nthe project ships weekly')
   })
 
   it('fails when both passes fail, so the caller can say memory was unavailable', async () => {
     const { fetch } = transport(() => new Response('{"error_code":"DB_UNAVAILABLE"}', { status: 503 }))
-    const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny')
+    const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny', { personPass: true })
 
     await expect(memory.recall('q', { person: { id: 'user:x-1' } })).rejects.toThrow()
   })
@@ -83,10 +83,24 @@ describe('CortexMemory.recall', () => {
   })
 })
 
+describe('CortexMemory without the person pass', () => {
+  it('asks one pack, naming the person, and never filters on observed_actor', async () => {
+    const { fetch, calls } = transport(() => pack('the lab door is closed'))
+    const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny')
+
+    const text = await memory.recall('is the door open?', { person: { id: 'user:x-1', username: 'ana' } })
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.body.filters).toBeUndefined()
+    expect(calls[0]?.body.query).toBe('About @ana: is the door open?')
+    expect(text).toBe('GENERAL CONTEXT:\nthe lab door is closed')
+  })
+})
+
 describe('CortexMemory captures', () => {
   it('files a mention under the person, with a versioned idempotency key', async () => {
     const { fetch, calls } = transport(() => new Response('{}', { status: 202 }))
-    const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny')
+    const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny', { personPass: true })
 
     await memory.captureMention({ id: '42', text: 'gm', authorId: '7', authorUsername: 'ana', conversationId: '40' })
 
@@ -101,7 +115,7 @@ describe('CortexMemory captures', () => {
     const { fetch } = transport(
       () => new Response(JSON.stringify({ error_code: 'IDEMPOTENCY_CONFLICT', message: 'IDEMPOTENCY_CONFLICT' }), { status: 409 }),
     )
-    const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny')
+    const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny', { personPass: true })
 
     await expect(memory.captureMention({ id: '42', text: 'gm', authorId: '7' })).resolves.toBeUndefined()
   })
@@ -125,7 +139,7 @@ describe('capPack', () => {
 
   it('applies to what recall returns', async () => {
     const { fetch } = transport(() => pack(Array.from({ length: 5_000 }, () => 'a like event').join('\n\n---\n\n')))
-    const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny')
+    const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny', { personPass: true })
 
     const text = await memory.recall('q')
     expect(text.length).toBeLessThan(1_200 * 6 + 100)
