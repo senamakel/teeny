@@ -24,6 +24,13 @@ const offByDefault = z
   .default('false')
   .transform((value) => value === 'true')
 
+/** Days of the posting rota, comma separated: `1,4`. */
+const rotaSlots = (fallback: string) =>
+  z
+    .string()
+    .default(fallback)
+    .transform((value) => value.split(',').map((entry) => Number(entry.trim())).filter((entry) => Number.isInteger(entry) && entry >= 0))
+
 const schema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3001),
   LOG_LEVEL: z.string().default('info'),
@@ -131,8 +138,10 @@ const schema = z.object({
   // The least time between two of the account's own posts, whichever job
   // writes them; a job whose slot comes sooner skips it. The tolerance is
   // for the minutes a job spends drawing and filming after its cron fires.
-  // Four posts a day, six hours apart: 07:00, 13:00, 19:00, 01:00 UTC.
-  POST_MIN_GAP_HOURS: z.coerce.number().min(0).max(48).default(6),
+  // Three posts a day, eight hours apart: 07:00, 15:00, 23:00 UTC. The gap
+  // is an hour short of that so a slow job (the article, a filmed morning)
+  // that posts late does not cost the next slot its turn.
+  POST_MIN_GAP_HOURS: z.coerce.number().min(0).max(48).default(7),
   POST_GAP_TOLERANCE_MINUTES: z.coerce.number().min(0).max(120).default(20),
   // The heat job: reads the last day's own posts' counters on this cron and
   // holds the timeline for one that is taking off. Hot is at least this many
@@ -185,10 +194,8 @@ const schema = z.object({
   // A second agent, on its own timer: it reads the token's own chart once a day
   // and posts it. Off by default, because it publishes.
   CHART_ENABLED: offByDefault,
-  // 13:00 UTC, the afternoon slot: morning in New York, afternoon in Europe,
-  // six hours after the morning post. A daily post lands or it does not;
-  // there is no catch-up.
-  CHART_CRON: z.string().default('0 13 * * *'),
+  // Its day is CHART_ROTA_SLOT in the afternoon slot (see the rota). A
+  // post lands or it does not; there is no catch-up.
   // The token the chart agent looks at. Bound in configuration rather than
   // chosen per run: this agent reads posts, and an agent that can be told which
   // contract to analyse can be told to analyse somebody else's.
@@ -239,8 +246,9 @@ const schema = z.object({
   // because it publishes and because it spends an image and a video a day.
   // Needs EXA_API_KEY and IMAGE_GEN_ENABLED; VIDEO_GEN_ENABLED makes it a clip.
   MORNING_ENABLED: offByDefault,
-  // 08:00 UTC: morning in Europe, the small hours in New York, evening in
-  // Asia. A daily post lands or it does not; there is no catch-up.
+  // 07:00 UTC, the morning slot, every day: morning in Europe, the small
+  // hours in New York, afternoon in Asia. A daily post lands or it does
+  // not; there is no catch-up.
   MORNING_CRON: z.string().default('0 7 * * *'),
   // What is searched for, comma separated. Each is one Exa query over the
   // news index, bounded to MORNING_NEWS_DAYS. Politics is filtered out of
@@ -275,35 +283,27 @@ const schema = z.object({
   MORNING_VIDEO_SECONDS: z.coerce.number().int().min(4).max(20).default(10),
 
   // --- the posting rota ----------------------------------------------------
-  // The calendar: four slots a day, six hours apart, and a week-long rota
-  // that says which job has each slot on each day. Days are counted in UTC
-  // from the anchor (a Monday), which is slot 0.
+  // The calendar: three slots a day, eight hours apart, and a three-day rota
+  // that says which job has each slot on each day -- nine posts a cycle.
+  // Days are counted in UTC from the anchor, which is slot 0.
   //
-  //   07:00 the morning post, every day
-  //   13:00 the afternoon slot: the moon chart (slot 0, Monday), the chart
-  //         (slot 3, Thursday), the lore post on the rest
-  //   19:00 the evening slot: the serial (slots 1 and 4, Tuesday and
-  //         Friday), the article (slots 2 and 5, Wednesday and Saturday),
-  //         the lore post on the rest
-  //   01:00 the quote post, every day
+  //   07:00 the morning post, every day (MORNING_CRON)
+  //   15:00 the afternoon slot (AFTERNOON_CRON): the chart (slot 0), the
+  //         moon chart (slot 1), the lore post on the rest
+  //   23:00 the evening slot (EVENING_CRON): the article (slot 1), the
+  //         serial (slot 2), the quote post on the rest
   //
-  // The afternoon jobs keep their daily crons and skip the days that are
-  // not their turn; the evening slot is one cron (EVENING_CRON) that runs
-  // the day's owner. A slot past the rota's length never posts, and a job
-  // that is off hands its days to the lore.
-  POST_ROTA_DAYS: z.coerce.number().int().min(1).max(14).default(7),
+  // Each slot is one cron that runs the day's owner. A slot past the rota's
+  // length never posts, and a job that is off hands its days to the slot's
+  // fallback: the lore in the afternoon, the quote in the evening.
+  POST_ROTA_DAYS: z.coerce.number().int().min(1).max(14).default(3),
   POST_ROTA_ANCHOR: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).default('2026-09-14'),
-  MOON_ROTA_SLOT: z.coerce.number().int().min(0).default(0),
-  CHART_ROTA_SLOT: z.coerce.number().int().min(0).default(3),
-  EVENING_CRON: z.string().default('0 19 * * *'),
-  NARRATIVE_ROTA_SLOTS: z
-    .string()
-    .default('1,4')
-    .transform((value) => value.split(',').map((entry) => Number(entry.trim())).filter((entry) => Number.isInteger(entry) && entry >= 0)),
-  ARTICLE_ROTA_SLOTS: z
-    .string()
-    .default('2,5')
-    .transform((value) => value.split(',').map((entry) => Number(entry.trim())).filter((entry) => Number.isInteger(entry) && entry >= 0)),
+  AFTERNOON_CRON: z.string().default('0 15 * * *'),
+  CHART_ROTA_SLOT: z.coerce.number().int().min(0).default(0),
+  MOON_ROTA_SLOT: z.coerce.number().int().min(0).default(1),
+  EVENING_CRON: z.string().default('0 23 * * *'),
+  ARTICLE_ROTA_SLOTS: rotaSlots('1'),
+  NARRATIVE_ROTA_SLOTS: rotaSlots('2'),
 
   // --- the moon chart ------------------------------------------------------
   // "$TINY with the market cap of X", once a day: the token's row and the AI
@@ -311,9 +311,7 @@ const schema = z.object({
   // yardstick, the implied price drawn as a picture, two lines under it. Off
   // by default, because it publishes; single-homed like the chart.
   MOON_ENABLED: offByDefault,
-  // 13:00 UTC, the afternoon slot the chart and the lore post share; the
-  // rota says whose day it is.
-  MOON_CRON: z.string().default('0 13 * * *'),
+  // Its day is MOON_ROTA_SLOT in the afternoon slot (see the rota).
   // The account's own token, by CoinGecko id, and the category the yardsticks
   // come from: coingecko.com/en/categories/<MOON_CATEGORY>.
   MOON_COIN_ID: z.string().min(1).default('tiny-humans-ai'),
@@ -338,15 +336,13 @@ const schema = z.object({
   MOON_OUTPUT_DIR: z.string().default('data/moon'),
 
   // --- the lore post -------------------------------------------------------
-  // A page from the lab, on the days the charts, the serial and the
-  // article do not have: something from the wire seeds a backrooms run
+  // A page from the lab, on the afternoon slot's days the charts do not
+  // have: something from the wire seeds a backrooms run
   // inside the lore, the editor keeps one thought, and it is written up in
   // teeny's voice with the soul, the lore and the last posts around it.
   // Text only; the serial and the morning spend the media budget. Off by
-  // default, because it publishes. It has the afternoon slot's spare days
-  // on LORE_CRON and the evening slot's through EVENING_CRON.
+  // default, because it publishes.
   LORE_ENABLED: offByDefault,
-  LORE_CRON: z.string().default('0 13 * * *'),
   // Where the seed comes from, tried in a rotating order until one answers:
   // news (Exa, then Google News), forum (reddit/4chan), memory (a recall).
   LORE_SEEDS: z
@@ -362,15 +358,14 @@ const schema = z.object({
   LORE_BACKROOMS_TURNS: z.coerce.number().int().min(2).max(60).default(10),
 
   // --- the quote post ------------------------------------------------------
-  // Once a day, somebody else's post lifted onto the timeline with a line
+  // Somebody else's post lifted onto the timeline with a line
   // over it: a holder bullish on $TINY, somebody posting the ticker or the
   // contract with something to say, or somebody who talked to the account.
   // Two X searches a run, a filter, one model call, a quote post. Off by
   // default, because it publishes; single-homed like the chart.
   QUOTE_ENABLED: offByDefault,
-  // 01:00 UTC, the night slot: six hours after the evening post and six
-  // before the morning; evening in the Americas, where the bulls are.
-  QUOTE_CRON: z.string().default('0 1 * * *'),
+  // It has the evening slot's days the article and the serial do not:
+  // 23:00 UTC, evening in the Americas, where the bulls are.
   // The ticker search, X syntax. People paste the contract as
   // `solana:<address>`, and X has no `solana:` operator, so the address is
   // a quoted phrase. Retweets and the account's own posts are cut by the
@@ -395,9 +390,9 @@ const schema = z.object({
   // the morning post, so it runs in the evening when the morning has had
   // its clip.
   NARRATIVE_ENABLED: offByDefault,
-  // Its days are NARRATIVE_ROTA_SLOTS in the evening slot (Tuesday and
-  // Friday): a serial needs regularity more than frequency, and the
-  // audience has to remember the last episode.
+  // Its days are NARRATIVE_ROTA_SLOTS in the evening slot, once a cycle:
+  // a serial needs regularity more than frequency, and the audience has to
+  // remember the last episode.
   NARRATIVE_VOICE_PATH: z.string().default('narrative/VOICE.md'),
   NARRATIVE_LORE_PATH: z.string().default('narrative/LORE.md'),
   NARRATIVE_STATE_PATH: z.string().default('data/narrative-state.json'),
@@ -445,7 +440,7 @@ const schema = z.object({
     .transform((value) => value.split(',').map((entry) => entry.trim()).filter(Boolean)),
 
   // --- the article ---------------------------------------------------------
-  // A long piece of the serial's lore, twice a week, published as an X
+  // A long piece of the serial's lore, once a cycle, published as an X
   // Article. The backrooms find the idea; the piece is planned, written,
   // proof-read and drawn, and the whole run is saved under ARTICLES_DIR.
   // Off by default, and a rehearsal even when on: nothing reaches X until
@@ -454,7 +449,7 @@ const schema = z.object({
   // a Premium+ account only.
   ARTICLE_ENABLED: offByDefault,
   ARTICLE_PUBLISH: offByDefault,
-  // Its days are ARTICLE_ROTA_SLOTS in the evening slot (Wednesday and Saturday).
+  // Its days are ARTICLE_ROTA_SLOTS in the evening slot, once a cycle.
   ARTICLES_DIR: z.string().default('data/articles'),
   // How many rooms are opened on the same seed; the best-scored one is written up.
   ARTICLE_ROOMS: z.coerce.number().int().min(1).max(4).default(2),

@@ -645,7 +645,7 @@ The job refuses to run twice inside 20 hours even if the cron fires again — a
 container that restarts near the cron minute would otherwise post the same chart
 an hour later, which is exactly the repetitive-publishing shape that got this
 account throttled. It also only posts on its day of [the rota](#the-rota) it
-shares with the moon chart and the lore post: one day a week by default.
+shares with the moon chart and the lore post: one day in three by default.
 
 ## The morning post
 
@@ -767,7 +767,7 @@ on the video surface; over it, the seed is the part that goes.
 
 ## The moon chart
 
-"$TINY with the market cap of X", one day a week, at 13:00 UTC by default. Like
+"$TINY with the market cap of X", one day in three, at 15:00 UTC by default. Like
 the morning post it is a fixed pipeline rather than an agent: read the board,
 pick a yardstick, do the arithmetic, draw it, write two lines under it, post.
 Nothing in it wants a model's judgement about whether to run.
@@ -785,31 +785,33 @@ The picture is written to `MOON_OUTPUT_DIR` (`data/moon`) either way.
 
 ### The rota
 
-The calendar is four slots a day, six hours apart, and a week-long rota
-that says which job has each slot on each day, counted in UTC days from
-`POST_ROTA_ANCHOR` (slot 0, a Monday):
+The calendar is three posts a day, eight hours apart, and a three-day rota
+that says which job has each slot on each day -- nine posts a cycle --
+counted in UTC days from `POST_ROTA_ANCHOR` (slot 0):
 
-| UTC | Mon | Tue | Wed | Thu | Fri | Sat | Sun |
-|---|---|---|---|---|---|---|---|
-| 07:00 | morning post | ← | ← | ← | ← | ← | ← |
-| 13:00 | moon chart | lore | lore | chart | lore | lore | lore |
-| 19:00 | lore | serial | article | lore | serial | article | lore |
-| 01:00 | quote post | ← | ← | ← | ← | ← | ← |
+| UTC | day 0 | day 1 | day 2 |
+|---|---|---|---|
+| 07:00 | morning post | ← | ← |
+| 15:00 | chart | moon chart | lore |
+| 23:00 | quote post | article | serial (quote post while it is off) |
 
-The afternoon slot: `MOON_ROTA_SLOT` (0) and `CHART_ROTA_SLOT` (3) are the
-charts' days, and [the lore post](#the-lore-post) has the rest. Each of
-the three keeps its daily cron and asks `src/jobs/cycle.ts` whether today
-is its slot; a slot past `POST_ROTA_DAYS` (7) never posts. The evening
-slot is one cron, `EVENING_CRON`, and one job (`src/jobs/slot.ts`) that
-runs the day's owner: the serial on `NARRATIVE_ROTA_SLOTS` (1 and 4), the
-article on `ARTICLE_ROTA_SLOTS` (2 and 5), the lore on every other day. A
-job that is off hands its days to the lore rather than leaving them quiet.
-The rehearsal scripts force past the rota, so a dry run works on any day.
+Each of the two rota slots is one cron (`AFTERNOON_CRON`, `EVENING_CRON`)
+and one job (`src/jobs/slot.ts`) that asks `src/jobs/cycle.ts` which day
+of the rota it is and runs that day's owner. The afternoon: the chart on
+`CHART_ROTA_SLOT` (0), the moon chart on `MOON_ROTA_SLOT` (1), and
+[the lore post](#the-lore-post) on the rest. The evening: the article on
+`ARTICLE_ROTA_SLOTS` (1), the serial on `NARRATIVE_ROTA_SLOTS` (2), and
+[the quote post](#the-quote-post) on the rest. A job that is off hands its
+days to the slot's fallback rather than leaving them quiet, and so does
+one that runs and does not post -- the article held by the filter, a
+rehearsal, an error -- so a bad night for the article is still a quote
+post. A slot past `POST_ROTA_DAYS` (3) never posts. The rehearsal scripts force past the
+rota, so a dry run works on any day.
 
 ## The lore post
 
-A page from the lab, on the days the charts, the serial and the article do
-not have -- the afternoon slot at 13:00 UTC and the evening slot at 19:00 -- something comes through the wire, the backrooms (`src/backrooms/`)
+A page from the lab, on the afternoon slot's days the charts do not have
+(15:00 UTC, one day in three by default): something comes through the wire, the backrooms (`src/backrooms/`)
 run on it inside the lore, the editor keeps one thought, and the thought is
 written up in Teeny's voice with the soul, the lore and the account's last
 posts around it (`src/backrooms/lore.ts`, the afternoon sibling of the
@@ -837,11 +839,10 @@ not told twice; the turn is journaled with `trigger: lore`.
 
 ## The quote post
 
-Once a day, at 01:00 UTC by default, somebody else's post lifted onto the
-timeline with a line over it: a holder bullish on $TINY, somebody who posted
-the ticker or the contract with something to say about it, or somebody who
-talked to the account and meant it. The third post of the day, after the
-morning post and the afternoon chart.
+On the evening slot's spare days, at 23:00 UTC, somebody else's post lifted
+onto the timeline with a line over it: a holder bullish on $TINY, somebody
+who posted the ticker or the contract with something to say about it, or
+somebody who talked to the account and meant it.
 
 It is off by default (`QUOTE_ENABLED=false`), because it publishes. It needs
 nothing beyond the chat model and the X read credentials.
@@ -970,11 +971,11 @@ on its day of the rota.
 
 ## The article
 
-Twice a week the account writes something long: a piece of the serial's
+Once a cycle the account writes something long: a piece of the serial's
 lore, published as an X Article with a cover and a picture per section,
 and mirrored on the site at `/articles`. `ARTICLE_ENABLED` turns the job
-on; it has `ARTICLE_ROTA_SLOTS` (Wednesday and Saturday) of the evening
-slot, see [the rota](#the-rota).
+on; it has `ARTICLE_ROTA_SLOTS` (day 1 of three) of the evening slot,
+see [the rota](#the-rota).
 
 The idea comes from the backrooms. A room of tool-using agents is opened
 on something from the wire (`ARTICLE_NEWS_TOPICS`), steered at one of the
@@ -1374,10 +1375,12 @@ subject to it; they are conversations, not slots.
 
 `POST_GAP_TOLERANCE_MINUTES` (20) is how much short of the gap still counts:
 the jobs fire on the hour and spend minutes drawing and filming, so a
-schedule of exactly six hours apart lands at five hours fifty. The default
-crons are the morning at 07:00, the afternoon slot at 13:00, the evening
-slot at 19:00 and the quote post at 01:00 UTC: four posts a day, six hours
-apart, with [the rota](#the-rota) saying what the two middle slots carry.
+post a few minutes late does not cost the next slot. The defaults are the
+morning at 07:00, the afternoon slot at 15:00 and the evening slot at 23:00
+UTC: three posts a day, eight hours apart, with [the rota](#the-rota)
+saying what the last two carry. `POST_MIN_GAP_HOURS` (7) is an hour short
+of the eight, so a slow job -- the article, a filmed morning -- that posts
+late still leaves the next slot its turn.
 
 ### A post that takes off
 
