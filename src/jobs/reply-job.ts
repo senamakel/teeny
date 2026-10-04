@@ -384,12 +384,18 @@ export class ReplyJob {
             })
           }
 
-          await this.dependencies.harness.remember(
-            post,
-            styled.text,
-            posted?.id,
-            drafted.incomingTone,
-          )
+          // The reply is out by now. A memory write that fails here used to
+          // throw into the catch below, which marked a posted reply as failed
+          // and kept it out of the record of what was said to this person --
+          // the record the next turn reads its history from.
+          await Promise.resolve(
+            this.dependencies.harness.remember(post, styled.text, posted?.id, drafted.incomingTone),
+          ).catch((error: unknown) => {
+            this.dependencies.logger.warn(
+              { err: error, postId: post.id, replyId: posted?.id },
+              'replied, but the exchange could not be written to memory',
+            )
+          })
           const sour = drafted.incomingTone === 'negative' || drafted.incomingTone === 'hostile'
           if (sour) {
             this.dependencies.logger.info(

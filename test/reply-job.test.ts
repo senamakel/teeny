@@ -207,6 +207,18 @@ describe('ReplyJob', () => {
     expect(it_.queue.markReplied).not.toHaveBeenCalled()
   })
 
+  it('keeps a posted reply marked replied when memory cannot store the exchange', async () => {
+    const it_ = subject(false)
+    ;(it_.memory.captureReply as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('cortex timed out'))
+    await it_.job.run()
+
+    // The reply is on X. Marking it failed would hide it from the record of
+    // what was said to this person, which the next turn reads its history from.
+    expect(it_.x.createPost).toHaveBeenCalled()
+    expect(it_.queue.markReplied).toHaveBeenCalledWith('10', { id: '99', text: 'reply' })
+    expect(it_.queue.markFailed).not.toHaveBeenCalled()
+  })
+
   it('enforces the emoji cap the model ignored', async () => {
     const it_ = subject(false, { draft: { text: 'gm frens 👀 💛 🛠️' } })
     await it_.job.run()

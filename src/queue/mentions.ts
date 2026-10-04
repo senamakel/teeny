@@ -47,6 +47,27 @@ export interface MentionQueue {
   close(): Promise<void>
 }
 
+/** One mention and the answer it got, as the queue kept them. */
+export interface Exchange {
+  /** When the answer went out (or was drafted, on a dry run). */
+  at: string
+  incoming: string
+  reply: string
+  /** The conversation it happened in, so a thread can be told from a new one. */
+  conversationId?: string
+}
+
+/**
+ * The exact record of what was said to whom.
+ *
+ * Kept apart from `MentionQueue` because it is read by the turn context, not
+ * the reply job, and a reader should not need the queue's whole surface.
+ */
+export interface ExchangeHistory {
+  /** The last `limit` answered mentions from this X user, newest first. */
+  exchangesWith(authorId: string, limit: number, options?: { excludePostId?: string }): Promise<Exchange[]>
+}
+
 /**
  * The cache that separates reading X from replying to it.
  *
@@ -55,7 +76,7 @@ export interface MentionQueue {
  * ingest writes here and returns, and replying drains this at whatever pace the
  * model and the posting limits allow. A crash between the two loses nothing.
  */
-export class MongoMentionQueue implements MentionQueue {
+export class MongoMentionQueue implements MentionQueue, ExchangeHistory {
   private readonly client: MongoClient
   private readonly mentions: Collection<QueuedMention>
   private indexed = false
@@ -73,7 +94,37 @@ export class MongoMentionQueue implements MentionQueue {
     await this.mentions.createIndex({ postId: 1 }, { unique: true })
     await this.mentions.createIndex({ status: 1, cachedAt: 1 })
     await this.mentions.createIndex({ status: 1, lane: 1, ownPostId: 1, updatedAt: 1 })
+    await this.mentions.createIndex({ 'post.authorId': 1, status: 1, updatedAt: -1 })
     this.indexed = true
+  }
+
+  /**
+   * Read exactly, not searched for. Memory finds a person's history by
+   * meaning and can miss it; this is every answer the queue recorded, so the
+   * last few things said to someone are never a matter of retrieval luck.
+   */
+  async exchangesWith(authorId: string, limit: number, options: { excludePostId?: string } = {}): Promise<Exchange[]> {
+    if (limit <= 0) return []
+    await this.ready()
+    const rows = await this.mentions
+      .find(
+        {
+          'post.authorId': authorId,
+          status: 'replied',
+          replyText: { $exists: true },
+          ...(options.excludePostId ? { postId: { $ne: options.excludePostId } } : {}),
+        },
+        { projection: { _id: 0, post: 1, replyText: 1, updatedAt: 1 } },
+      )
+      .sort({ updatedAt: -1 })
+      .limit(limit)
+      .toArray()
+    return rows.map((row) => ({
+      at: row.updatedAt,
+      incoming: row.post.text,
+      reply: row.replyText ?? '',
+      ...(row.post.conversationId ? { conversationId: row.post.conversationId } : {}),
+    }))
   }
 
   async cache(posts: XPost[]): Promise<number> {

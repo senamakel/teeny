@@ -37,7 +37,7 @@ export function buildMoonPipeline(
     }),
     memory: options.memory,
     x: options.x,
-    persona: renderPersona(options.persona),
+    persona: () => renderPersona(options.persona),
     botUsername: options.botUsername,
     dryRun: options.dryRun,
     ...(options.allowPosting === false ? { allowPosting: false } : {}),

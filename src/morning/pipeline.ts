@@ -1,3 +1,4 @@
+import { personaText, type LivePersona } from '../agent/soul.js'
 import { applyHouseStyle, countEmoji } from '../agent/house-style.js'
 import { MAX_POST_LENGTH } from '../agent/tools/x.js'
 import type { ReferenceSeed, ReferenceSheet, TextModel } from '../media/reference.js'
@@ -63,7 +64,7 @@ export interface MorningPipelineOptions {
   budget: MediaBudget
   memory: Memory
   x: XTools
-  persona: string
+  persona: LivePersona
   botUsername: string
   dryRun: boolean
   /** Off, nothing is uploaded or posted even when dryRun is off. The rehearsal script's guard. */
@@ -186,7 +187,7 @@ export class MorningPipeline {
     const { options } = this
     const now = (options.now ?? Date.now)()
     const today = new Date(now).toISOString().slice(0, 10)
-    const context: StageContext = { persona: options.persona, botUsername: options.botUsername, today }
+    const context: StageContext = { persona: personaText(options.persona), botUsername: options.botUsername, today }
     const problems: string[] = []
     const critiques: NonNullable<MorningResult['critiques']> = {}
     const log = (event: string, detail: Record<string, unknown> = {}): void =>

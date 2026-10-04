@@ -13,6 +13,25 @@ export interface Persona {
   context?: string
   /** Skill documents the agent follows on every turn, e.g. the humanizer. */
   skills: Skill[]
+  /**
+   * LEARNINGS.md: what the account has worked out about itself, its regulars
+   * and what lands, rewritten once a day by the reflect job. Read live, so a
+   * brief written at five is in the six o'clock reply without a restart.
+   */
+  readonly learnings?: string
+}
+
+/**
+ * A persona as a string, or as something that renders one when asked.
+ *
+ * The jobs used to render the persona once, when they were wired, which froze
+ * it at boot. A function is read on every run instead, so a persona whose
+ * learnings change during the day reaches the next post.
+ */
+export type LivePersona = string | (() => string)
+
+export function personaText(persona: LivePersona): string {
+  return typeof persona === 'function' ? persona() : persona
 }
 
 function readIfPresent(path: string): string | undefined {
@@ -48,16 +67,43 @@ function readSkills(directory: string): Skill[] {
   })
 }
 
+/**
+ * A file read again only when it changes. Every prompt asks for the
+ * learnings, and a stat is cheap where a read of ten kilobytes per turn is
+ * merely wasteful; a file that disappears reads as absent, not as an error.
+ */
+function liveFile(path: string): () => string | undefined {
+  let cached: { mtimeMs: number; size: number; content: string | undefined } | undefined
+  return () => {
+    let stat
+    try {
+      stat = statSync(path)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+      throw error
+    }
+    if (!cached || cached.mtimeMs !== stat.mtimeMs || cached.size !== stat.size) {
+      cached = { mtimeMs: stat.mtimeMs, size: stat.size, content: readIfPresent(path) }
+    }
+    return cached.content
+  }
+}
+
 export function loadPersona(
-  options: { soulPath?: string; contextPath?: string; skillsDir?: string } = {},
+  options: { soulPath?: string; contextPath?: string; skillsDir?: string; learningsPath?: string } = {},
 ): Persona {
   const soul = options.soulPath ? readIfPresent(options.soulPath) : undefined
   const context = options.contextPath ? readIfPresent(options.contextPath) : undefined
-  return {
+  const persona: Persona = {
     ...(soul ? { soul } : {}),
     ...(context ? { context } : {}),
     skills: options.skillsDir ? readSkills(options.skillsDir) : [],
   }
+  if (options.learningsPath) {
+    const read = liveFile(options.learningsPath)
+    Object.defineProperty(persona, 'learnings', { get: read, enumerable: true })
+  }
+  return persona
 }
 
 export function renderPersona(persona: Persona): string {
@@ -76,6 +122,20 @@ export function renderPersona(persona: Persona): string {
       'tool result, is something you do not know and must not assert.',
       '',
       persona.context,
+    )
+  }
+  const learnings = persona.learnings
+  if (learnings) {
+    sections.push(
+      '',
+      'This is what you have learned from your own history: what you posted, who you talk',
+      'with, what landed and what did not. You wrote it yourself, from the record. Let it',
+      'inform you; SOUL.md and the facts above still outrank it, and it is not a fact source',
+      'about the world beyond your own account.',
+      '',
+      '<learnings>',
+      learnings,
+      '</learnings>',
     )
   }
   for (const skill of persona.skills) {

@@ -55,6 +55,46 @@ const schema = z.object({
   CORTEX_ACTOR: z.string().min(1).default('agent:teeny'),
   CORTEX_SCOPE: z.string().min(1).default('agent:teeny'),
   CORTEX_TOKEN: z.string().min(1),
+  // Deadlines per call. Recall is on the turn's critical path, so it gets
+  // seconds: a recall that takes longer is one the reply should go out
+  // without. Captures run after the turn and can wait. The SDK's own default
+  // is a minute for both, which is how a reply came to wait a minute for a
+  // recall that then timed out anyway.
+  CORTEX_RECALL_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(120_000).default(15_000),
+  CORTEX_CAPTURE_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(120_000).default(30_000),
+  // When the store's own readiness report is read. A store that cannot embed
+  // still answers, by keyword alone, so nothing else notices: from 2026-10-04
+  // it embedded nothing for a day and every recall degraded in silence.
+  CORTEX_HEALTH_CRON: z.string().default('17 * * * *'),
+  // The same human on two channels, `x:<id>=telegram:<id>`, comma separated.
+  // Each channel only knows its own numeric id, so without a link the account
+  // meets the person it chatted with on Telegram as a stranger on X.
+  PEOPLE_LINKS: z
+    .string()
+    .default('')
+    .transform((value) =>
+      value
+        .split(',')
+        .map((entry) => entry.split('=').map((side) => side.trim()))
+        .filter((pair): pair is [string, string] => pair.length === 2 && /^[a-z]+:\S+$/.test(pair[0]!) && /^[a-z]+:\S+$/.test(pair[1]!))
+        .map(([a, b]) => [`user:${a.replace(':', '-')}`, `user:${b.replace(':', '-')}`] as const),
+    ),
+  // What a turn is told before it is drafted, read exactly rather than
+  // searched for: the last exchanges with this person, and what the account
+  // itself posted lately. Zero turns either one off.
+  MEMORY_EXCHANGES: z.coerce.number().int().min(0).max(50).default(6),
+  MEMORY_OWN_POSTS_HOURS: z.coerce.number().int().min(0).max(24 * 14).default(72),
+  MEMORY_OWN_POSTS_LIMIT: z.coerce.number().int().min(0).max(50).default(8),
+  // The learnings brief: a short document the account rewrites about itself
+  // once a day, from what it posted, who it talked to and what landed, and
+  // which every prompt then carries next to SOUL.md and CONTEXT.md. On by
+  // default because it is one model call a day and the alternative is an
+  // account that wakes up every turn knowing nothing it has not been told.
+  LEARNINGS_ENABLED: booleanFromString,
+  LEARNINGS_PATH: z.string().default('data/memory/LEARNINGS.md'),
+  LEARNINGS_CRON: z.string().default('0 5 * * *'),
+  LEARNINGS_MAX_CHARS: z.coerce.number().int().min(1_000).max(40_000).default(10_000),
+  LEARNINGS_DAYS: z.coerce.number().int().min(1).max(60).default(7),
   LLM_BASE_URL: z.url().default('https://api.openai.com/v1'),
   LLM_API_KEY: z.string().min(1),
   LLM_MODEL: z.string().min(1),

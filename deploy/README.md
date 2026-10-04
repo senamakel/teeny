@@ -233,6 +233,27 @@ because the two instances use different embedding sizes (3072 and 1024). The
 export is kept in `~/cortex-migration/` on the box. The old instance stays up
 for as long as tinysweeper still points at it; teeny is no longer attached.
 
+### Embeddings on robot1
+
+The store embeds through the ladder, and its embedding model is pinned to the
+data directory for life. robot1 has no Venice key, so the fleet's `vectors`
+ladder (Venice BGE-M3) is stripped from its router config; from 2026-10-04 the
+store embedded nothing and recall quietly became keyword-only. Since
+2026-10-05 robot1's store is pinned to `vectors-oai3` instead, a Surplus-only
+ladder (workspace#19), through `~/.config/cortex/cortex.local.env`:
+
+```
+CORTEX_EMBEDDING_MODEL=vectors-oai3
+```
+
+The BGE-M3 vectors were moved aside to `vector.bge-m3.20261005` in the
+`cortex-data` volume, not deleted, and the corpus re-embedded with
+`POST /v1/admin/index-audit {"repair":true,"vectors":true,"scope":…}`. That
+endpoint is cut off at 120 s server-side but keeps what it re-embedded, so a
+scope is re-embedded by calling it repeatedly
+(`~/.cache/cortex-reembed/loop.sh <scope>`). The bot logs
+`memory: the store cannot embed` hourly whenever this breaks again.
+
 The `cortexdb` and `tika` services in `compose.prod.yaml` are behind the
 `memory` profile so a plain `up` leaves them alone; `--profile memory` starts
 a private CortexDB on a box that has no shared one.

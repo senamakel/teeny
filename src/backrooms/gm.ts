@@ -1,3 +1,4 @@
+import { personaText, type LivePersona } from '../agent/soul.js'
 import { z } from 'zod'
 import { applyHouseStyle, countEmoji } from '../agent/house-style.js'
 import { MAX_POST_LENGTH } from '../agent/tools/x.js'
@@ -282,7 +283,7 @@ export async function gatherGmMaterial(
   sources: {
     memory?: Memory
     x?: { searchPosts(query: string, options: { maxResults: number }): Promise<XPost[]> }
-    persona: string
+    persona: LivePersona
     lore: string
     botUsername: string
     maxEmoji: number
@@ -332,7 +333,7 @@ export async function gatherGmMaterial(
     ),
   ])
   return {
-    persona: sources.persona,
+    persona: personaText(sources.persona),
     lore: sources.lore,
     recentPosts,
     history,

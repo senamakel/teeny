@@ -13,6 +13,8 @@
     "forget": "tsx src/scripts/forget.ts",
     "remember": "tsx src/scripts/remember.ts",
     "migrate-memory": "tsx src/scripts/migrate-memory.ts",
+    "memory:probe": "tsx src/scripts/memory-probe.ts",
+    "learnings": "tsx src/scripts/learnings.ts",
     "start": "node dist/index.js",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.test.json",

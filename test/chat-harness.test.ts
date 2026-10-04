@@ -65,7 +65,9 @@ describe('ChatHarness', () => {
     const model: ChatModel = { reply: vi.fn().mockResolvedValue({ text: 'hi' }) }
 
     await expect(new ChatHarness(store, model).generate(message)).resolves.toEqual({ text: 'hi' })
-    expect(model.reply).toHaveBeenCalledWith(expect.objectContaining({ memory: '' }))
+    expect(model.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ memory: expect.stringContaining('MEMORY WAS UNAVAILABLE THIS TURN') }),
+    )
   })
 
   it('does not keep a hostile message or the reply to it', async () => {
