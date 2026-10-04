@@ -76,22 +76,25 @@ like the bot before it releases, and refuses to deploy when it does not.
 
 `MORNING_ENABLED=true` with `IMAGE_GEN_ENABLED=true` and `VIDEO_GEN_ENABLED=true`
 in the box's `.env` (set on 2026-09-14) schedules the good-morning post at
-`MORNING_CRON` (07:00 UTC since 2026-09-14, the first of the day's four slots). It draws and films through the box's own ladder,
+`MORNING_CRON` (07:00 UTC since 2026-09-14, the first of the day's three slots). It draws and films through the box's own ladder,
 so that ladder has to be on a router that counts Surplus's prepaid credit as
 balance (llm-ladder-router #21) and have credit to spend; `ladder-up --pull`
 after a router release.
 
-## The day's four posts
+## The day's three posts
 
-Since 2026-09-22 the box's `.env` schedules four own posts a day, six hours
-apart, which is what the cadence wants: the morning post at 07:00
-(`MORNING_ENABLED`); at 13:00 the moon chart on Mondays, the candlestick
-chart on Thursdays and the lore post on the other five days (`MOON_ENABLED`,
-`CHART_ENABLED`, `LORE_ENABLED`, on the week-long `POST_ROTA_DAYS` rota
-anchored on Monday 2026-09-14); at 19:00 the evening slot, one cron, with
-the article on Wednesdays and Saturdays when `ARTICLE_ENABLED`, the serial
-on Tuesdays and Fridays when `NARRATIVE_ENABLED`, and the lore post
-otherwise; and the quote post at 01:00 (`QUOTE_ENABLED`). The quote post's two searches
+Since 2026-10-04 the calendar is three own posts a day, eight hours apart,
+on a three-day rota (`POST_ROTA_DAYS=3`, anchored on 2026-09-14): the
+morning post at 07:00 every day (`MORNING_ENABLED`); at 15:00 the
+afternoon slot, one cron (`AFTERNOON_CRON`), with the candlestick chart on
+day 0, the moon chart on day 1 and the lore post on day 2 (`CHART_ENABLED`,
+`MOON_ENABLED`, `LORE_ENABLED`); at 23:00 the evening slot, one cron
+(`EVENING_CRON`), with the article on day 1 (`ARTICLE_ENABLED`, and
+`ARTICLE_PUBLISH` for it to reach X), the serial on day 2 when
+`NARRATIVE_ENABLED`, and the quote post otherwise (`QUOTE_ENABLED`). The
+box's `.env` must not pin the old four-slot values (`POST_ROTA_DAYS=7`,
+`CHART_ROTA_SLOT=3`, `POST_MIN_GAP_HOURS=6`); the old per-job crons
+(`CHART_CRON`, `MOON_CRON`, `LORE_CRON`, `QUOTE_CRON`) are ignored. The quote post's two searches
 are billed like every other X read; `data/quotes.json` on the `bot-data`
 volume is what stops it quoting a post twice, so migrate that volume with
 the rest.
