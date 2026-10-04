@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ArticlePipeline, splitSections, type ArticlePipelineOptions } from '../src/article/pipeline.js'
+import { ArticlePipeline, frontOf, splitSections, type ArticlePipelineOptions } from '../src/article/pipeline.js'
 import { MemoryArticleStore } from '../src/article/store.js'
 import type { RunResult } from '../src/backrooms/wiring.js'
 import type { Critique } from '../src/critic/algo.js'
@@ -324,5 +324,14 @@ describe('the article pipeline', () => {
 
   it('splits the markdown at the section headings', () => {
     expect(splitSections('_dek_\n\n## one\n\na\n\n## two\n\nb')).toEqual(['_dek_', '## one\n\na', '## two\n\nb'])
+  })
+})
+
+describe('what the critic is shown', () => {
+  it('is the whole piece when it fits, and otherwise cut at the last paragraph that fits', () => {
+    expect(frontOf('one\n\ntwo', 100)).toBe('one\n\ntwo')
+    const piece = ['a'.repeat(40), 'b'.repeat(40), 'c'.repeat(40)].join('\n\n')
+    expect(frontOf(piece, 90)).toBe(`${'a'.repeat(40)}\n\n${'b'.repeat(40)}`)
+    expect(frontOf('x'.repeat(50), 20)).toBe('x'.repeat(20))
   })
 })

@@ -85,6 +85,12 @@ export class OpenAITextModel implements TextModel {
        * for a hot one, because a cold model never says the absurd thing.
        */
       temperature?: number
+      /**
+       * How long one call may take. 90 seconds by default, which is plenty for
+       * a caption; a step that reads or rewrites a whole article on a
+       * reasoning model needs minutes.
+       */
+      timeoutMs?: number
     },
   ) {}
 
@@ -99,7 +105,7 @@ export class OpenAITextModel implements TextModel {
       method: 'POST',
       headers: { authorization: `Bearer ${this.options.apiKey}`, 'content-type': 'application/json' },
       body: JSON.stringify({ model: this.options.model, temperature: this.options.temperature ?? 0.2, messages }),
-      signal: AbortSignal.timeout(90_000),
+      signal: AbortSignal.timeout(this.options.timeoutMs ?? 90_000),
     })
     const body = (await response.json().catch(() => ({}))) as CompletionResponse & {
       error?: { message?: string }

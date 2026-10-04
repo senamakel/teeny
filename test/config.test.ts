@@ -199,3 +199,10 @@ describe('the morning timeline config', () => {
     expect(off.MORNING_X_HOURS).toBe(48)
   })
 })
+
+describe('article config', () => {
+  it('gives the article model calls minutes, not the 90 seconds a caption gets', () => {
+    expect(loadConfig(REQUIRED).ARTICLE_MODEL_TIMEOUT_SECONDS).toBe(360)
+    expect(loadConfig({ ...REQUIRED, ARTICLE_MODEL_TIMEOUT_SECONDS: '600' }).ARTICLE_MODEL_TIMEOUT_SECONDS).toBe(600)
+  })
+})
