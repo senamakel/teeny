@@ -1356,6 +1356,63 @@ Before this, every event was written as an opaque JSON blob attributed to the
 bot's own id, so recall could not tell two people apart and the account
 answered a stranger and a regular identically.
 
+### What a turn starts with
+
+Every reply and every Telegram turn is drafted from one context, gathered by
+`TurnContext` (`src/memory/context.ts`) from four sources at once, each failing
+on its own:
+
+| Section | Source | Read how |
+|---|---|---|
+| `YOUR LAST N EXCHANGES WITH @user` | the mention queue: every answered mention from this X user | exactly, newest first (`MEMORY_EXCHANGES`, default 6) |
+| `ABOUT @user` / `GENERAL CONTEXT` | CortexDB, the two holistic packs above | by meaning, within `CORTEX_RECALL_TIMEOUT_MS` |
+| `WHAT YOU YOURSELF HAVE POSTED RECENTLY` | the post ledger | exactly (`MEMORY_OWN_POSTS_HOURS`, `MEMORY_OWN_POSTS_LIMIT`) |
+| the learnings brief | `LEARNINGS.md`, in the system prompt | from disk, every turn |
+
+What can be read exactly is read exactly. The account's own posts and its
+answers to a person already exist as lists; asked for them, the semantic index
+answered "what has this account posted recently" with month-old replies to
+other people. Memory is asked only for what is not written down elsewhere.
+
+A source that fails is said out loud. When the recall times out the drafter
+reads `MEMORY WAS UNAVAILABLE THIS TURN` instead of an empty block, so it does
+not greet a regular as a stranger, and the journal's `recalled` lines name the
+source that dropped out.
+
+`PEOPLE_LINKS` (`x:<id>=telegram:<id>,…`) joins one human's ids across
+channels, so the person recall matches either. `recall_memory` takes an
+`about: "@handle"` so the agent can look someone up by name.
+
+### The learnings brief
+
+Once a day (`LEARNINGS_CRON`, 05:00 UTC, before the morning post) the account
+rewrites `LEARNINGS.md` (`LEARNINGS_PATH`, on the data volume) from its own
+record: the last `LEARNINGS_DAYS` of posts with their numbers, its journal,
+the people who interact with it most, and three recalls for what is written
+down nowhere else (notes it left itself, its running bits, open threads). The
+model updates yesterday's brief rather than writing a fresh one, so a regular
+who was quiet for a week does not fall out of it; a draft that is missing most
+of the fixed sections is thrown away and yesterday's stays.
+
+The brief is in every prompt the account writes: replies, Telegram, the agent,
+the chart, morning, moon, quote and lore posts. It is read live, so the brief
+written at five is in the six o'clock reply without a restart. Older briefs are
+kept in `data/memory/history/`. `npm run learnings -- --print` writes one now.
+
+### Checking that recall works
+
+`npm run memory:probe -- --sample 10` (in the container,
+`node dist/scripts/memory-probe.js --sample 10`) takes the account's most
+frequent correspondents, builds the context a reply to each would get, and
+reports whether the exact history is there, whether memory asked about the
+person brings back one of the last three things said (the recall hit rate),
+and how long each took. It reads and recalls; it never writes.
+
+The bot also reads CortexDB's readiness report at boot and hourly
+(`CORTEX_HEALTH_CRON`) and warns when the store cannot embed. That state
+answers every recall, by keyword alone, and nothing else notices: from
+2026-10-04 the store embedded nothing for a day.
+
 ## The cadence
 
 The account's own posts -- the morning post, the chart, the moon chart, the
@@ -1607,6 +1664,8 @@ npm run calendar-dry-run -- gm   # draft one calendar item, generate its media, 
 npm run article-dry-run -- --structure-only   # rehearse an article: the room and the plan; --no-images for the text too
 npm run telegram-dry-run -- "hi"            # one Telegram DM through the real drafter, printed not sent
 npm run telegram-dry-run -- --group "@teenythebot gm"   # the same, as a group mention
+npm run memory:probe -- --sample 10   # does recall bring back what was said to the top correspondents?
+npm run learnings -- --print          # rewrite the learnings brief now, and print it
 ```
 
 Runtime cursor data is stored at `data/state.json` and is ignored by
