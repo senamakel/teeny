@@ -4,7 +4,8 @@ export interface SlotOwner {
   name: string
   /** The rota slots (days) this job owns in the slot. */
   slots: number[]
-  run(): Promise<unknown>
+  /** Runs the job; resolves to whether it put a post on the timeline. */
+  run(): Promise<boolean>
 }
 
 export interface SlotJobDependencies {
@@ -12,7 +13,11 @@ export interface SlotJobDependencies {
   label: string
   rota: Rota
   owners: SlotOwner[]
-  /** Runs on every day no owner has. Absent, those days are quiet. */
+  /**
+   * Runs on every day no owner has, and on an owner's day when the owner
+   * did not post (it skipped, was held, or failed). Absent, those days are
+   * quiet. Its own guards -- the cadence first -- still decide whether it posts.
+   */
   fallback?: { name: string; run(): Promise<unknown> }
   logger: { info: (object: unknown, message?: string) => void; error: (object: unknown, message?: string) => void }
   now?: () => number
@@ -28,8 +33,11 @@ export interface SlotJobDependencies {
  * the same rule in one place: the slot fires, the day's slot number picks
  * the owner, the owner runs, and the fallback takes every day nobody
  * claimed -- so switching a job off hands its days to the fallback rather
- * than leaving them quiet. Each owner keeps its own guards (its interval,
- * the cadence), so a restart near the cron minute is still safe.
+ * than leaving them quiet. An owner that runs and does not post (no seed,
+ * the filter held it, a rehearsal, an error) hands the day over the same
+ * way, so a bad night for the article is still a post. Each job keeps its
+ * own guards (its interval, the cadence), so a restart near the cron
+ * minute is still safe.
  */
 export class SlotJob {
   constructor(private readonly dependencies: SlotJobDependencies) {}
@@ -39,7 +47,7 @@ export class SlotJob {
     return Array.from({ length: this.dependencies.rota.days }, (_, slot) => `${slot}:${this.ownerOf(slot)?.name ?? '-'}`).join(' ')
   }
 
-  private ownerOf(slot: number): { name: string; run(): Promise<unknown> } | undefined {
+  private ownerOf(slot: number): { name: string } | undefined {
     return this.dependencies.owners.find((owner) => owner.slots.includes(slot)) ?? this.dependencies.fallback
   }
 
@@ -47,16 +55,28 @@ export class SlotJob {
     const { dependencies } = this
     const now = (dependencies.now ?? Date.now)()
     const slot = rotaSlot(dependencies.rota, now)
-    const owner = this.ownerOf(slot)
-    if (!owner) {
+    const owner = dependencies.owners.find((candidate) => candidate.slots.includes(slot))
+    const { fallback } = dependencies
+    if (owner) {
+      dependencies.logger.info({ slot: dependencies.label, day: slot, job: owner.name }, "slot: running the day's job")
+      if (await this.attempt(owner.name, () => owner.run())) return
+      if (!fallback) return
+      dependencies.logger.info({ slot: dependencies.label, day: slot, job: owner.name, fallback: fallback.name }, 'slot: the day\'s job did not post; handing the slot to the fallback')
+    }
+    if (!fallback) {
       dependencies.logger.info({ slot: dependencies.label, day: slot }, 'slot: nobody has today; quiet')
       return
     }
-    dependencies.logger.info({ slot: dependencies.label, day: slot, job: owner.name }, 'slot: running the day\'s job')
+    if (!owner) dependencies.logger.info({ slot: dependencies.label, day: slot, job: fallback.name }, "slot: running the day's job")
+    await this.attempt(fallback.name, () => fallback.run())
+  }
+
+  private async attempt(job: string, run: () => Promise<unknown>): Promise<unknown> {
     try {
-      await owner.run()
+      return await run()
     } catch (error) {
-      dependencies.logger.error({ err: error, slot: dependencies.label, job: owner.name }, 'slot: the day\'s job failed')
+      this.dependencies.logger.error({ err: error, slot: this.dependencies.label, job }, "slot: the day's job failed")
+      return false
     }
   }
 }
