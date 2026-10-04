@@ -1,4 +1,5 @@
 import { V1Client } from 'cortexdbai/v1'
+import { cutAt } from './text.js'
 import {
   chatPersonOf,
   personOf,
@@ -68,7 +69,7 @@ export function capPack(block: string, maxChars: number): string {
     kept.push(item)
     length += added
   }
-  return kept.length ? kept.join(PACK_SEPARATOR) : block.slice(0, maxChars)
+  return kept.length ? kept.join(PACK_SEPARATOR) : cutAt(block, maxChars)
 }
 
 export class CortexMemory implements Memory, ChatMemory {

@@ -2,6 +2,7 @@ import type { OwnPost, PostLedger } from '../cadence/ledger.js'
 import { summariseRecall } from '../journal/journal.js'
 import type { Exchange } from '../queue/mentions.js'
 import type { Memory, Person } from '../types.js'
+import { cutAt } from './text.js'
 
 /** The question that stood in for the ledger before there was one to read. */
 export const OWN_ACTIVITY_QUERY =
@@ -42,7 +43,7 @@ function stamp(iso: string): string {
 
 function clip(text: string, max: number): string {
   const flat = text.replace(/\s+/g, ' ').trim()
-  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat
+  return flat.length > max ? `${cutAt(flat, max - 1)}…` : flat
 }
 
 /**
