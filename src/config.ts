@@ -465,6 +465,11 @@ const schema = z.object({
   ARTICLE_WRITER_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.8),
   // Refuses to publish again inside this window, on disk, so a restart at the cron minute cannot post twice.
   ARTICLE_MIN_INTERVAL_HOURS: z.coerce.number().min(1).max(168).default(48),
+  // How long one of the article's model calls may take. The editor reads the
+  // whole piece and the flow pass rewrites all of it on a reasoning model; at
+  // the 90 seconds a caption gets, both were cut off and the article went out
+  // unchecked and unsmoothed.
+  ARTICLE_MODEL_TIMEOUT_SECONDS: z.coerce.number().int().min(30).max(1_800).default(360),
 
   // --- the content calendar ------------------------------------------------
   // Scheduled posts from a JSON file: a "gm" every morning, a Friday post, a

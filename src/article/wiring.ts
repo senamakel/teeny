@@ -60,6 +60,7 @@ export function buildArticlePipeline(
       model: config.LLM_MODEL,
       source,
       temperature,
+      timeoutMs: config.ARTICLE_MODEL_TIMEOUT_SECONDS * 1_000,
       ...(options.ledger ? { ledger: options.ledger } : {}),
     })
   const backrooms =

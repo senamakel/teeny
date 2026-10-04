@@ -309,10 +309,18 @@ export class ArticlePipeline {
     let critique: Critique | undefined
     if (options.critic) {
       try {
+        // The critic reads the front of anything long. Cut at a paragraph and
+        // say so: a cut mid-sentence was read as the piece ending mid-sentence.
+        const front = frontOf(markdown, CRITIC_READ_LENGTH)
         critique = await options.critic.critique({
           kind: 'other',
-          text: markdown.slice(0, 8_000),
-          context: `a long-form article from teeny's serial, published as an x article. the premise: ${thought.premise}`,
+          text: front,
+          context: [
+            `a long-form article from teeny's serial, published as an x article. the premise: ${thought.premise}`,
+            ...(front.length < markdown.length
+              ? [`this is the opening ${wordCount(front)} of its ${wordCount(markdown)} words; the piece goes on past where this text stops, so the stop is not its ending.`]
+              : []),
+          ].join('\n'),
         })
         record.set({ critique: renderCritique(critique) })
         log('critiqued', { verdict: critique.verdict, score: critique.score })
@@ -592,4 +600,14 @@ export function renderRoom(run: BackroomsRun): string {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/** How much of the article the critic is shown: the most it reads. */
+const CRITIC_READ_LENGTH = 8_000
+
+/** The article up to `max` characters, cut at the last paragraph break that fits. */
+export function frontOf(markdown: string, max: number): string {
+  if (markdown.length <= max) return markdown
+  const cut = markdown.lastIndexOf('\n\n', max)
+  return (cut > 0 ? markdown.slice(0, cut) : markdown.slice(0, max)).trimEnd()
 }
