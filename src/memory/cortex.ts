@@ -153,7 +153,12 @@ export class CortexMemory implements Memory, ChatMemory {
   async recall(query: string, options: { person?: Person } = {}): Promise<string> {
     const { person } = options
     if (person && !this.personPass) {
-      const named = person.username ? `About @${person.username}: ${query}` : query
+      // The handle leads the query bare. Phrased as a subject -- "About @ana:",
+      // "Regarding @ana", "Everything known about this person" -- the store
+      // treats it as a request for that entity's dossier, and on v0.9.9 that
+      // path does not come back (measured 2026-10-05: 15s+ every time, against
+      // under a second for the same words without the "About").
+      const named = person.username ? `@${person.username} ${query}` : query
       const general = await this.recallPack(named)
       return general.trim() ? `GENERAL CONTEXT:\n${general}` : ''
     }
@@ -168,7 +173,7 @@ export class CortexMemory implements Memory, ChatMemory {
     // was unavailable instead of reading the silence as "nothing is known".
     const [aboutResult, generalResult] = await Promise.allSettled([
       person
-        ? this.recallPack(`Everything known about this person and past exchanges with them.`, {
+        ? this.recallPack(`What has this person said, and what did you say back?`, {
             metadata: { observed_actor: personIds(person) },
           })
         : Promise.resolve(''),

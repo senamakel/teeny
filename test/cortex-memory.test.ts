@@ -92,7 +92,10 @@ describe('CortexMemory without the person pass', () => {
 
     expect(calls).toHaveLength(1)
     expect(calls[0]?.body.filters).toBeUndefined()
-    expect(calls[0]?.body.query).toBe('About @ana: is the door open?')
+    expect(calls[0]?.body.query).toBe('@ana is the door open?')
+    // Never shaped as a subject: "About @ana" sends the store down its
+    // entity-dossier path, which did not return.
+    expect(String(calls[0]?.body.query)).not.toMatch(/^(about|regarding|everything known)/i)
     expect(text).toBe('GENERAL CONTEXT:\nthe lab door is closed')
   })
 })
