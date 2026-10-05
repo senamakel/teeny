@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { capPack, CortexMemory } from '../src/memory/cortex.js'
+import { capPack, CortexMemory, RECALL_LABELS, RecallPaused } from '../src/memory/cortex.js'
 
 /**
  * The client against a fake transport. Every other test stubs `Memory`
@@ -31,9 +31,9 @@ const pack = (block: string) => new Response(JSON.stringify({ context_block: blo
 const options = { apiUrl: 'http://cortex.test', actor: 'agent:teeny', bearer: 't' }
 
 describe('CortexMemory.recall', () => {
-  it('asks a holistic pack in the configured scope, and one filtered to the person', async () => {
+  it('asks a pack about the person by their handle label, and one over conversation only', async () => {
     const { fetch, calls } = transport((call) =>
-      pack(JSON.stringify(call.body).includes('observed_actor') ? 'they asked about the roadmap' : 'the project ships weekly'),
+      pack(JSON.stringify(call.body.filters).includes('@ana') ? 'they asked about the roadmap' : 'the project ships weekly'),
     )
     const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny', { personPass: true })
 
@@ -42,35 +42,42 @@ describe('CortexMemory.recall', () => {
     expect(calls).toHaveLength(2)
     expect(calls.every((call) => call.url.endsWith('/v1/recall'))).toBe(true)
     expect(calls.every((call) => call.body.scope === 'agent:teeny' && call.body.view === 'holistic')).toBe(true)
-    const filtered = calls.find((call) => call.body.filters)
-    expect(filtered?.body.filters).toEqual({ metadata: { observed_actor: 'user:x-1' } })
+    // The handle label is what every exchange with a person carries; the
+    // observed_actor filter it replaced never came back on the shared store.
+    expect(calls.map((call) => call.body.filters)).toContainEqual({ metadata: { labels: '@ana' } })
+    // The general pass draws on conversation, notes and own posts, never on
+    // raw webhook activity.
+    expect(calls.map((call) => call.body.filters)).toContainEqual({ metadata: { labels: RECALL_LABELS } })
+    expect(RECALL_LABELS).not.toContain('activity')
     expect(text).toBe('ABOUT @ana:\nthey asked about the roadmap\n\nGENERAL CONTEXT:\nthe project ships weekly')
   })
 
-  it('matches every id a linked person is known by', async () => {
-    const { fetch, calls } = transport(() => pack(''))
-    const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny', { personPass: true })
+  it('recalls generally about someone known only by id, since only a handle can find them', async () => {
+    const { fetch, calls } = transport(() => pack('context'))
+    const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny')
 
-    await memory.recall('hi', { person: { id: 'user:x-1', aliases: ['user:telegram-9'] } })
+    await memory.recall('hi', { person: { id: 'user:x-1' } })
 
-    const filtered = calls.find((call) => call.body.filters)
-    expect(filtered?.body.filters).toEqual({ metadata: { observed_actor: ['user:x-1', 'user:telegram-9'] } })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.body.filters).toEqual({ metadata: { labels: RECALL_LABELS } })
   })
 
   it('keeps the general context when only the person pass fails', async () => {
     const { fetch } = transport((call) =>
-      call.body.filters ? new Response('{"error_code":"DB_UNAVAILABLE"}', { status: 503 }) : pack('the project ships weekly'),
+      JSON.stringify(call.body.filters).includes('@ana')
+        ? new Response('{"error_code":"DB_UNAVAILABLE"}', { status: 503 })
+        : pack('the project ships weekly'),
     )
     const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny', { personPass: true })
 
-    await expect(memory.recall('q', { person: { id: 'user:x-1' } })).resolves.toBe('GENERAL CONTEXT:\nthe project ships weekly')
+    await expect(memory.recall('q', { person: { id: 'user:x-1', username: 'ana' } })).resolves.toBe('GENERAL CONTEXT:\nthe project ships weekly')
   })
 
   it('fails when both passes fail, so the caller can say memory was unavailable', async () => {
     const { fetch } = transport(() => new Response('{"error_code":"DB_UNAVAILABLE"}', { status: 503 }))
     const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny', { personPass: true })
 
-    await expect(memory.recall('q', { person: { id: 'user:x-1' } })).rejects.toThrow()
+    await expect(memory.recall('q', { person: { id: 'user:x-1', username: 'ana' } })).rejects.toThrow()
   })
 
   it('gives up on a recall at its own deadline rather than the SDK minute', async () => {
@@ -86,12 +93,12 @@ describe('CortexMemory.recall', () => {
 describe('CortexMemory without the person pass', () => {
   it('asks one pack, naming the person, and never filters on observed_actor', async () => {
     const { fetch, calls } = transport(() => pack('the lab door is closed'))
-    const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny')
+    const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny', { personPass: false })
 
     const text = await memory.recall('is the door open?', { person: { id: 'user:x-1', username: 'ana' } })
 
     expect(calls).toHaveLength(1)
-    expect(calls[0]?.body.filters).toBeUndefined()
+    expect(calls[0]?.body.filters).toEqual({ metadata: { labels: RECALL_LABELS } })
     expect(calls[0]?.body.query).toBe('@ana is the door open?')
     // Never shaped as a subject: "About @ana" sends the store down its
     // entity-dossier path, which did not return.
@@ -146,5 +153,28 @@ describe('capPack', () => {
 
     const text = await memory.recall('q')
     expect(text.length).toBeLessThan(1_200 * 6 + 100)
+  })
+})
+
+describe('the recall breaker', () => {
+  it('stops recalling for the cooldown after a timeout, so a stalled store is not handed more', async () => {
+    let hang = true
+    const { fetch, calls } = transport(() => (hang ? new Promise<Response>(() => undefined) : pack('back')))
+    const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny', { recallMs: 20, cooldownMs: 60_000 })
+
+    await expect(memory.recall('q')).rejects.toThrow(/timed out/)
+    const sent = calls.length
+    hang = false
+    await expect(memory.recall('q')).rejects.toBeInstanceOf(RecallPaused)
+    expect(calls.length).toBe(sent)
+  })
+
+  it('fails fast past the in-flight limit', async () => {
+    const { fetch } = transport(() => new Promise<Response>(() => undefined))
+    const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny', { recallMs: 5_000, maxInFlight: 1 })
+
+    const first = memory.recall('q')
+    await expect(memory.recall('q')).rejects.toBeInstanceOf(RecallPaused)
+    void first.catch(() => undefined)
   })
 })

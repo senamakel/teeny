@@ -114,11 +114,6 @@ export interface Person {
    */
   id: string
   username?: string
-  /**
-   * The same human's ids on other channels, from PEOPLE_LINKS. Recall about
-   * the person matches any of them; captures are still filed under `id`.
-   */
-  aliases?: string[]
 }
 
 export function personOf(post: XPost): Person | undefined {

@@ -26,7 +26,7 @@ const people = new MongoPeople(mongo)
 const memory = new CortexMemory(
   { apiUrl: config.CORTEX_API_URL, actor: config.CORTEX_ACTOR, bearer: config.CORTEX_TOKEN },
   config.CORTEX_SCOPE,
-  { recallMs: config.CORTEX_RECALL_TIMEOUT_MS, captureMs: config.CORTEX_CAPTURE_TIMEOUT_MS, personPass: config.CORTEX_PERSON_RECALL },
+  { recallMs: config.CORTEX_RECALL_TIMEOUT_MS, captureMs: config.CORTEX_CAPTURE_TIMEOUT_MS, personPass: config.CORTEX_PERSON_RECALL, cooldownMs: config.CORTEX_RECALL_COOLDOWN_MS },
 )
 
 async function main(): Promise<void> {

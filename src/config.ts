@@ -62,27 +62,16 @@ const schema = z.object({
   // recall that then timed out anyway.
   CORTEX_RECALL_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(120_000).default(15_000),
   CORTEX_CAPTURE_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(120_000).default(30_000),
-  // The second, person-filtered recall pack. Off: on the shared store it ran
-  // past every deadline and the abandoned queries stalled all reads. The exact
-  // history with a person comes from the mention queue instead.
-  CORTEX_PERSON_RECALL: offByDefault,
+  // The second recall pack, about the person being answered, filtered on their
+  // @handle label. (The observed_actor filter it replaced never came back.)
+  CORTEX_PERSON_RECALL: booleanFromString,
+  // How long recall stays off after one times out, so a stalled store is not
+  // handed one more abandoned query per reply.
+  CORTEX_RECALL_COOLDOWN_MS: z.coerce.number().int().min(0).max(3_600_000).default(300_000),
   // When the store's own readiness report is read. A store that cannot embed
   // still answers, by keyword alone, so nothing else notices: from 2026-10-04
   // it embedded nothing for a day and every recall degraded in silence.
   CORTEX_HEALTH_CRON: z.string().default('17 * * * *'),
-  // The same human on two channels, `x:<id>=telegram:<id>`, comma separated.
-  // Each channel only knows its own numeric id, so without a link the account
-  // meets the person it chatted with on Telegram as a stranger on X.
-  PEOPLE_LINKS: z
-    .string()
-    .default('')
-    .transform((value) =>
-      value
-        .split(',')
-        .map((entry) => entry.split('=').map((side) => side.trim()))
-        .filter((pair): pair is [string, string] => pair.length === 2 && /^[a-z]+:\S+$/.test(pair[0]!) && /^[a-z]+:\S+$/.test(pair[1]!))
-        .map(([a, b]) => [`user:${a.replace(':', '-')}`, `user:${b.replace(':', '-')}`] as const),
-    ),
   // What a turn is told before it is drafted, read exactly rather than
   // searched for: the last exchanges with this person, and what the account
   // itself posted lately. Zero turns either one off.

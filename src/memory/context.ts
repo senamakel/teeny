@@ -27,8 +27,6 @@ export interface TurnContextOptions {
   ownPosts?: Pick<PostLedger, 'since'>
   /** The last answered exchanges with an X user, read exactly. */
   exchanges?: (authorId: string, limit: number, options: { excludePostId?: string }) => Promise<Exchange[]>
-  /** The same human on two channels, as pairs of person ids. */
-  links?: ReadonlyArray<readonly [string, string]>
   limits?: { exchanges?: number; ownPostsHours?: number; ownPostsLimit?: number }
   now?: () => number
   logger?: { warn: (object: unknown, message?: string) => void }
@@ -71,16 +69,6 @@ export class TurnContext {
     this.limits = { ...DEFAULT_LIMITS, ...definedOnly(options.limits ?? {}) }
   }
 
-  /** The person with every id they are known by on other channels. */
-  linked(person: Person): Person {
-    const aliases = new Set(person.aliases ?? [])
-    for (const [a, b] of this.options.links ?? []) {
-      if (a === person.id) aliases.add(b)
-      if (b === person.id) aliases.add(a)
-    }
-    return aliases.size > 0 ? { ...person, aliases: [...aliases] } : person
-  }
-
   async gather(input: {
     query: string
     person?: Person
@@ -89,7 +77,7 @@ export class TurnContext {
     /** The post being answered, kept out of its own history. */
     postId?: string
   }): Promise<TurnMemory> {
-    const person = input.person ? this.linked(input.person) : undefined
+    const person = input.person
     const degraded: string[] = []
     const failed = (source: string) => (error: unknown) => {
       degraded.push(source)

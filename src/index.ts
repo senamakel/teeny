@@ -73,7 +73,7 @@ const memory = new CortexMemory(
     bearer: config.CORTEX_TOKEN,
   },
   config.CORTEX_SCOPE,
-  { recallMs: config.CORTEX_RECALL_TIMEOUT_MS, captureMs: config.CORTEX_CAPTURE_TIMEOUT_MS, personPass: config.CORTEX_PERSON_RECALL },
+  { recallMs: config.CORTEX_RECALL_TIMEOUT_MS, captureMs: config.CORTEX_CAPTURE_TIMEOUT_MS, personPass: config.CORTEX_PERSON_RECALL, cooldownMs: config.CORTEX_RECALL_COOLDOWN_MS },
 )
 const rawX = new XApiClient({
   username: config.X_BOT_USERNAME,
@@ -494,7 +494,6 @@ const turnContext = new TurnContext({
   memory,
   ownPosts: ledger,
   exchanges: (authorId, limit, options) => queue.exchangesWith(authorId, limit, options),
-  links: config.PEOPLE_LINKS,
   limits: {
     exchanges: config.MEMORY_EXCHANGES,
     ownPostsHours: config.MEMORY_OWN_POSTS_HOURS,
@@ -903,7 +902,6 @@ app.log.info(
       recallTimeoutMs: config.CORTEX_RECALL_TIMEOUT_MS,
       exchanges: config.MEMORY_EXCHANGES,
       ownPostsHours: config.MEMORY_OWN_POSTS_HOURS,
-      linkedPeople: config.PEOPLE_LINKS.length,
     },
     exa: Boolean(config.EXA_API_KEY),
     safety: config.SAFETY_JUDGE
