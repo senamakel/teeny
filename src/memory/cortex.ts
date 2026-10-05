@@ -51,6 +51,10 @@ export interface CortexTimeouts {
   maxInFlight?: number
 }
 
+function isTimeout(error: unknown): boolean {
+  return error instanceof Error && /timed out/i.test(error.message)
+}
+
 /** Recall is off for now, after a timeout or because too many are in flight. */
 export class RecallPaused extends Error {}
 
@@ -187,7 +191,7 @@ export class CortexMemory implements Memory, ChatMemory {
     try {
       return await this.recallOnce(query, options)
     } catch (error) {
-      if (error instanceof Error && /timed out/i.test(error.message)) this.pausedUntil = this.now() + this.cooldownMs
+      if (isTimeout(error)) this.pausedUntil = this.now() + this.cooldownMs
       throw error
     } finally {
       this.inFlight -= 1
@@ -224,6 +228,12 @@ export class CortexMemory implements Memory, ChatMemory {
         : Promise.resolve(''),
       this.recallPack(query),
     ])
+    // A pass that timed out left a query running on the store even when the
+    // other pass answered; the breaker counts it, or a half-answered recall
+    // per reply keeps adding to the pile it exists to stop.
+    for (const result of [aboutResult, generalResult]) {
+      if (result.status === 'rejected' && isTimeout(result.reason)) this.pausedUntil = this.now() + this.cooldownMs
+    }
     if (generalResult.status === 'rejected' && (!person || aboutResult.status === 'rejected')) {
       throw generalResult.reason
     }
