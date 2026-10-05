@@ -169,6 +169,18 @@ describe('the recall breaker', () => {
     expect(calls.length).toBe(sent)
   })
 
+  it('trips on a timeout in either pass, even when the other one answered', async () => {
+    const { fetch, calls } = transport((call) =>
+      JSON.stringify(call.body.filters).includes('@ana') ? pack('they asked about the roadmap') : new Promise<Response>(() => undefined),
+    )
+    const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny', { recallMs: 20, cooldownMs: 60_000 })
+
+    await expect(memory.recall('q', { person: { id: 'user:x-1', username: 'ana' } })).resolves.toContain('roadmap')
+    const sent = calls.length
+    await expect(memory.recall('q')).rejects.toBeInstanceOf(RecallPaused)
+    expect(calls.length).toBe(sent)
+  })
+
   it('fails fast past the in-flight limit', async () => {
     const { fetch } = transport(() => new Promise<Response>(() => undefined))
     const memory = new CortexMemory({ ...options, fetch }, 'agent:teeny', { recallMs: 5_000, maxInFlight: 1 })
