@@ -76,26 +76,6 @@ describe('TurnContext', () => {
     expect(turn.text).toBe(`context\n\n${OWN_ACTIVITY_HEADING}\nposted a chart`)
   })
 
-  it('links a person to their ids on other channels, both ways', () => {
-    const context = new TurnContext({
-      memory: { recall: vi.fn() },
-      links: [['user:x-7', 'user:telegram-9']],
-    })
-
-    expect(context.linked({ id: 'user:x-7' }).aliases).toEqual(['user:telegram-9'])
-    expect(context.linked({ id: 'user:telegram-9' }).aliases).toEqual(['user:x-7'])
-    expect(context.linked({ id: 'user:x-8' }).aliases).toBeUndefined()
-  })
-
-  it('passes the linked person to memory', async () => {
-    const recall = vi.fn().mockResolvedValue('')
-    const context = new TurnContext({ memory: { recall }, links: [['user:x-7', 'user:telegram-9']], ownPosts: await ledgerWith([]) })
-
-    await context.gather({ query: 'q', person: { id: 'user:telegram-9', username: 'ana' } })
-
-    expect(recall).toHaveBeenCalledWith('q', { person: { id: 'user:telegram-9', username: 'ana', aliases: ['user:x-7'] } })
-  })
-
   it('turns a source off at zero', async () => {
     const exchanges = vi.fn()
     const recall = vi.fn().mockResolvedValue('')

@@ -194,9 +194,9 @@ export async function reflect(options: ReflectOptions): Promise<ReflectResult> {
   await writeFile(temporary, `${brief}\n`)
   await rename(temporary, options.path)
 
-  await Promise.resolve(
-    options.memory?.captureActivity('learnings', day(new Date(now).toISOString()), { text: brief }),
-  ).catch((error: unknown) => problems.push(`capture: ${error instanceof Error ? error.message : String(error)}`))
+  // Not written back to memory: the brief is already in every prompt, and a
+  // stored copy came back in recalls as one more thing crowding out what
+  // people actually said.
 
   options.logger?.info({ chars: brief.length, posts: posts.length, turns: recentTurns.length, problems }, 'learnings: brief rewritten')
   return { outcome: 'written', chars: brief.length, problems }

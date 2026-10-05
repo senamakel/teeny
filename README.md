@@ -1379,9 +1379,12 @@ reads `MEMORY WAS UNAVAILABLE THIS TURN` instead of an empty block, so it does
 not greet a regular as a stranger, and the journal's `recalled` lines name the
 source that dropped out.
 
-`PEOPLE_LINKS` (`x:<id>=telegram:<id>,…`) joins one human's ids across
-channels, so the person recall matches either. `recall_memory` takes an
-`about: "@handle"` so the agent can look someone up by name.
+`recall_memory` takes an `about: "@handle"` so the agent can look someone up by
+name. Memory finds a person by the `@handle` label every exchange with them
+carries; recall draws only on conversation, notes and the account's own posts
+(`RECALL_LABELS`), never on the raw like and follow payloads webhooks used to
+store, and after a recall times out it stays off for `CORTEX_RECALL_COOLDOWN_MS`
+so a stalled store is not handed another abandoned query per reply.
 
 ### The learnings brief
 

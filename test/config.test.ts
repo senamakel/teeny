@@ -214,11 +214,6 @@ describe('memory config', () => {
     expect(config.MEMORY_EXCHANGES).toBe(6)
     expect(config.LEARNINGS_ENABLED).toBe(true)
     expect(config.LEARNINGS_PATH).toBe('data/memory/LEARNINGS.md')
-    expect(config.PEOPLE_LINKS).toEqual([])
   })
 
-  it('parses linked people into person ids and drops what does not parse', () => {
-    const config = loadConfig({ ...REQUIRED, PEOPLE_LINKS: ' x:7=telegram:9 , nonsense, x:8= ,' })
-    expect(config.PEOPLE_LINKS).toEqual([['user:x-7', 'user:telegram-9']])
-  })
 })

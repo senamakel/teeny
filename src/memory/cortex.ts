@@ -33,27 +33,48 @@ export interface CortexTimeouts {
   recallMs?: number
   captureMs?: number
   /**
-   * Whether to run the second, person-filtered pack. Off by default: on the
-   * shared v0.9.9 store a holistic recall filtered on `observed_actor` does not
-   * come back -- it ran past every deadline, kept running server-side after the
-   * client gave up, and once a few replies had each left one behind, every read
-   * on the store stalled (2026-10-05). The exact history with a person comes
-   * from the mention queue now; the person is named in the general query so
-   * memory still leans toward them.
+   * Whether to run the second pack, about the person being answered. It
+   * filters on the person's `@handle` label, which every mention and reply
+   * carries: measured 2026-10-05 at under two seconds, returning that
+   * person's actual exchanges. The `observed_actor` filter it replaced never
+   * came back on the shared v0.9.9 store.
    */
   personPass?: boolean
+  /**
+   * How long recall stays off after one times out. A recall the client gives
+   * up on keeps running on the store, and on 2026-10-05 a handful of them --
+   * one per reply -- stalled every read until a restart. Backing off is what
+   * stops the account from being the thing that keeps the store down.
+   */
+  cooldownMs?: number
+  /** Recalls allowed in flight at once; past it a recall fails fast. */
+  maxInFlight?: number
 }
 
+/** Recall is off for now, after a timeout or because too many are in flight. */
+export class RecallPaused extends Error {}
+
 /**
- * Every id a person is known by. One human on X and on Telegram is two
- * observed actors, because each channel only knows its own numeric id; a
- * linked person carries the other ids, and the person filter matches any of
- * them, so the account remembers the Telegram conversation when the same
- * person turns up in its mentions.
+ * What a recall may draw on: conversation, notes the account left itself, and
+ * the account's own posts. Everything else in the scope is webhook activity --
+ * raw like, repost and follow payloads, two thirds of it on 2026-10-05 -- and a
+ * pack that fills with JSON about who liked what has no room left for what
+ * anybody said.
  */
-function personIds(person: Person): string | string[] {
-  return person.aliases?.length ? [person.id, ...person.aliases] : person.id
-}
+export const RECALL_LABELS = [
+  'mention',
+  'reply',
+  'message',
+  'agent_note',
+  'chart_post',
+  'morning_post',
+  'moon_post',
+  'quote_post',
+  'lore_post',
+  'article',
+  'narrative_episode',
+  'calendar_post',
+]
 
 /**
  * Generous for prose, so the cap only bites when the budget was ignored: a
@@ -99,10 +120,17 @@ export class CortexMemory implements Memory, ChatMemory {
   ) {
     this.client = new V1Client({ ...options, ...(timeouts.captureMs ? { timeoutMs: timeouts.captureMs } : {}) })
     this.reader = new V1Client({ ...options, ...(timeouts.recallMs ? { timeoutMs: timeouts.recallMs } : {}) })
-    this.personPass = timeouts.personPass ?? false
+    this.personPass = timeouts.personPass ?? true
+    this.cooldownMs = timeouts.cooldownMs ?? 5 * 60_000
+    this.maxInFlight = timeouts.maxInFlight ?? 2
   }
 
   private readonly personPass: boolean
+  private readonly cooldownMs: number
+  private readonly maxInFlight: number
+  private pausedUntil = 0
+  private inFlight = 0
+  private readonly now: () => number = Date.now
 
   async captureActivity(
     kind: string,
@@ -151,15 +179,32 @@ export class CortexMemory implements Memory, ChatMemory {
   }
 
   async recall(query: string, options: { person?: Person } = {}): Promise<string> {
-    const { person } = options
+    if (this.now() < this.pausedUntil) {
+      throw new RecallPaused(`recall paused for ${Math.ceil((this.pausedUntil - this.now()) / 1_000)}s after a timeout`)
+    }
+    if (this.inFlight >= this.maxInFlight) throw new RecallPaused('too many recalls in flight')
+    this.inFlight += 1
+    try {
+      return await this.recallOnce(query, options)
+    } catch (error) {
+      if (error instanceof Error && /timed out/i.test(error.message)) this.pausedUntil = this.now() + this.cooldownMs
+      throw error
+    } finally {
+      this.inFlight -= 1
+    }
+  }
+
+  private async recallOnce(query: string, options: { person?: Person }): Promise<string> {
+    // Only the handle can find a person: it is the label every exchange with
+    // them carries. A person known by id alone is recalled about generally.
+    const person = options.person?.username ? options.person : undefined
     if (person && !this.personPass) {
       // The handle leads the query bare. Phrased as a subject -- "About @ana:",
       // "Regarding @ana", "Everything known about this person" -- the store
       // treats it as a request for that entity's dossier, and on v0.9.9 that
       // path does not come back (measured 2026-10-05: 15s+ every time, against
       // under a second for the same words without the "About").
-      const named = person.username ? `@${person.username} ${query}` : query
-      const general = await this.recallPack(named)
+      const general = await this.recallPack(`@${person.username} ${query}`)
       return general.trim() ? `GENERAL CONTEXT:\n${general}` : ''
     }
     // Two passes, because they answer different questions: what the account
@@ -174,7 +219,7 @@ export class CortexMemory implements Memory, ChatMemory {
     const [aboutResult, generalResult] = await Promise.allSettled([
       person
         ? this.recallPack(`What has this person said, and what did you say back?`, {
-            metadata: { observed_actor: personIds(person) },
+            metadata: { labels: `@${person.username}` },
           })
         : Promise.resolve(''),
       this.recallPack(query),
@@ -205,7 +250,7 @@ export class CortexMemory implements Memory, ChatMemory {
       include: ['events', 'facts', 'beliefs', 'episodes'],
       diagnostics: 'none',
       budgets: { max_tokens: metadata ? 600 : 1_200 },
-      ...(metadata ? { filters: metadata } : {}),
+      filters: metadata ?? { metadata: { labels: RECALL_LABELS } },
     })
     return capPack(pack.context_block ?? '', (metadata ? 600 : 1_200) * CHARS_PER_TOKEN)
   }
