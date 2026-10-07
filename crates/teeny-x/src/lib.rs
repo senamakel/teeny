@@ -2,11 +2,14 @@
 //! cache in front of it, the webhook and the activity stream, and the
 //! `Publisher` seam every write goes through.
 
+pub mod article;
 mod client;
 mod error;
+mod media;
 pub mod model;
 pub mod oauth;
 mod wire;
+mod writes;
 
 #[cfg(test)]
 mod test_support;
