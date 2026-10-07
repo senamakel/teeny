@@ -88,6 +88,18 @@ choice! {
 }
 
 choice! {
+    /// `TELEGRAM_TRANSPORT`: who carries the Telegram messages. `teeny`, the
+    /// default, is Teeny's own Bot API poller, which keeps the content filter
+    /// both ways, the transcript budget and the house style in the loop;
+    /// `openhuman` is OpenHuman's channel bound to `teeny-chat`, which skips
+    /// them (the agent's posture still holds).
+    TelegramTransport {
+        Teeny => "teeny",
+        OpenHuman => "openhuman",
+    }
+}
+
+choice! {
     /// `CHART_TIMEFRAME`: the candle size the chart agent reads.
     ChartTimeframe {
         M5 => "5m",

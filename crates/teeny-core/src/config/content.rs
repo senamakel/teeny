@@ -3,7 +3,7 @@
 
 use chrono::NaiveDate;
 
-use super::kinds::{ChartRenderer, ChartTimeframe, LoreSeed, VideoGenApi};
+use super::kinds::{ChartRenderer, ChartTimeframe, LoreSeed, TelegramTransport, VideoGenApi};
 use crate::Secret;
 
 /// The account's own artwork, copied from tinyhumansworld.com into the repo
@@ -263,6 +263,9 @@ pub struct CalendarConfig {
     pub path: String,
     /// `CALENDAR_TELEGRAM_CHAT_IDS`, comma separated.
     pub telegram_chat_ids: Vec<String>,
+    /// `CALENDAR_TZ`, an IANA zone the scheduled jobs' crons are read in;
+    /// unset is UTC. A `timezone` in `calendar.json` wins for its items.
+    pub timezone: Option<String>,
 }
 
 /// The same account on Telegram.
@@ -283,6 +286,8 @@ pub struct TelegramConfig {
     pub debounce_ms: u64,
     /// `TELEGRAM_GIF_COOLDOWN_S`, 0..=86400, default 600.
     pub gif_cooldown_s: u32,
+    /// `TELEGRAM_TRANSPORT`, default `teeny`.
+    pub transport: TelegramTransport,
 }
 
 /// Seeing, drawing, filming and GIFs.

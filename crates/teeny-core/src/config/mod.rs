@@ -26,7 +26,8 @@ pub use content::{
     RotaConfig, TelegramConfig,
 };
 pub use kinds::{
-    AgentMode, ChartRenderer, ChartTimeframe, LoreSeed, ReplyMode, ServiceRole, VideoGenApi,
+    AgentMode, ChartRenderer, ChartTimeframe, LoreSeed, ReplyMode, ServiceRole, TelegramTransport,
+    VideoGenApi,
 };
 pub use service::{
     AgentConfig, BrainConfig, CadenceConfig, CortexConfig, LlmConfig, OpenHumanConfig, ReplyConfig,

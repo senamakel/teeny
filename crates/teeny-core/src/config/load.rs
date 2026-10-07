@@ -43,6 +43,7 @@ pub(super) fn load(env: &mut Env) -> Config {
             enabled: env.switch("CALENDAR_ENABLED", false),
             path: env.text("CALENDAR_PATH", "calendar.json"),
             telegram_chat_ids: env.list("CALENDAR_TELEGRAM_CHAT_IDS", ""),
+            timezone: env.optional("CALENDAR_TZ"),
         },
         telegram: telegram(env),
         media: media(env),
@@ -347,6 +348,7 @@ fn telegram(env: &mut Env) -> TelegramConfig {
         history_tokens: env.int("TELEGRAM_HISTORY_TOKENS", 5_000, 0, 50_000),
         debounce_ms: u64::from(env.int("TELEGRAM_DEBOUNCE_MS", 2_500, 0, 30_000)),
         gif_cooldown_s: env.int("TELEGRAM_GIF_COOLDOWN_S", 600, 0, 86_400),
+        transport: env.choice("TELEGRAM_TRANSPORT", TelegramTransport::Teeny),
     }
 }
 

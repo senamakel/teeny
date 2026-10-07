@@ -701,3 +701,35 @@ mod openhuman {
         assert!(config.unattended_actions.is_empty());
     }
 }
+
+mod serve_wiring {
+    use super::*;
+
+    #[test]
+    fn telegram_transport_defaults_to_teenys_own_poller() {
+        assert_eq!(load(&[]).telegram.transport, TelegramTransport::Teeny);
+        assert_eq!(
+            load(&[("TELEGRAM_TRANSPORT", "openhuman")])
+                .telegram
+                .transport,
+            TelegramTransport::OpenHuman
+        );
+        assert_eq!(
+            keys(&load_err(&[("TELEGRAM_TRANSPORT", "carrier-pigeon")])),
+            ["TELEGRAM_TRANSPORT"]
+        );
+    }
+
+    #[test]
+    fn calendar_tz_is_optional_and_blank_is_unset() {
+        assert_eq!(load(&[]).calendar.timezone, None);
+        assert_eq!(load(&[("CALENDAR_TZ", "")]).calendar.timezone, None);
+        assert_eq!(
+            load(&[("CALENDAR_TZ", "Europe/Berlin")])
+                .calendar
+                .timezone
+                .as_deref(),
+            Some("Europe/Berlin")
+        );
+    }
+}
