@@ -146,3 +146,47 @@ async fn writes_the_record_and_the_pictures_in_the_shape_the_server_reads() {
     assert!(refused.to_string().contains("not an image"));
     std::fs::remove_dir_all(dir).ok();
 }
+
+// legacy article store: "finds a published article by the post that carried it"
+#[tokio::test]
+async fn looks_up_a_published_article_by_its_post_for_the_reply_job() {
+    use crate::reply::ArticleLookup;
+
+    let dir = scratch("article-lookup");
+    let store = FileArticleStore::new(&dir);
+    let published = ArticleRecord {
+        post_id: Some("42".into()),
+        published_at: Some("2026-09-22T19:00:00.000Z".into()),
+        markdown: "# the inch\n\nbody".into(),
+        ..record(
+            "20260922-the-inch",
+            ArticleStatus::Published,
+            "2026-09-22T12:00:00.000Z",
+        )
+    };
+    let rehearsed = ArticleRecord {
+        post_id: Some("43".into()),
+        ..record(
+            "20260921-a-rehearsal",
+            ArticleStatus::DryRun,
+            "2026-09-21T12:00:00.000Z",
+        )
+    };
+    store.save(&published, &[]).await.unwrap();
+    store.save(&rehearsed, &[]).await.unwrap();
+
+    let found = store.find_by_post_id("42").await.unwrap().unwrap();
+    assert_eq!(found.slug, "20260922-the-inch");
+    assert_eq!(found.title, "the inch");
+    assert_eq!(found.dek, "a door");
+    assert_eq!(found.markdown, "# the inch\n\nbody");
+    assert_eq!(found.post_id.as_deref(), Some("42"));
+    assert_eq!(
+        found.published_at.as_deref(),
+        Some("2026-09-22T19:00:00.000Z")
+    );
+    // Only a published one is the account's article.
+    assert_eq!(store.find_by_post_id("43").await.unwrap(), None);
+    assert_eq!(store.find_by_post_id("").await.unwrap(), None);
+    std::fs::remove_dir_all(dir).ok();
+}

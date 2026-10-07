@@ -212,7 +212,7 @@ async fn remember(ctx: &JobCtx, message: &ChatMessage, said: &str, draft: &ChatD
     }
 }
 
-async fn answer(ctx: &JobCtx, message: &ChatMessage) -> anyhow::Result<Option<String>> {
+async fn answer(ctx: &JobCtx, message: &ChatMessage) -> anyhow::Result<Option<ChatAnswer>> {
     let conversation = ctx.conversation()?;
     // Kept before anything else, so a failure further down does not lose it.
     keep_line(ctx, message).await?;
@@ -270,13 +270,44 @@ async fn answer(ctx: &JobCtx, message: &ChatMessage) -> anyhow::Result<Option<St
 
     let draft = generate(ctx, message, &history).await?;
     let Some(text) = &draft.text else {
-        if draft.reaction.is_none() {
+        let Some(reaction) = draft.reaction.clone() else {
             tracing::warn!(
                 chat_id = message.chat_id,
                 "telegram draft had neither text nor a reaction"
             );
+            return Ok(None);
+        };
+        // A reaction alone is still the account's turn: kept, so the next
+        // reply knows it already acknowledged this.
+        let said = format!("(reacted {reaction})");
+        if ctx.config.telegram.dry_run {
+            tracing::info!(
+                chat_id = message.chat_id,
+                reaction,
+                "DRY RUN: would have reacted on telegram"
+            );
+            keep_own_turn(
+                ctx,
+                conversation,
+                &message.chat_id,
+                format!("dry-run:{}", message.id),
+                &said,
+            )
+            .await;
+            return Ok(None);
         }
-        return Ok(None);
+        keep_own_turn(
+            ctx,
+            conversation,
+            &message.chat_id,
+            format!("reaction:{}", message.id),
+            &said,
+        )
+        .await;
+        return Ok(Some(ChatAnswer {
+            text: None,
+            reaction: Some(reaction),
+        }));
     };
     let styled = apply_house_style(
         text,
@@ -323,15 +354,32 @@ async fn answer(ctx: &JobCtx, message: &ChatMessage) -> anyhow::Result<Option<St
     .await;
     remember(ctx, message, &said, &draft).await;
     tracing::info!(chat_id = message.chat_id, kind = message.chat_kind.as_str(), answered = ?message.ids(), tone = ?draft.incoming_tone, "answered on telegram");
-    Ok(Some(said))
+    Ok(Some(ChatAnswer {
+        text: Some(said),
+        reaction: draft.reaction,
+    }))
 }
 
 /// One message addressed to the account, answered as one turn: the text for
 /// the transport to send, or `None` when the account stays quiet (held,
 /// stale, a reaction alone, a dry run, a failed turn).
 pub async fn handle_message(ctx: &JobCtx, message: &ChatMessage) -> Option<String> {
+    respond(ctx, message).await.and_then(|answer| answer.text)
+}
+
+/// What the transport sends for one message: the text, the reaction to put
+/// on the message (sent first, as the legacy bot did), or both.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChatAnswer {
+    pub text: Option<String>,
+    pub reaction: Option<String>,
+}
+
+/// [`handle_message`] with the reaction: `None` when the account stays
+/// quiet (held, stale, a dry run, a failed turn).
+pub async fn respond(ctx: &JobCtx, message: &ChatMessage) -> Option<ChatAnswer> {
     match answer(ctx, message).await {
-        Ok(text) => text,
+        Ok(answer) => answer,
         Err(error) => {
             tracing::error!(%error, chat_id = message.chat_id, message_ids = ?message.ids(), "telegram message failed");
             None

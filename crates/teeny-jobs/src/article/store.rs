@@ -288,6 +288,36 @@ impl FileArticleStore {
     }
 }
 
+/// The reply job reads an article under the post that carried it: only a
+/// published one, as the legacy store's `findByPostId`.
+#[async_trait::async_trait]
+impl crate::reply::ArticleLookup for FileArticleStore {
+    async fn find_by_post_id(
+        &self,
+        post_id: &str,
+    ) -> anyhow::Result<Option<crate::reply::ReplyArticle>> {
+        if post_id.is_empty() {
+            return Ok(None);
+        }
+        Ok(self
+            .records()
+            .await?
+            .into_iter()
+            .find(|record| {
+                record.status == ArticleStatus::Published
+                    && record.post_id.as_deref() == Some(post_id)
+            })
+            .map(|record| crate::reply::ReplyArticle {
+                slug: record.slug,
+                title: record.title,
+                dek: record.dek,
+                markdown: record.markdown,
+                published_at: record.published_at,
+                post_id: record.post_id,
+            }))
+    }
+}
+
 pub fn mime_of(file: &str) -> &'static str {
     match file.rsplit('.').next() {
         Some("png") => "image/png",

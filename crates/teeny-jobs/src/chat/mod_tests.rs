@@ -255,6 +255,48 @@ async fn a_reaction_alone_sends_no_text() {
     assert_eq!(handle_message(&it.ctx, &dm("10", "gm")).await, None);
 }
 
+// telegram-bot: "reacts without replying when a reaction is the answer"
+#[tokio::test]
+async fn hands_the_transport_a_reaction_with_or_without_text() {
+    let alone = subject(
+        ScriptedRunner::new()
+            .reply(json!({ "reaction": "🔥", "incomingTone": "friendly" }).to_string()),
+    );
+    assert_eq!(
+        respond(&alone.ctx, &dm("10", "gm")).await,
+        Some(ChatAnswer {
+            text: None,
+            reaction: Some("🔥".into())
+        })
+    );
+    let turns = alone.transcript.recent("1", 5_000, &[]).await.unwrap();
+    assert_eq!(turns.last().unwrap().text, "(reacted 🔥)");
+    assert_eq!(turns.last().unwrap().from, Speaker::Bot);
+
+    let both = subject(ScriptedRunner::new().reply(
+        json!({ "reply": "gm fren", "reaction": "❤", "incomingTone": "friendly" }).to_string(),
+    ));
+    assert_eq!(
+        respond(&both.ctx, &dm("10", "gm")).await,
+        Some(ChatAnswer {
+            text: Some("gm fren".into()),
+            reaction: Some("❤".into())
+        })
+    );
+}
+
+// "sends no reaction in dry run"
+#[tokio::test]
+async fn hands_over_nothing_in_dry_run_reaction_included() {
+    let it = subject_with(
+        ScriptedRunner::new()
+            .reply(json!({ "reaction": "🔥", "incomingTone": "friendly" }).to_string()),
+        ProbeMemory::default(),
+        &[("TELEGRAM_DRY_RUN", "true")],
+    );
+    assert_eq!(respond(&it.ctx, &dm("10", "gm")).await, None);
+}
+
 #[tokio::test]
 async fn a_failed_turn_answers_nothing() {
     let it = subject(ScriptedRunner::new().fail("the ladder is down"));
