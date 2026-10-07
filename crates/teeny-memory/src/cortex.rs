@@ -13,6 +13,10 @@ use teeny_core::config::CortexConfig;
 use crate::memory::{ABOUT_QUERY, format_recall};
 use crate::{Experience, Memory, MemoryError, Person, Result};
 
+#[path = "cortex_admin.rs"]
+mod admin;
+pub use admin::ForgetSelector;
+
 /// The SDK's request timeout.
 const TIMEOUT: Duration = Duration::from_secs(60);
 /// What a recall pass reads.

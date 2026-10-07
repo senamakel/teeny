@@ -14,7 +14,7 @@ mod memory;
 mod person;
 pub mod tools;
 
-pub use cortex::CortexMemory;
+pub use cortex::{CortexMemory, ForgetSelector};
 pub use error::{MemoryError, Result};
 pub use experience::{CAPTURE_VERSION, Content, Experience, Role};
 pub use fake::InMemoryMemory;
