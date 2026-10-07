@@ -168,6 +168,36 @@ impl XApi {
             .and_then(|post| to_posts(vec![post], includes.as_ref()).into_iter().next()))
     }
 
+    /// The post `id` replied to, when it is a reply.
+    pub async fn replied_to(&self, id: &PostId) -> XResult<Option<PostId>> {
+        #[derive(serde::Deserialize)]
+        struct Reference {
+            #[serde(rename = "type")]
+            kind: String,
+            id: PostId,
+        }
+        #[derive(serde::Deserialize)]
+        struct References {
+            #[serde(default)]
+            referenced_tweets: Vec<Reference>,
+        }
+        let response: Envelope<References> = self
+            .call(
+                Method::GET,
+                &format!("/2/tweets/{}", percent_encode(id.as_str())),
+                &[("tweet.fields", "referenced_tweets".to_owned())],
+                None,
+                Auth::App,
+            )
+            .await?;
+        Ok(response.data.and_then(|post| {
+            post.referenced_tweets
+                .into_iter()
+                .find(|reference| reference.kind == "replied_to")
+                .map(|reference| reference.id)
+        }))
+    }
+
     /// One page of a recent search (the last 7 days).
     pub async fn search_page(&self, query: &str, options: &SearchOptions) -> XResult<SearchPage> {
         let mut params = vec![

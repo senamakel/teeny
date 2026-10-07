@@ -390,3 +390,33 @@ async fn an_account_x_does_not_have_is_none() {
         .await;
     assert_eq!(api(&server).user_by_username("nobody").await.unwrap(), None);
 }
+
+#[tokio::test]
+async fn names_the_post_a_reply_answered() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/2/tweets/900"))
+        .and(query_param("tweet.fields", "referenced_tweets"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": { "id": "900", "text": "hi", "referenced_tweets": [
+                { "type": "quoted", "id": "700" },
+                { "type": "replied_to", "id": "800" }
+            ] }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/2/tweets/901"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": { "id": "901", "text": "not a reply" }
+        })))
+        .mount(&server)
+        .await;
+    let x = api(&server);
+
+    assert_eq!(
+        x.replied_to(&PostId::from("900")).await.unwrap(),
+        Some(PostId::from("800"))
+    );
+    assert_eq!(x.replied_to(&PostId::from("901")).await.unwrap(), None);
+}
