@@ -129,6 +129,12 @@ pub trait MentionQueue<P: QueuedPost>: Send + Sync {
     /// Puts a held mention back to be answered, with the inbound content
     /// check waived. False when there is no such mention.
     async fn requeue_approved(&self, post_id: &str) -> Result<bool>;
+    /// Puts a mention whose reply was deleted back to be answered afresh:
+    /// pending, no attempts, no error, no reply. False when there is no
+    /// such mention.
+    async fn requeue_fresh(&self, post_id: &str) -> Result<bool>;
+    /// Where one mention stands; `None` when it is not queued.
+    async fn status_of(&self, post_id: &str) -> Result<Option<MentionStatus>>;
     async fn counts(&self) -> Result<StatusCounts>;
 }
 
@@ -266,6 +272,21 @@ impl<P: QueuedPost> MentionQueue<P> for InMemoryMentionQueue<P> {
             row.updated_at = iso_now();
             row.error = None;
         }))
+    }
+
+    async fn requeue_fresh(&self, post_id: &str) -> Result<bool> {
+        Ok(self.update(post_id, |row| {
+            row.status = MentionStatus::Pending;
+            row.attempts = 0;
+            row.updated_at = iso_now();
+            row.error = None;
+            row.reply_id = None;
+            row.reply_text = None;
+        }))
+    }
+
+    async fn status_of(&self, post_id: &str) -> Result<Option<MentionStatus>> {
+        Ok(self.get(post_id).map(|row| row.status))
     }
 
     async fn counts(&self) -> Result<StatusCounts> {
@@ -470,6 +491,36 @@ impl<P: QueuedPost> MentionQueue<P> for MongoMentionQueue<P> {
             )
             .await?;
         Ok(result.matched_count > 0)
+    }
+
+    async fn requeue_fresh(&self, post_id: &str) -> Result<bool> {
+        self.ready().await?;
+        // Cleared, not just reset: the attempt count and the old error
+        // belong to an answer that no longer exists.
+        let result = self
+            .rows
+            .update_one(
+                doc! { "postId": post_id },
+                doc! {
+                    "$set": { "status": "pending", "attempts": 0, "updatedAt": iso_now() },
+                    "$unset": { "error": "", "reply": "", "replyId": "", "replyText": "" },
+                },
+            )
+            .await?;
+        Ok(result.matched_count > 0)
+    }
+
+    async fn status_of(&self, post_id: &str) -> Result<Option<MentionStatus>> {
+        self.ready().await?;
+        let row = self
+            .rows
+            .find_one(doc! { "postId": post_id })
+            .projection(doc! { "status": 1 })
+            .await?;
+        Ok(match row.and_then(|row| row.get("status").cloned()) {
+            Some(status) => Some(bson::from_bson(status)?),
+            None => None,
+        })
     }
 
     async fn counts(&self) -> Result<StatusCounts> {

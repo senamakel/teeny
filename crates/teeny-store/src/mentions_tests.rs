@@ -32,6 +32,42 @@ fn reply(text: &str) -> Reply {
     }
 }
 
+/// `unsay`'s half: a mention whose reply was deleted goes back to pending
+/// with its attempts, error and reply cleared, and its status is readable.
+async fn requeue_contract(queue: &dyn MentionQueue<Post>) {
+    assert_eq!(queue.status_of("9").await.unwrap(), None);
+    assert!(!queue.requeue_fresh("9").await.unwrap());
+
+    queue.cache(&[post("9")]).await.unwrap();
+    queue.mark_failed("9", "boom").await.unwrap();
+    queue
+        .mark_replied(
+            "9",
+            &Reply {
+                id: Some("r9".into()),
+                ..reply("rude")
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        queue.status_of("9").await.unwrap(),
+        Some(MentionStatus::Replied)
+    );
+
+    assert!(queue.requeue_fresh("9").await.unwrap());
+
+    assert_eq!(
+        queue.status_of("9").await.unwrap(),
+        Some(MentionStatus::Pending)
+    );
+    let row = queue.take_pending(10).await.unwrap().remove(0);
+    assert_eq!(row.attempts, 0);
+    assert_eq!(row.error, None);
+    assert_eq!(row.reply_id, None);
+    assert_eq!(row.reply_text, None);
+}
+
 /// The queue's contract, run against every implementation.
 async fn contract(queue: &dyn MentionQueue<Post>) {
     // Caching is upsert-if-absent: a re-read from the overlapping search
@@ -148,6 +184,7 @@ async fn contract(queue: &dyn MentionQueue<Post>) {
 #[tokio::test]
 async fn the_in_memory_queue_keeps_the_contract() {
     contract(&InMemoryMentionQueue::default()).await;
+    requeue_contract(&InMemoryMentionQueue::default()).await;
 }
 
 #[tokio::test]
@@ -228,6 +265,12 @@ async fn the_mongo_queue_keeps_the_contract() {
     };
     let name = crate::mongo::testing::collection("mentions");
     contract(&MongoMentionQueue::<Post>::with_collection(&db, &name)).await;
+    let fresh = crate::mongo::testing::collection("mentions");
+    requeue_contract(&MongoMentionQueue::<Post>::with_collection(&db, &fresh)).await;
+    db.collection::<mongodb::bson::Document>(&fresh)
+        .drop()
+        .await
+        .unwrap();
     db.collection::<mongodb::bson::Document>(&name)
         .drop()
         .await
