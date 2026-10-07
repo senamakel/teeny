@@ -7,6 +7,7 @@ pub mod fit;
 mod error;
 mod http;
 pub mod format;
+pub mod giphy;
 pub mod images;
 pub mod moon;
 pub mod png;
