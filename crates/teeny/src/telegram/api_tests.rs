@@ -26,3 +26,47 @@ async fn a_failed_call_never_names_the_token() {
     let error = api.send_message(1, "hi", None, None).await.unwrap_err();
     assert!(!error.to_string().contains(TOKEN), "{error}");
 }
+
+#[tokio::test]
+async fn a_failed_download_never_names_the_token_and_only_reads_the_file_api() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/bot{TOKEN}/getFile")))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "ok": true, "result": {
+                "file_id": "f", "file_size": 3, "file_path": "photos/missing.jpg"
+            }})),
+        )
+        .mount(&server)
+        .await;
+    let api = TelegramApi::new(TOKEN).with_base_url(server.uri());
+    let error = api.download_image("f").await.unwrap_err();
+    assert!(!error.to_string().contains(TOKEN), "{error}");
+    let fetched: Vec<String> = server
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .map(|request| request.url.path().replace(TOKEN, "<token>"))
+        .collect();
+    assert_eq!(
+        fetched,
+        ["/bot<token>/getFile", "/file/bot<token>/photos/missing.jpg"]
+    );
+}
+
+#[test]
+fn a_file_path_stays_under_the_file_api() {
+    assert!(is_file_path("photos/file_1.jpg"));
+    for path in [
+        "",
+        "/etc/passwd",
+        "../bot/getMe",
+        "photos/../../x",
+        "https://evil.example/x.png",
+        "photos/x.jpg?y",
+        "photos//x.jpg",
+    ] {
+        assert!(!is_file_path(path), "{path}");
+    }
+}

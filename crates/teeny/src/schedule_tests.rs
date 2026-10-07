@@ -299,7 +299,12 @@ async fn boot_starts_cron_only_after_every_handler_job_and_prune() {
 
     let mut expected: Vec<String> = jobs
         .iter()
-        .flat_map(|job| [format!("handler {}", job.name), format!("upsert {}", job.name)])
+        .flat_map(|job| {
+            [
+                format!("handler {}", job.name),
+                format!("upsert {}", job.name),
+            ]
+        })
         .collect();
     expected.push("remove teeny_calendar_retired".into());
     expected.push("start".into());
@@ -331,9 +336,22 @@ async fn a_failed_install_never_starts_cron() {
     let dispatch = Arc::new(Dispatch::new(Arc::new(JobCtx::fake(Arc::new(
         ScriptedRunner::new(),
     )))));
-    let booted = boot(&scheduler, &jobs, dispatch, tokio::runtime::Handle::current()).await;
+    let booted = boot(
+        &scheduler,
+        &jobs,
+        dispatch,
+        tokio::runtime::Handle::current(),
+    )
+    .await;
     assert!(booted.is_err());
-    assert!(!scheduler.0.events.lock().unwrap().contains(&"start".to_owned()));
+    assert!(
+        !scheduler
+            .0
+            .events
+            .lock()
+            .unwrap()
+            .contains(&"start".to_owned())
+    );
 }
 
 #[tokio::test]
@@ -511,7 +529,11 @@ fn a_job_due_before_the_scheduler_starts_fires_once_after_boot() {
             // Past due and past a scheduler poll (15 s): nothing may have run it.
             tokio::time::sleep(Duration::from_secs(20)).await;
             assert!(
-                runtime.cron().runs("teeny_due_probe", 5).unwrap().is_empty(),
+                runtime
+                    .cron()
+                    .runs("teeny_due_probe", 5)
+                    .unwrap()
+                    .is_empty(),
                 "a due job was dispatched before cron was started"
             );
 

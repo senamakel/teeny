@@ -94,7 +94,7 @@ pub async fn start(app: &App, api: Option<Arc<TelegramApi>>) -> anyhow::Result<O
                 poll_timeout_s: config.telegram.poll_timeout_s,
                 dry_run: config.telegram.dry_run,
             };
-            let handler = Arc::new(JobsHandler(Arc::clone(&app.ctx)));
+            let handler = Arc::new(JobsHandler::new(Arc::clone(&app.ctx)));
             Ok(Some(Transport::Teeny(
                 Poller::new(api, handler, options).start(),
             )))

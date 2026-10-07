@@ -153,3 +153,32 @@ fn splits_a_long_reply_at_paragraphs_then_lines_then_words() {
         ["x".repeat(10), "x".repeat(10), "x".repeat(5)]
     );
 }
+
+#[test]
+fn the_pictures_to_look_at_are_the_largest_photo_size_and_an_image_document() {
+    let both = message(json!({
+        "caption": "look",
+        "photo": [
+            { "file_id": "small", "width": 90, "height": 90 },
+            { "file_id": "large", "width": 800, "height": 600 },
+            { "file_id": "medium", "width": 320, "height": 240 }
+        ],
+        "document": { "file_id": "doc", "mime_type": "image/png" }
+    }));
+    assert_eq!(picture_files(&both), ["large", "doc"]);
+    let pdf = message(json!({
+        "caption": "a paper",
+        "document": { "file_id": "pdf", "mime_type": "application/pdf" }
+    }));
+    assert!(picture_files(&pdf).is_empty());
+    assert_eq!(
+        with_pictures_seen(
+            &both,
+            &bot(),
+            vec!["[image: a]".into(), "[image: b]".into()]
+        )
+        .unwrap()
+        .text,
+        "look\n[image: a]\n[image: b]"
+    );
+}

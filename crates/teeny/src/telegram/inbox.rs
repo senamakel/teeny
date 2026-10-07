@@ -62,7 +62,19 @@ pub struct Entity {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Document {
     #[serde(default)]
+    pub file_id: Option<String>,
+    #[serde(default)]
     pub mime_type: Option<String>,
+}
+
+/// One size of a photo.
+#[derive(Debug, Clone, Deserialize)]
+struct PhotoSize {
+    file_id: String,
+    #[serde(default)]
+    width: u64,
+    #[serde(default)]
+    height: u64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -239,22 +251,67 @@ fn pictures(message: &Message) -> usize {
     usize::from(photo) + usize::from(document)
 }
 
+/// At most this many pictures of one message are written in, or looked at.
+pub const MAX_PICTURES: usize = 4;
+
+/// The Telegram file ids of the message's pictures, in the order
+/// [`to_chat_message`] writes them in: the photo at its largest size, then
+/// an image sent as a document. Only ever ids for Telegram's own file API:
+/// nothing in a message is fetched as a URL.
+pub fn picture_files(message: &Message) -> Vec<String> {
+    let largest = message
+        .photo
+        .iter()
+        .flatten()
+        .filter_map(|size| serde_json::from_value::<PhotoSize>(size.clone()).ok())
+        .enumerate()
+        // The largest by area; Telegram lists them smallest first, so the
+        // later one wins a tie.
+        .max_by_key(|(index, size)| (size.width * size.height, *index))
+        .map(|(_, size)| size.file_id);
+    let document = message
+        .document
+        .as_ref()
+        .filter(|document| {
+            document
+                .mime_type
+                .as_deref()
+                .is_some_and(|mime| IMAGE_TYPES.contains(&mime))
+        })
+        .and_then(|document| document.file_id.clone());
+    largest
+        .into_iter()
+        .chain(document)
+        .take(MAX_PICTURES)
+        .collect()
+}
+
 /// A person's line as the chat turn reads it, or `None` when it is not a
 /// person saying something: no text and no picture, a service message, a
 /// bot or a channel, or the account itself. A picture is written in as
-/// `[sent a photo]`: nothing on this transport looks at it.
+/// `[sent a photo]`; [`with_pictures_seen`] writes in what was in it.
 pub fn to_chat_message(message: &Message, bot: &BotIdentity) -> Option<ChatMessage> {
+    let unseen = vec!["[sent a photo]".to_owned(); pictures(message).min(MAX_PICTURES)];
+    with_pictures_seen(message, bot, unseen)
+}
+
+/// [`to_chat_message`] with `notes` (one per picture, `[image: …]`) in
+/// place of the pictures.
+pub fn with_pictures_seen(
+    message: &Message,
+    bot: &BotIdentity,
+    notes: Vec<String>,
+) -> Option<ChatMessage> {
     let author = message.from.as_ref()?;
     if is_from_bot(message) || is_service(message) || author.id == bot.id {
         return None;
     }
     let text = strip_mention(words(message), bot);
-    let pictures = pictures(message).min(4);
-    if text.is_empty() && pictures == 0 {
+    if text.is_empty() && notes.is_empty() {
         return None;
     }
     let text = std::iter::once(text)
-        .chain(std::iter::repeat_n("[sent a photo]".to_owned(), pictures))
+        .chain(notes)
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>()
         .join("\n");
