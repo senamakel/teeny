@@ -28,7 +28,10 @@ fn answers_the_gates_questions_as_the_wrapped_tool() {
     assert_eq!(shared.description(), inner.description());
     assert_eq!(shared.parameters_schema(), inner.parameters_schema());
     assert_eq!(shared.permission_level(), PermissionLevel::Write);
-    assert_eq!(shared.permission_level_with_args(&args), PermissionLevel::Write);
+    assert_eq!(
+        shared.permission_level_with_args(&args),
+        PermissionLevel::Write
+    );
     assert!(shared.external_effect());
     assert!(shared.external_effect_with_args(&args));
     assert_eq!(

@@ -146,9 +146,8 @@ fn the_context_reads_the_ladder_the_model_the_skills_and_the_step_cap() {
 #[test]
 fn a_spec_is_locked_down_with_its_belts_access() {
     let deps = Deps::fake();
-    let context = SpecContext::from_config(
-        &teeny_core::Config::from_vars(crate::deps::fake_vars()).unwrap(),
-    );
+    let context =
+        SpecContext::from_config(&teeny_core::Config::from_vars(crate::deps::fake_vars()).unwrap());
     let tools = Arc::new(Belt::Reply.build(&deps));
     let spec = belt_spec(Belt::Reply, tools, "prompt".into(), &context);
     assert_eq!(spec.id(), "teeny-reply");

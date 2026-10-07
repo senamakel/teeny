@@ -52,8 +52,14 @@ fn settings_come_from_the_teeny_config_with_an_absolute_data_dir() {
 #[test]
 fn registers_skills_and_modules_and_none_of_the_risky_families() {
     let domains = domains();
-    assert!(domains.skills && domains.modules, "skills, and the browser module");
-    assert!(domains.agent && domains.inference, "agents need to run turns");
+    assert!(
+        domains.skills && domains.modules,
+        "skills, and the browser module"
+    );
+    assert!(
+        domains.agent && domains.inference,
+        "agents need to run turns"
+    );
     assert!(domains.automation, "the cron scheduler");
     for (family, on) in [
         ("mcp", domains.mcp),
@@ -95,7 +101,10 @@ fn starts_the_cron_scheduler_and_nothing_that_listens() {
 fn the_overlay_pins_native_tools_autonomy_and_cron() {
     let config = openhuman_config(&settings());
     assert_eq!(config.agent.tool_dispatcher, "native");
-    assert!(config.autonomy.enabled, "access tiers do nothing without it");
+    assert!(
+        config.autonomy.enabled,
+        "access tiers do nothing without it"
+    );
     assert!(config.cron.enabled);
     assert!(
         !config.memory.conversations.enabled && !config.memory.recall.enabled,

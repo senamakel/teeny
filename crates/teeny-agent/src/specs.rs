@@ -70,9 +70,9 @@ pub fn agent_id(belt: Belt) -> &'static str {
 pub fn room_id(persona: &str) -> Result<String, SpecError> {
     let valid = !persona.is_empty()
         && persona.len() <= MAX_PERSONA
-        && persona
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-'));
+        && persona.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
+        });
     if valid {
         Ok(format!("{}-{persona}", agent_id(Belt::Room)))
     } else {
@@ -198,10 +198,12 @@ pub fn belt_spec(
     system_prompt: String,
     context: &SpecContext,
 ) -> AgentSpec {
-    spec(agent_id(belt), belt, tools, system_prompt, context)
+    spec_as(agent_id(belt), belt, tools, system_prompt, context)
 }
 
-fn spec(
+/// [`belt_spec`] under another id: a room persona's, or a probe's in a
+/// posture test that has to stand a second agent of one belt up.
+pub fn spec_as(
     id: &str,
     belt: Belt,
     tools: Arc<Vec<Arc<dyn Tool>>>,
@@ -229,8 +231,15 @@ fn spec(
 pub enum SpecError {
     #[error("persona id {0:?} must be 1 to 48 of [a-z0-9_-]")]
     Persona(String),
+    /// Boxed: an agent error is large, and this is returned by value.
     #[error(transparent)]
-    Agent(#[from] AgentError),
+    Agent(Box<AgentError>),
+}
+
+impl From<AgentError> for SpecError {
+    fn from(error: AgentError) -> Self {
+        Self::Agent(Box::new(error))
+    }
 }
 
 /// A room agent and the persona prompt it was registered with.
@@ -295,7 +304,7 @@ impl TeenyAgents {
         }
         // Release the id before registering it again.
         rooms.remove(&id);
-        let agent = self.runtime.agent(spec(
+        let agent = self.runtime.agent(spec_as(
             &id,
             Belt::Room,
             Arc::clone(&self.room_tools),

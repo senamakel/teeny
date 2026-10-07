@@ -67,10 +67,11 @@ impl wiremock::Respond for Scripted {
             }
             _ => completion(FINAL_REPLY),
         };
-        let slow = messages
-            .iter()
-            .filter(|m| m["role"] == "user")
-            .any(|m| m["content"].as_str().is_some_and(|text| text.contains(SLOW)));
+        let slow = messages.iter().filter(|m| m["role"] == "user").any(|m| {
+            m["content"]
+                .as_str()
+                .is_some_and(|text| text.contains(SLOW))
+        });
         let response = ResponseTemplate::new(200).set_body_json(reply);
         if slow {
             response.set_delay(SLOW_FOR)
@@ -177,7 +178,10 @@ pub fn tool_specs(request: &Request) -> Vec<(String, Value)> {
 
 /// The names of the tools a request advertised.
 pub fn tool_names(request: &Request) -> Vec<String> {
-    tool_specs(request).into_iter().map(|(name, _)| name).collect()
+    tool_specs(request)
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect()
 }
 
 /// Whether a request's first user message carries `needle`: which turn it
@@ -186,10 +190,11 @@ pub fn asks(request: &Request, needle: &str) -> bool {
     body(request)["messages"]
         .as_array()
         .is_some_and(|messages| {
-            messages
-                .iter()
-                .filter(|m| m["role"] == "user")
-                .any(|m| m["content"].as_str().is_some_and(|text| text.contains(needle)))
+            messages.iter().filter(|m| m["role"] == "user").any(|m| {
+                m["content"]
+                    .as_str()
+                    .is_some_and(|text| text.contains(needle))
+            })
         })
 }
 

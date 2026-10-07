@@ -4,8 +4,10 @@
 //!   the persona's own agent, registered on first use
 //!   ([`TeenyAgents::room`]).
 //! - **With what authority** ([`turn_origin`]): a public turn runs as the
-//!   `public` external channel (`Access::public`'s origin), so a write is
-//!   refused at once whatever agent it is; a scheduled turn runs as
+//!   `public` external channel (`Access::public`'s origin), and only on
+//!   `teeny-reply` or `teeny-chat`, whose access refuses a write at once (a
+//!   trusted agent keeps its writes under a public origin, so a public turn
+//!   on one is refused before it starts); a scheduled turn runs as
 //!   `TrustedAutomation{Cron}`, the origin the browser's unattended actions
 //!   are allowed for; an operator turn (`/agent/run`, behind the bearer) runs
 //!   as `TrustedAutomation{Workflow{require_approval: false}}`, the trust
@@ -31,6 +33,7 @@ use async_trait::async_trait;
 use openhuman_embed::agent_progress::AgentProgress;
 use openhuman_embed::{Access, Agent, AgentTurnOrigin, TrustedAutomationSource};
 use serde_json::Value;
+use teeny_agent::posture::Belt;
 use teeny_agent::specs::TeenyAgents;
 use teeny_store::InferenceLedger;
 use teeny_store::inference::{
@@ -208,6 +211,12 @@ impl OhRunner {
 #[async_trait]
 impl AgentRunner for OhRunner {
     async fn run(&self, run: AgentRun) -> Result<AgentOutcome, RunError> {
+        if run.origin == Origin::Public && !is_public(&run.agent) {
+            return Err(RunError::Failed(format!(
+                "a public turn runs only on teeny-reply or teeny-chat, not {:?}",
+                run.agent
+            )));
+        }
         let agent = self.agent(&run.agent)?;
         let tries = attempts(run.origin);
         let mut last = RunError::Failed("the turn was never attempted".into());
@@ -250,6 +259,14 @@ pub fn turn_origin(origin: Origin, label: &str) -> AgentTurnOrigin {
             },
         },
     }
+}
+
+/// Whether `key` is an agent whose access is public. Only these may take a
+/// public turn: an agent's tier is its own, not the turn's, so a trusted
+/// agent under a public origin still holds its writes, and a write there
+/// would park for an approval no one on a public channel can give.
+fn is_public(key: &AgentKey) -> bool {
+    matches!(key, AgentKey::Belt(Belt::Reply | Belt::Chat))
 }
 
 /// How many times a turn from `origin` may be tried.
@@ -354,12 +371,14 @@ impl Progress {
     /// The model calls' tokens, summed; `None` when there were none.
     pub fn usage(&self) -> Option<TurnUsage> {
         (!self.models.is_empty()).then(|| {
-            self.models.iter().fold(TurnUsage::default(), |sum, call| TurnUsage {
-                input: sum.input + call.input_tokens,
-                output: sum.output + call.output_tokens,
-                reasoning: sum.reasoning + call.reasoning_tokens,
-                cached: sum.cached + call.cached_tokens,
-            })
+            self.models
+                .iter()
+                .fold(TurnUsage::default(), |sum, call| TurnUsage {
+                    input: sum.input + call.input_tokens,
+                    output: sum.output + call.output_tokens,
+                    reasoning: sum.reasoning + call.reasoning_tokens,
+                    cached: sum.cached + call.cached_tokens,
+                })
         })
     }
 

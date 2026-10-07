@@ -196,7 +196,10 @@ fn a_public_reply_turn_collects_its_tool_calls_usage_and_ledger_rows() {
         2,
         "a ledger row per model call: the tool call, then the answer"
     );
-    assert!(rows.iter().all(|row| row.source == "reply" && row.lane == Lane::Mascot));
+    assert!(
+        rows.iter()
+            .all(|row| row.source == "reply" && row.lane == Lane::Mascot)
+    );
     let spent: i64 = rows.iter().map(|row| row.tokens.input).sum();
     assert_eq!(spent, i64::try_from(usage.input).unwrap());
 }
@@ -239,7 +242,10 @@ fn a_session_continues_and_a_model_override_reaches_the_provider() {
     );
     let body: serde_json::Value = serde_json::from_slice(&continued.body).unwrap();
     assert!(
-        body["model"].as_str().unwrap_or("").contains("override-model"),
+        body["model"]
+            .as_str()
+            .unwrap_or("")
+            .contains("override-model"),
         "{}",
         body["model"]
     );
@@ -294,8 +300,8 @@ fn tries(tag: &str) -> usize {
 
 #[test]
 fn a_turn_that_must_run_once_times_out_and_is_never_retried() {
-    let runner = OhRunner::new(Arc::clone(&booted().agents))
-        .with_timeout(Duration::from_millis(500));
+    let runner =
+        OhRunner::new(Arc::clone(&booted().agents)).with_timeout(Duration::from_millis(500));
     let once = format!("{SLOW} post-once");
     let result = testkit::run({
         let once = once.clone();
@@ -316,8 +322,8 @@ fn a_turn_that_must_run_once_times_out_and_is_never_retried() {
 
 #[test]
 fn a_turn_that_may_repeat_is_tried_again() {
-    let runner = OhRunner::new(Arc::clone(&booted().agents))
-        .with_timeout(Duration::from_millis(500));
+    let runner =
+        OhRunner::new(Arc::clone(&booted().agents)).with_timeout(Duration::from_millis(500));
     let result = testkit::run(async move {
         runner
             .run(turn(
@@ -330,4 +336,37 @@ fn a_turn_that_may_repeat_is_tried_again() {
     });
     assert!(matches!(result, Err(RunError::Timeout)), "{result:?}");
     assert_eq!(tries("may-repeat"), 2);
+}
+
+#[test]
+fn a_public_turn_runs_only_on_a_public_agent() {
+    // A trusted agent keeps its writes under a public origin, and a write
+    // there would park for an approval nobody gives: refused up front.
+    let agents = Arc::clone(&booted().agents);
+    for belt in [Belt::Publisher, Belt::Chart, Belt::Operator, Belt::Drafter] {
+        let agents = Arc::clone(&agents);
+        let result = testkit::run(async move {
+            OhRunner::new(agents)
+                .run(turn(AgentKey::Belt(belt), Origin::Public, "hi", "probe"))
+                .await
+        });
+        assert!(
+            matches!(result, Err(RunError::Failed(_))),
+            "{belt:?}: {result:?}"
+        );
+    }
+    let room = testkit::run(async move {
+        OhRunner::new(agents)
+            .run(turn(
+                AgentKey::Room {
+                    persona: "skeptic".into(),
+                    system_prompt: "You doubt everything.".into(),
+                },
+                Origin::Public,
+                "hi",
+                "probe",
+            ))
+            .await
+    });
+    assert!(matches!(room, Err(RunError::Failed(_))), "{room:?}");
 }
