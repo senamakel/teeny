@@ -1,6 +1,8 @@
 //! `teeny`: the service and its operator subcommands.
 
 mod cli;
+mod http;
+mod mentions;
 
 use std::process::ExitCode;
 
