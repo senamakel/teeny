@@ -5,8 +5,8 @@
 # a public port; the front proxy reaches the webhook over loopback.
 #
 # The stack: the agent in one container -- X ingest, the webhook, the reply
-# worker, the chart cron, Telegram and /agent/run, all on node-cron and one
-# event loop -- over a Mongo mention cache, plus the landing page. CortexDB
+# worker, the scheduled posts, Telegram and /agent/run, one Rust process on
+# the OpenHuman harness -- over a Mongo mention cache, plus the landing page. CortexDB
 # for long-term memory is shared and lives outside this file, and the ladder
 # is a container this project does not own. Neither is on this network:
 # both publish on the host's docker0 address (172.17.0.1, what compose calls
@@ -21,18 +21,27 @@
 name: teeny
 
 services:
-  # The whole agent. SERVICE_ROLE defaults to `all`, so this one process reads
-  # X and fills the mention cache, serves the webhook and /agent/run, drains
-  # the cache into replies, posts the daily chart, and polls Telegram. It used
-  # to be three containers over the same image; one is simpler to run and to
-  # read the logs of, and nothing in it needs to scale separately. The roles
-  # still exist in the code, so splitting again is a compose change, not a
-  # code one -- but the chart cron and the Telegram poller must each run in
-  # exactly one place, so never run two copies of this with `all`.
+  # The whole agent: the Rust `teeny` binary on the OpenHuman harness, built
+  # from the root Dockerfile. One process reads X and fills the mention
+  # cache, serves the webhook and /agent/run, drains the cache into replies,
+  # runs the scheduled posts, and answers on Telegram. The chart cron and the
+  # Telegram poller must each run in exactly one place, so never run two
+  # copies of this, and never run it live beside `legacy-bot` (below): two
+  # agents on one account means two answers to one mention, in public.
+  #
+  # The container is locked down: a read-only root, a tmpfs /tmp, no
+  # capabilities but the four the entrypoint spends before it drops to uid
+  # 10001 (CHOWN, DAC_OVERRIDE, SETUID, SETGID; docker/entrypoint.sh says
+  # why), and no-new-privileges, so teeny and Chromium hold none of them.
+  # Everything it writes is on the volume, laid out as /data/{openhuman,
+  # chrome-profile, media, articles, state}; the entrypoint copies the
+  # legacy service's flat files into that layout on first boot and leaves
+  # the originals for a rollback.
   bot:
     image: teeny:current
     build:
       context: ..
+      dockerfile: Dockerfile
     restart: unless-stopped
     env_file:
       # raw: compose would otherwise interpolate the values, and
@@ -50,20 +59,100 @@ services:
       LLM_API_KEY: ${LADDER_API_KEY:?set LADDER_API_KEY in deploy/.env}
       MONGO_URI: mongodb://${MONGO_ROOT_USERNAME:-teeny}:${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD}@mongo:27017/${MONGO_DATABASE:-teeny}?authSource=admin
       MONGO_DATABASE: ${MONGO_DATABASE:-teeny}
-      # api.telegram.org publishes an AAAA record and this network has no v6
-      # route. Node's fetch tried the v6 address first and sat in a connect
-      # timeout rather than falling back, so every `getMe` at startup failed
-      # and the container crash-looped (2026-09-14, node:22-alpine at 22.23),
-      # while wget from the same container reached it over v4 at once.
-      NODE_OPTIONS: --dns-result-order=ipv4first
       # The brain's checkout, read-only: the agents' token spend is folded
       # into the ledger from it, and /brain serves the roster and the runs.
       BRAIN_DATA_DIR: /brain
+      # The volume layout. ../.env still carries the legacy service's
+      # relative data/ paths, which would land on the read-only root here.
+      TEENY_DATA: /data
+      OPENHUMAN_WORKSPACE: /data/openhuman
+      MEDIA_OUTPUT_DIR: /data/media
+      REFERENCE_SHEET_PATH: /data/media/reference-sheet.json
+      CHART_OUTPUT_DIR: /data/media/charts
+      MOON_OUTPUT_DIR: /data/media/moon
+      NARRATIVE_LIKENESS_DIR: /data/media/likeness
+      ARTICLES_DIR: /data/articles
+      QUOTE_LOG_PATH: /data/state/quotes.json
+      NARRATIVE_STATE_PATH: /data/state/narrative-state.json
+      BACKROOMS_DIR: /data/state/backrooms
+    # api.telegram.org publishes an AAAA record and this network has no v6
+    # route; a client that tries v6 first sits in a connect timeout instead
+    # of falling back. The legacy service needed
+    # NODE_OPTIONS=--dns-result-order=ipv4first for it (2026-09-14). With no
+    # v6 inside the container there is nothing to try first.
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: 1
     extra_hosts:
       - "${LADDER:-ladder}:host-gateway"
       - "cortexdb:host-gateway"
     ports:
       - "127.0.0.1:${BOT_PORT:-3110}:3001"
+    volumes:
+      - bot-data:/data
+      - ${BRAIN_DIR:?set BRAIN_DIR in deploy/.env}:/brain:ro
+    # Chromium keeps its renderer memory in /dev/shm; Docker's 64 MB default
+    # crashes tabs.
+    shm_size: 1gb
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=512m
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "teeny", "healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # The TypeScript service the Rust bot replaces, built from legacy/ with the
+  # repo root as context. Behind the `legacy` profile, so a plain `up` never
+  # starts it. It is here for two things only:
+  #
+  # - the shadow run (deploy/README.md, "Moving to the Rust bot"): this one
+  #   live on the account, the Rust bot beside it in dry-run on its own
+  #   volume (compose.shadow.yaml);
+  # - the rollback after cutover: `./deploy/cutover.sh --undo` stops the Rust
+  #   bot and starts this on the bot port, over the flat files the Rust
+  #   entrypoint copied from and never removed.
+  #
+  # Same volume, at the path legacy has always used. Never `up` this beside a
+  # live (DRY_RUN=false) `bot`.
+  legacy-bot:
+    profiles: [legacy]
+    image: teeny-legacy:current
+    build:
+      context: ..
+      dockerfile: legacy/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - path: ../.env
+        format: raw
+    environment:
+      CORTEX_API_URL: http://cortexdb:3141
+      LLM_BASE_URL: ${LADDER_URL:-http://ladder:6969/v1}
+      LLM_API_KEY: ${LADDER_API_KEY:?set LADDER_API_KEY in deploy/.env}
+      MONGO_URI: mongodb://${MONGO_ROOT_USERNAME:-teeny}:${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD}@mongo:27017/${MONGO_DATABASE:-teeny}?authSource=admin
+      MONGO_DATABASE: ${MONGO_DATABASE:-teeny}
+      # Node's fetch tried api.telegram.org's v6 address first and never fell
+      # back (2026-09-14).
+      NODE_OPTIONS: --dns-result-order=ipv4first
+      BRAIN_DATA_DIR: /brain
+    extra_hosts:
+      - "${LADDER:-ladder}:host-gateway"
+      - "cortexdb:host-gateway"
+    ports:
+      - "127.0.0.1:${LEGACY_BOT_PORT:-3111}:3001"
     volumes:
       - bot-data:/app/data
       - ${BRAIN_DIR:?set BRAIN_DIR in deploy/.env}:/brain:ro
@@ -310,5 +399,8 @@ services:
 
 volumes:
   mongo-data:
+  # The agent's whole state. Laid out by docker/entrypoint.sh; never recreate
+  # it (the ingest cursor, the browser logins and OpenHuman's sessions and
+  # cron jobs.db live here).
   bot-data:
   cortexdb-data:

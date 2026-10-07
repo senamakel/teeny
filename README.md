@@ -65,6 +65,21 @@ scripts/check-dup-crates.sh
 After bumping `vendor/openhuman`, re-check the root `[patch]` tables against
 `vendor/openhuman/Cargo.toml` and run the duplicate-crate check.
 
+The container is the root `Dockerfile` (BuildKit; the submodule has to be
+checked out recursively first). It builds `teeny` and the TinyComputer
+browser module (`libtinycomputer.so` and its `modules.toml`, from the same
+vendored SHA) and runs them on `debian:bookworm-slim` with Chromium, as uid
+10001, over one volume at `/data`:
+
+```sh
+docker build -t teeny .
+docker run --rm -p 3001:3001 --env-file .env -e DRY_RUN=true -v teeny-data:/data --shm-size 1g teeny
+docker/entrypoint_test.sh    # the entrypoint's volume layout and legacy migration
+```
+
+`deploy/README.md`, "The bot image", has the layout, and "Moving to the Rust
+bot" the shadow run, the cutover and the way back.
+
 ## Setup
 
 Requirements: Node.js 20+, an X developer app with read/write access, a CortexDB
@@ -80,8 +95,9 @@ npm run dev
 
 The TypeScript service lives in `legacy/`. Its npm scripts run from the repo
 root, so `.env`, `SOUL.md` and `data/` resolve where they always have; run
-`npm` from `legacy/`. The container builds from the repo root with
-`docker build -f legacy/Dockerfile .`.
+`npm` from `legacy/`. Its container builds from the repo root with
+`docker build -f legacy/Dockerfile .` (the `legacy-bot` service in
+`deploy/compose.prod.yaml`); the root `Dockerfile` is the Rust bot's.
 
 Fill every blank value in `.env`. Leave `DRY_RUN=true` until generated replies
 have been inspected. Set it to `false` only when the bot is ready to publish.

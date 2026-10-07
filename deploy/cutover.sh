@@ -1,31 +1,29 @@
 #!/usr/bin/env bash
-# Move teeny out of the stonks stack and into its own, once.
+# Move the live bot from the TypeScript service to the Rust one, once.
 #
 #   ./deploy/cutover.sh              # say what would happen, change nothing
 #   ./deploy/cutover.sh --go         # do it
-#   ./deploy/cutover.sh --keep-others  # ...but leave prmpt and the stonks site up
-#   ./deploy/cutover.sh --undo       # put everything back the way it was
+#   ./deploy/cutover.sh --undo       # put the TypeScript service back
 #
-# teeny has been running on this box since before it had a repo: the agent is
-# `stonks-bot-1` and `stonks-bot-reply-1` inside the stonks.rocks stack, posting
-# as the same X account this repo deploys. So this is a migration, not a first
-# deploy, and two things follow from that.
+# Run it after the shadow run (deploy/README.md, "Moving to the Rust bot")
+# has shown the Rust bot's drafts are right. Both services answer as the same
+# account off the same queue, so the order matters and so does the undo:
 #
-# The old agent has to STOP BEFORE the new one starts. Both halves reply as
-# @TinyMascot off one shared queue; running them together means two answers to
-# one mention, from one account, in public.
+#  - the legacy bot STOPS before the Rust one starts. Two agents on one
+#    account means two answers to one mention, in public;
+#  - the bot-data volume is snapshotted before the Rust bot first touches it,
+#    and the Rust entrypoint COPIES the flat legacy files into its layout
+#    rather than moving them, so the legacy service can be started again on
+#    the same volume and find its own state where it left it;
+#  - the legacy image is kept, as teeny-legacy:current, the exact image that
+#    was running, so --undo needs no build.
 #
-# And the state has to come with it. Three pieces, none of them reproducible:
+# The webhook needs nothing: nginx proxies X's deliveries to 127.0.0.1:BOT_PORT
+# and the Rust bot takes that port.
 #
-#   stonks_cortexdb-data   everything Tiny remembers about everyone it has
-#                          spoken to. Cannot be rebuilt from anything.
-#   stonks_bot-data        state.json, the ingest cursor. Lose it and the next
-#                          poll re-reads (and re-bills) up to 7 days of posts.
-#   stonks.mentions        the mention queue and, in repliedPostIds, the
-#                          record of what has already been answered.
-#
-# Volumes are COPIED, never moved, and the old containers are stopped rather
-# than removed, which is what makes --undo possible.
+# The previous cutover (teeny out of the stonks.rocks stack, 2026-09-08) was
+# this script's first job; that version is in git history:
+#   git log --follow -p -- deploy/cutover.sh
 
 set -euo pipefail
 
@@ -35,23 +33,20 @@ cd "$REPO_ROOT"
 DEPLOY_HOST="${DEPLOY_HOST:-droid@174.138.35.76}"
 DEPLOY_KEY="${DEPLOY_KEY:-$HOME/.ssh/id_rsa}"
 REMOTE_DIR="${REMOTE_DIR:-/home/droid/teeny}"
-OLD_DIR="${OLD_DIR:-/home/droid/stonks.rocks}"
-OLD_PROJECT=stonks
-NGINX_CONF="${NGINX_CONF:-/etc/nginx/sites-available/stonks.rocks.conf}"
+PROJECT=teeny
+VHOST=deploy/nginx/teeny.enamakel.com.conf
+# The legacy image ran as uid 1001 (legacy/Dockerfile). The Rust entrypoint
+# hands media/ and articles/ -- the two directories both layouts share -- to
+# uid 10001; --undo hands them back.
+LEGACY_UID=1001
 
 GO=0
 UNDO=0
-KEEP_OTHERS=0
-# Everything else this box was running. The website halves of stonks and the
-# whole of prmpt: stopped, never removed, and their volumes never touched, so
-# any of it comes back with a `docker start`.
-OTHERS="stonks-web-1 stonks-quotes-1 stonks-mongo-1 prmpt-frontend-1 prmpt-backend-1 prmpt-settler-1 prmpt-mongo-1 prmpt-redis-1"
 for arg in "$@"; do
   case "$arg" in
     --go) GO=1 ;;
-    --keep-others) KEEP_OTHERS=1 ;;
     --undo) UNDO=1 ;;
-    -h|--help) sed -n '2,7p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help) sed -n '2,6p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -62,21 +57,45 @@ remote() { ssh -o BatchMode=yes -i "$DEPLOY_KEY" "$DEPLOY_HOST" "$@"; }
 envval() { sed -n "s/^$1=//p" "$2" 2>/dev/null | tail -1; }
 
 BOT_PORT="$(envval BOT_PORT deploy/.env)"; BOT_PORT="${BOT_PORT:-3110}"
-OLD_BOT_PORT="${OLD_BOT_PORT:-3101}"
+LADDER="$(envval LADDER deploy/.env)"; LADDER="${LADDER:-ladder}"
+LADDER_URL="$(envval LADDER_URL deploy/.env)"; LADDER_URL="${LADDER_URL:-http://$LADDER:6969/v1}"
 COMPOSE="docker compose --project-directory $REMOTE_DIR/deploy -f $REMOTE_DIR/deploy/compose.prod.yaml --env-file $REMOTE_DIR/deploy/.env"
-OLD_COMPOSE="docker compose --project-directory $OLD_DIR/deploy -f $OLD_DIR/deploy/compose.prod.yaml --env-file $OLD_DIR/deploy/.env"
+VOLUME="${PROJECT}_bot-data"
+SNAPSHOT="${PROJECT}_bot-data-legacy"
+RUNTIME_LABEL='{{index .Config.Labels "ai.tinyhumans.teeny.runtime"}}'
+
+# `rust`, `legacy` or `none`, for a container or an image.
+runtime_of() {
+  local label
+  label="$(remote "docker inspect --format '$RUNTIME_LABEL' $1 2>/dev/null")" || { echo none; return; }
+  [ "$label" = rust ] && echo rust || echo legacy
+}
+running() { [ -n "$(remote "docker ps -q --filter name=^$1\$")" ]; }
+wait_healthy() {
+  for _ in $(seq 1 90); do
+    remote "curl -fsS --max-time 3 -o /dev/null http://127.0.0.1:$1/health" && return 0
+    sleep 1
+  done
+  return 1
+}
+
+[ -f "$DEPLOY_KEY" ] || die "no SSH key at $DEPLOY_KEY (override with DEPLOY_KEY=...)"
 
 if [ "$UNDO" -eq 1 ]; then
-  say "Stopping the teeny stack"
-  remote "$COMPOSE down" || true
-  say "Restarting the stonks halves"
-  remote "docker update --restart=unless-stopped stonks-bot-1 stonks-bot-reply-1 stonks-cortexdb-1 stonks-tika-1 >/dev/null" || true
-  remote "$OLD_COMPOSE --profile bot up -d bot bot-reply cortexdb tika" || die "could not restart the stonks halves"
-  say "Pointing the webhook back at $OLD_BOT_PORT"
-  remote "sudo -n sed -i 's|127\\.0\\.0\\.1:$BOT_PORT|127.0.0.1:$OLD_BOT_PORT|' $NGINX_CONF && sudo -n nginx -t && sudo -n systemctl reload nginx"
-  say "Restarting everything else this box used to run"
-  remote "docker update --restart=unless-stopped $OTHERS >/dev/null 2>&1; docker start $OTHERS >/dev/null 2>&1" || true
-  say "Back on the stonks stack. The teeny volumes are still there, untouched."
+  [ "$(runtime_of "$PROJECT-legacy:current")" = legacy ] \
+    || die "no $PROJECT-legacy:current on the box. Build it: $COMPOSE --profile legacy build legacy-bot"
+  say "Stopping the Rust bot (the account goes quiet from here)"
+  remote "$COMPOSE stop bot" || die "could not stop the Rust bot; refusing to start a second agent on the account"
+  say "Handing media/ and articles/ back to the legacy uid"
+  remote "docker run --rm -v $VOLUME:/data alpine:3 sh -c 'for d in media articles; do [ -d /data/\$d ] && chown -R $LEGACY_UID:$LEGACY_UID /data/\$d; done; true'" \
+    || die "could not re-own the shared directories"
+  say "Starting the legacy bot on :$BOT_PORT"
+  # The webhook's port, for as long as legacy is the live one. The shell
+  # environment wins over deploy/.env in compose's interpolation.
+  remote "LEGACY_BOT_PORT=$BOT_PORT $COMPOSE --profile legacy up -d --no-build legacy-bot" \
+    || die "legacy-bot did not start"
+  wait_healthy "$BOT_PORT" || { remote "$COMPOSE --profile legacy logs --tail 60 legacy-bot" >&2; die "legacy-bot never answered on :$BOT_PORT"; }
+  say "Back on the TypeScript service. The Rust bot's layout is still on the volume; ./deploy/cutover.sh --go returns to it."
   exit 0
 fi
 
@@ -85,23 +104,19 @@ if [ "$GO" -eq 0 ]; then
 
 This is a dry run. Nothing has been changed. With --go it would:
 
-  1. build the teeny image on the box (deploy.sh --build-only), so the account
-     is quiet for seconds rather than for the length of a build;
-  2. stop stonks-bot-1 and stonks-bot-reply-1 and set them restart=no
+  1. keep the running legacy image as $PROJECT-legacy:current, for --undo;
+  2. build the Rust image on the box (deploy.sh --build-only), so the
+     account is quiet for seconds rather than for the length of a build;
+  3. stop the legacy bot ($PROJECT-bot-1 or $PROJECT-legacy-bot-1)
      --- from here the account answers nothing until step 5;
-  3. copy stonks_cortexdb-data -> teeny_cortexdb-data (the memory), and
-     stonks_bot-data -> teeny_bot-data and teeny_reply-data (the cursor);
-  4. start teeny's mongo and copy the mentions collection into it;
-  5. start the teeny stack: bot, bot-reply, cortexdb, tika;
-  6. repoint the webhook in nginx from :$OLD_BOT_PORT to :$BOT_PORT, so the URL
-     already registered with X keeps working and nothing has to be re-subscribed;
-  7. stop stonks-cortexdb-1 and stonks-tika-1, which teeny now has its own of;
-  8. stop everything else on this box --- the stonks website and the whole of
-     prmpt --- leaving the machine to teeny alone. Skip with --keep-others.
-     stonks.rocks and prmpt.cash stop answering at this point.
+  4. snapshot $VOLUME -> $SNAPSHOT (once; an existing snapshot is kept);
+  5. start the Rust bot on $VOLUME and :$BOT_PORT, the webhook's port; its
+     entrypoint copies the legacy state into /data/{state,media};
+  6. prove it is healthy and that a container wired like it reaches the
+     ladder at $LADDER_URL.
 
-Nothing is deleted: the stonks containers are stopped, not removed, and the
-volumes are copied rather than moved. ./deploy/cutover.sh --undo reverses it.
+Nothing is deleted: the legacy files stay on the volume, the legacy
+container is stopped, and ./deploy/cutover.sh --undo reverses it.
 
   ./deploy/cutover.sh --go
 
@@ -109,103 +124,73 @@ PLAN
   exit 0
 fi
 
-# --- 1. the image ----------------------------------------------------------
-say "Building the teeny image on the box"
-./deploy/deploy.sh --build-only || die "build failed; nothing has been changed"
+# --- preflight -------------------------------------------------------------
+grep -q "127.0.0.1:$BOT_PORT" "$VHOST" \
+  || die "BOT_PORT is $BOT_PORT but $VHOST proxies the webhook elsewhere. If deploy/.env still has the shadow run's port swap (BOT_PORT=3111, LEGACY_BOT_PORT=3110), remove it first."
+[ "$(envval DRY_RUN .env)" = false ] \
+  || say "DRY_RUN is not false in .env: the Rust bot will draft, not post. Fine for a rehearsal; not a cutover."
 
-# --- 2. silence the old agent ----------------------------------------------
-say "Stopping the stonks agent halves (the account goes quiet from here)"
-remote "docker update --restart=no stonks-bot-1 stonks-bot-reply-1 >/dev/null && docker stop stonks-bot-1 stonks-bot-reply-1" \
-  || die "could not stop the old agent; refusing to start a second one on the same account"
-
-# --- 3. the volumes --------------------------------------------------------
-copy_volume() {
-  local from="$1" to="$2"
-  remote "docker volume inspect $from >/dev/null 2>&1" || die "no volume $from on the box"
-  remote "docker volume create $to >/dev/null && docker run --rm -v $from:/from:ro -v $to:/to alpine sh -c 'cd /from && cp -a . /to/'" \
-    || die "copying $from -> $to failed"
-  say "  $from -> $to"
-}
-say "Copying the state that cannot be rebuilt"
-copy_volume "${OLD_PROJECT}_cortexdb-data" teeny_cortexdb-data
-copy_volume "${OLD_PROJECT}_bot-data" teeny_bot-data
-copy_volume "${OLD_PROJECT}_bot-data" teeny_reply-data
-
-# --- 4. the mention queue --------------------------------------------------
-say "Copying the mention queue"
-OLD_MONGO_USER="$(remote "sed -n 's/^MONGO_ROOT_USERNAME=//p' $OLD_DIR/deploy/.env | tail -1")"
-OLD_MONGO_PASS="$(remote "sed -n 's/^MONGO_ROOT_PASSWORD=//p' $OLD_DIR/deploy/.env | tail -1")"
-OLD_MONGO_DB="$(remote "sed -n 's/^MONGO_DATABASE=//p' $OLD_DIR/deploy/.env | tail -1")"
-NEW_MONGO_USER="$(envval MONGO_ROOT_USERNAME deploy/.env)"
-NEW_MONGO_PASS="$(envval MONGO_ROOT_PASSWORD deploy/.env)"
-NEW_MONGO_DB="$(envval MONGO_DATABASE deploy/.env)"
-
-remote "$COMPOSE up -d mongo" || die "teeny's mongo did not start"
-for _ in $(seq 1 60); do
-  remote "docker inspect --format '{{.State.Health.Status}}' teeny-mongo-1 2>/dev/null | grep -q healthy" && break
-  sleep 2
-done
-remote "docker inspect --format '{{.State.Health.Status}}' teeny-mongo-1 | grep -q healthy" || die "teeny's mongo never became healthy"
-
-# Through a file rather than a pipe: an archive streamed over two nested ssh
-# hops is one dropped byte away from a half-restored queue.
-remote "docker exec ${OLD_PROJECT}-mongo-1 mongodump --quiet -u '$OLD_MONGO_USER' -p '$OLD_MONGO_PASS' --authenticationDatabase admin --db '$OLD_MONGO_DB' --collection mentions --archive=/tmp/mentions.archive" \
-  || die "mongodump failed"
-remote "docker cp ${OLD_PROJECT}-mongo-1:/tmp/mentions.archive /tmp/mentions.archive && docker cp /tmp/mentions.archive teeny-mongo-1:/tmp/mentions.archive"
-remote "docker exec teeny-mongo-1 mongorestore --quiet -u '$NEW_MONGO_USER' -p '$NEW_MONGO_PASS' --authenticationDatabase admin --archive=/tmp/mentions.archive --nsFrom '$OLD_MONGO_DB.mentions' --nsTo '$NEW_MONGO_DB.mentions' --drop" \
-  || die "mongorestore failed"
-COUNT="$(remote "docker exec teeny-mongo-1 mongosh --quiet -u '$NEW_MONGO_USER' -p '$NEW_MONGO_PASS' --authenticationDatabase admin --eval 'db.getSiblingDB(\"$NEW_MONGO_DB\").mentions.countDocuments({})'")"
-say "  $COUNT mentions carried over"
-[ "${COUNT:-0}" -gt 0 ] || die "the queue arrived empty; not starting the agent on a blank history"
-
-# --- 5. start teeny --------------------------------------------------------
-say "Starting the teeny stack"
-remote "$COMPOSE up -d --remove-orphans" || die "compose up failed; run ./deploy/cutover.sh --undo"
-
-for attempt in $(seq 1 90); do
-  remote "curl -fsS --max-time 3 http://127.0.0.1:$BOT_PORT/health >/dev/null" && break
-  sleep 1
-done
-remote "curl -fsS --max-time 3 http://127.0.0.1:$BOT_PORT/health >/dev/null" \
-  || { remote "$COMPOSE logs --tail 60 bot" >&2; die "teeny never answered; run ./deploy/cutover.sh --undo"; }
-say "teeny is answering on 127.0.0.1:$BOT_PORT"
-
-# The agent is useless without the ladder and looks fine without it, so prove
-# the path rather than assuming the network attachment survived.
-remote "docker exec teeny-bot-1 node -e 'fetch(\"http://ladder:6969/v1/models\",{headers:{authorization:process.env.LLM_API_KEY?\"Bearer \"+process.env.LLM_API_KEY:\"\"}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))'" \
-  || die "teeny cannot reach the ladder; run ./deploy/cutover.sh --undo"
-say "teeny can reach the ladder"
-
-# --- 6. the webhook --------------------------------------------------------
-# X posts to a URL registered in its developer console. Repointing the upstream
-# here keeps that URL working, so nothing has to be re-subscribed.
-say "Repointing the webhook from :$OLD_BOT_PORT to :$BOT_PORT"
-remote "sudo -n sed -i 's|127\\.0\\.0\\.1:$OLD_BOT_PORT|127.0.0.1:$BOT_PORT|' $NGINX_CONF && sudo -n nginx -t && sudo -n systemctl reload nginx" \
-  || die "nginx would not reload; the webhook still points at the stopped container"
-
-# --- 7. the leftovers ------------------------------------------------------
-say "Stopping the stonks memory tier, which teeny now has its own of"
-remote "docker update --restart=no stonks-cortexdb-1 stonks-tika-1 >/dev/null && docker stop stonks-cortexdb-1 stonks-tika-1" || true
-
-# --- 8. the rest of the box ------------------------------------------------
-if [ "$KEEP_OTHERS" -eq 0 ]; then
-  say "Stopping everything else on this box"
-  remote "docker update --restart=no $OTHERS >/dev/null 2>&1; docker stop $OTHERS >/dev/null 2>&1" || true
-  remote "docker ps --format '  {{.Names}}'" || true
+# --- 1. the legacy image ---------------------------------------------------
+LEGACY_CONTAINER=""
+if [ "$(runtime_of "$PROJECT-bot-1")" = legacy ]; then
+  LEGACY_CONTAINER="$PROJECT-bot-1"
+elif running "$PROJECT-legacy-bot-1"; then
+  LEGACY_CONTAINER="$PROJECT-legacy-bot-1"
+fi
+if [ -n "$LEGACY_CONTAINER" ]; then
+  say "Keeping the image $LEGACY_CONTAINER runs as $PROJECT-legacy:current"
+  remote "docker tag \$(docker inspect --format '{{.Image}}' $LEGACY_CONTAINER) $PROJECT-legacy:current"
+else
+  say "No legacy bot is running; nothing to stop"
 fi
 
+# --- 2. the Rust image ------------------------------------------------------
+say "Building the Rust image on the box"
+./deploy/deploy.sh --build-only || die "build failed; nothing has been changed"
+[ "$(runtime_of "$PROJECT:current")" = rust ] || die "$PROJECT:current on the box is not the Rust image"
+
+# --- 3. silence the legacy bot ----------------------------------------------
+if [ -n "$LEGACY_CONTAINER" ]; then
+  say "Stopping $LEGACY_CONTAINER (the account goes quiet from here)"
+  remote "docker stop $LEGACY_CONTAINER >/dev/null" \
+    || die "could not stop the legacy bot; refusing to start a second agent on the account"
+fi
+
+# --- 4. the snapshot --------------------------------------------------------
+if remote "docker volume inspect $SNAPSHOT >/dev/null 2>&1"; then
+  say "Snapshot $SNAPSHOT already exists; keeping it"
+else
+  say "Snapshotting $VOLUME -> $SNAPSHOT"
+  remote "docker volume create $SNAPSHOT >/dev/null && docker run --rm -v $VOLUME:/from:ro -v $SNAPSHOT:/to alpine:3 sh -c 'cd /from && cp -a . /to/'" \
+    || die "snapshot failed; the legacy bot is stopped, run ./deploy/cutover.sh --undo"
+fi
+
+# --- 5. start the Rust bot ---------------------------------------------------
+say "Starting the Rust bot"
+remote "$COMPOSE up -d --no-build --remove-orphans" || die "compose up failed; run ./deploy/cutover.sh --undo"
+wait_healthy "$BOT_PORT" \
+  || { remote "$COMPOSE logs --tail 60 bot" >&2; die "the Rust bot never answered; run ./deploy/cutover.sh --undo"; }
+say "The Rust bot answers on 127.0.0.1:$BOT_PORT"
+remote "docker exec $PROJECT-bot-1 ls /data/state /data/media" || true
+
+# --- 6. the ladder -----------------------------------------------------------
+# The agent is useless without it and looks healthy without it. The Rust image
+# has no shell tools to ask from inside, so ask from a container wired the
+# same way, as deploy.sh does.
+remote "docker run --rm --add-host $LADDER:host-gateway alpine:3 wget -q -O /dev/null -T 5 \
+      --header 'authorization: Bearer $(envval LADDER_API_KEY deploy/.env)' '${LADDER_URL%/}/models'" \
+  || die "the ladder does not answer at $LADDER_URL from a container here; run ./deploy/cutover.sh --undo"
+say "The ladder answers at $LADDER_URL"
+
 say "Cut over."
-remote "curl -sS http://127.0.0.1:$BOT_PORT/queue"; echo
+remote "curl -sS http://127.0.0.1:$BOT_PORT/queue" || true; echo
 cat <<DONE
 
-The stonks stack still runs the website; only its two agent halves and its
-memory tier are stopped, and its volumes are untouched. Once teeny has replied
-to something and the memory reads back, the leftovers can be removed:
+The legacy container is stopped, not removed, and its files are still on the
+volume, with a full copy in $SNAPSHOT. Once the Rust bot has posted and
+replied for a few days, the legacy service can go (deploy/README.md):
 
-  ssh $DEPLOY_HOST 'docker rm stonks-bot-1 stonks-bot-reply-1 stonks-cortexdb-1 stonks-tika-1'
-
-and the bot profile deleted from the stonks compose file, so a stonks deploy
-cannot bring a second agent back up on this account.
+  ssh $DEPLOY_HOST 'docker rm $PROJECT-legacy-bot-1; docker volume rm $SNAPSHOT'
 
   ./deploy/cutover.sh --undo   # go back
 DONE
