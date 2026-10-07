@@ -28,6 +28,7 @@ teeny-media = { path = "crates/teeny-media" }
 teeny-safety = { path = "crates/teeny-safety" }
 teeny-cadence = { path = "crates/teeny-cadence" }
 teeny-agent = { path = "crates/teeny-agent" }
+teeny-jobs = { path = "crates/teeny-jobs" }
 
 # --- OpenHuman ----------------------------------------------------------------
 # The trimmed build: no shell, fs-write, exec, system, composio, web3,

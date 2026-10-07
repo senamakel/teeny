@@ -4254,6 +4254,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "teeny-jobs"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "chrono-tz",
+ "futures",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "teeny-agent",
+ "teeny-cadence",
+ "teeny-core",
+ "teeny-market",
+ "teeny-media",
+ "teeny-memory",
+ "teeny-safety",
+ "teeny-store",
+ "teeny-x",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "wiremock",
+]
+
+[[package]]
 name = "teeny-market"
 version = "0.1.0"
 dependencies = [

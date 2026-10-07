@@ -89,7 +89,7 @@ pub fn is_denied(name: &str) -> bool {
 }
 
 /// One agent's tool belt.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Belt {
     /// `teeny-reply`: X mentions. Public.
     Reply,
