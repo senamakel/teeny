@@ -10,6 +10,7 @@ pub mod format;
 pub mod images;
 pub mod moon;
 pub mod png;
+pub mod reference;
 pub mod store;
 pub mod types;
 pub mod videos;
