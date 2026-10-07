@@ -26,6 +26,13 @@ use teeny_store::posts::{NewOwnPost, PostLedger};
 
 use crate::clock::{Clock, hours, iso, parse_iso};
 
+/// One own post at a time, across the process: claim, publish and record
+/// run under it, so two jobs firing in the same minute (the cron runs them
+/// in parallel) cannot both read the ledger before either is recorded and
+/// both pass the gap. Static rather than per [`Cadence`] so a second
+/// instance over the same ledger is no way round it.
+static POSTING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// The cadence's answer to "may I post now?".
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Claim {
@@ -204,7 +211,9 @@ impl Cadence {
     }
 
     /// Publishes an own post (or an article, which puts one on the timeline)
-    /// with the cadence in front of it: claimed before, recorded after.
+    /// with the cadence in front of it: claimed before, recorded after, all
+    /// under the process-wide posting lock, so the next own post waits for
+    /// this one to be on the ledger before it claims.
     ///
     /// A ledger that cannot record after a successful publish is logged, not
     /// returned: the post is out, and an error here would invite a retry
@@ -220,6 +229,7 @@ impl Cadence {
         F: FnOnce() -> Fut,
         Fut: Future<Output = Result<T, E>>,
     {
+        let _posting = POSTING.lock().await;
         let claim = self.claim(kind).await.map_err(PublishError::Ledger)?;
         if !claim.is_granted() {
             return Err(PublishError::Held(CadenceHeld(claim)));

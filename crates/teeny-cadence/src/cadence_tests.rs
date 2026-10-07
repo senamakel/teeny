@@ -111,6 +111,38 @@ async fn paces_own_posts_claimed_and_recorded_under_their_kind_and_refused_insid
     assert_eq!(ledger.since("", 50).await.unwrap().len(), 1);
 }
 
+#[tokio::test]
+async fn two_own_posts_in_the_same_minute_cannot_both_pass_the_gap() {
+    let (ledger, cadence, _) = subject();
+    let published = AtomicU32::new(0);
+    // Publishing takes a moment, as X does: without the posting lock the
+    // second claim reads the ledger before the first post is recorded.
+    let publish = |id: &'static str| {
+        let published = &published;
+        move || async move {
+            tokio::task::yield_now().await;
+            published.fetch_add(1, Ordering::SeqCst);
+            Ok::<_, String>(id.to_owned())
+        }
+    };
+    let (first, second) = tokio::join!(
+        cadence.publish_own("chart", None, publish("1")),
+        cadence.publish_own("moon", None, publish("2")),
+    );
+    let refused = [&first, &second]
+        .into_iter()
+        .filter(|outcome| {
+            matches!(
+                outcome,
+                Err(PublishError::Held(CadenceHeld(Claim::Gap { .. })))
+            )
+        })
+        .count();
+    assert_eq!(refused, 1, "{first:?} {second:?}");
+    assert_eq!(published.load(Ordering::SeqCst), 1);
+    assert_eq!(ledger.since("", 50).await.unwrap().len(), 1);
+}
+
 #[derive(Debug, PartialEq)]
 struct Article {
     article_id: String,

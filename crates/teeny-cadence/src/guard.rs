@@ -1,10 +1,18 @@
 //! The re-run guard each daily posting job keeps.
 //!
-//! The jobs fire on a daily cron, and a restart near the cron minute, a
-//! retry, or two schedulers would otherwise post twice. Each legacy job kept
-//! `lastRunAt` and refused to run again inside `minIntervalMs`, twenty hours
-//! for the daily ones; a forced run skips the check. The time is marked once
-//! the job has decided to run, so a run that then fails still counts.
+//! Each legacy job kept `lastRunAt` and refused to run again inside
+//! `minIntervalMs`, twenty hours for the daily ones; a forced run skips the
+//! check. The time is marked once the job has decided to run, so a run that
+//! then fails still counts.
+//!
+//! What this covers is narrow: a second run of the same job inside one
+//! process, such as a retry or a manual trigger on top of the cron. The last
+//! run lives in memory, so a restart forgets it, and a second process never
+//! sees it. Restarts are covered elsewhere: OpenHuman's cron advances a
+//! job's `next_run` when it dispatches the job, so a restart does not fire
+//! the same slot again, and the persisted post ledger behind
+//! [`Cadence`](crate::cadence::Cadence) refuses an own post inside the gap
+//! whichever process tries it.
 
 use std::sync::Mutex;
 
