@@ -35,6 +35,7 @@
   <button data-status="pending" aria-pressed="true">pending</button>
   <button data-status="approved">approved</button>
   <button data-status="rejected">rejected</button>
+  <button data-status="releasing">releasing</button>
 </nav>
 <div id="list"></div>
 <script>
@@ -69,7 +70,7 @@
     if (!res.ok) { list.innerHTML = '<p class="err">could not load: ' + res.status + '</p>'; return; }
     const data = await res.json();
     const c = data.counts;
-    countsEl.textContent = c.pending + ' pending · ' + c.approved + ' approved · ' + c.rejected + ' rejected';
+    countsEl.textContent = c.pending + ' pending · ' + c.approved + ' approved · ' + c.rejected + ' rejected' + (c.releasing ? ' · ' + c.releasing + ' releasing' : '');
     if (!data.holds.length) { list.innerHTML = '<p class="empty">nothing ' + status + '</p>'; return; }
     list.innerHTML = data.holds.map((h) => `
       <div class="hold" data-id="${esc(h.id)}">
@@ -89,7 +90,7 @@
                <button class="reject">reject</button>
                <input placeholder="note (optional)">
                <span class="effect">${esc(whatApprovingDoes(h))}</span>
-             </div>`
+             </div>${h.effect ? '<div class="effect err">' + esc(h.effect) + '</div>' : ''}`
           : `<div class="effect">${esc(h.status)} ${esc(new Date(h.decidedAt || h.at).toLocaleString())}${h.effect ? ' · ' + esc(h.effect) : ''}${h.note ? ' · “' + esc(h.note) + '”' : ''}</div>`}
       </div>`).join('');
   }

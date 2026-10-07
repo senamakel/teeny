@@ -69,6 +69,7 @@ pub async fn holds(
     };
     let status = match params.get("status").map(String::as_str) {
         Some("pending") => Some(HoldStatus::Pending),
+        Some("releasing") => Some(HoldStatus::Releasing),
         Some("approved") => Some(HoldStatus::Approved),
         Some("rejected") => Some(HoldStatus::Rejected),
         _ => None,

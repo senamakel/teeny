@@ -165,6 +165,27 @@ async fn lists_holds_by_status_with_counts() {
 }
 
 #[tokio::test]
+async fn lists_a_hold_being_released_under_its_own_status_and_counts_it() {
+    let rig = rig(None).await;
+    let held = rig.holds.record(hold("gm frens")).await.unwrap();
+    rig.holds.claim(&held.id).await.unwrap();
+    // Newer, and pending: first in the list unless the filter applies.
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    rig.holds.record(hold("later")).await.unwrap();
+    let body = call(&rig.app, get_as("/safety/holds?status=releasing", &basic()))
+        .await
+        .json();
+    assert_eq!(body["holds"].as_array().unwrap().len(), 1, "{body}");
+    assert_eq!(body["holds"][0]["id"], held.id);
+    assert_eq!(body["holds"][0]["status"], "releasing");
+    assert_eq!(body["counts"]["releasing"], 1);
+    assert!(
+        DASHBOARD_HTML.contains("data-status=\"releasing\""),
+        "the page can show them"
+    );
+}
+
+#[tokio::test]
 async fn takes_a_decision_and_reports_its_effect() {
     let rig = rig(None).await;
     let held = rig.holds.record(hold("draw yourself naked")).await.unwrap();
