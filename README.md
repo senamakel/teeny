@@ -19,6 +19,52 @@ mascot, as an X account. It:
 > [OpenCompany](https://github.com/tinyhumansai/opencompany) company that
 > revises itself and commits every run. See `deploy/README.md`, "The brain".
 
+## Rust rewrite (in progress)
+
+Teeny is being rebuilt in Rust on the [OpenHuman](https://github.com/tinyhumansai/openhuman)
+embedded harness, as a locked-down public agent: OpenHuman compiled without
+shell, file-write, exec, wallet or MCP tools, every agent on a named tool
+allowlist, and posting only from trusted (scheduled or bearer-authenticated)
+turns through host code that runs the content filter, house style, cadence and
+`DRY_RUN`. Until cutover the TypeScript service below keeps running, from
+`legacy/`; the content it reads (`SOUL.md`, `CONTEXT.md`, `skills/`,
+`narrative/`, `assets/`, `calendar.json`, `brain/`) and the `web/` site stay
+where they are, and both services read the same `.env`.
+
+```
+Cargo.toml            virtual workspace; replicates OpenHuman's [patch] tables
+rust-toolchain.toml   pinned to vendor/openhuman's toolchain (1.96.1)
+vendor/openhuman/     OpenHuman, as a git submodule (recursive)
+crates/
+  teeny-core          config (the legacy env surface, typed), shared types, errors
+  teeny-store         Mongo repositories and file-state cursors
+  teeny-x             X API client, X tools, the Publisher guard
+  teeny-memory        CortexDB client, recall_memory / remember tools
+  teeny-market        market data, technical analysis, market tools
+  teeny-media         GIFs, vision, image/video generation, chart rendering
+  teeny-safety        lexicon, link allowlist, LLM judge, holds, house style
+  teeny-cadence       gap, heat, budgets, 20h guard, rota, slots, calendar
+  teeny-agent         the OpenHuman runtime, agent specs and posture, pipelines
+  teeny               the binary: HTTP server, schedule, subcommands
+legacy/               the TypeScript service, until cutover
+scripts/check-dup-crates.sh   fails if OpenHuman-family crates resolve twice
+```
+
+Only `teeny-agent` and `teeny` depend on OpenHuman. The crates land milestone
+by milestone, each porting its tests from `legacy/test`; most are skeletons
+today. To work on the Rust side:
+
+```sh
+git submodule update --init --recursive --jobs 8 vendor/openhuman
+cargo fmt --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+scripts/check-dup-crates.sh
+```
+
+After bumping `vendor/openhuman`, re-check the root `[patch]` tables against
+`vendor/openhuman/Cargo.toml` and run the duplicate-crate check.
+
 ## Setup
 
 Requirements: Node.js 20+, an X developer app with read/write access, a CortexDB
@@ -27,9 +73,15 @@ agent simply runs without web-research tools when it is absent.
 
 ```sh
 cp .env.example .env
+cd legacy
 npm install
 npm run dev
 ```
+
+The TypeScript service lives in `legacy/`. Its npm scripts run from the repo
+root, so `.env`, `SOUL.md` and `data/` resolve where they always have; run
+`npm` from `legacy/`. The container builds from the repo root with
+`docker build -f legacy/Dockerfile .`.
 
 Fill every blank value in `.env`. Leave `DRY_RUN=true` until generated replies
 have been inspected. Set it to `false` only when the bot is ready to publish.
@@ -1587,6 +1639,8 @@ it, signature header included, plus `WEBHOOK_FORWARD_TOKEN` as a bearer when
 set -- after X has been answered and without waiting for the receiver.
 
 ## Commands
+
+From `legacy/`:
 
 ```sh
 npm run dev
