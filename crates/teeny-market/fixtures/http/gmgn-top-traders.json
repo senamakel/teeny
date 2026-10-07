@@ -1,0 +1,11 @@
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "list": [
+      { "address": "SmartWallet", "realized_profit": 12345.6, "buy_volume_cur": "40000", "sell_volume_cur": 52345.6, "balance": "1000", "tags": ["smart_degen", 7, "kol"] },
+      { "wallet_address": "OtherWallet", "bought_usd": 999, "sold_usd": 0, "holding_amount": 5 },
+      { "tags": ["no wallet at all"] }
+    ]
+  }
+}
