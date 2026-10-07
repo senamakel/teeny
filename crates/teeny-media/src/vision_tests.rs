@@ -21,6 +21,10 @@ fn allows_public_https_names_and_nothing_that_points_back_at_the_box() {
         "https://mongo.internal/a.png",
         "https://printer.local/a.png",
         "https://0x7f.1/a.png",
+        "https://cortexdb/a.png",
+        "https://mongo:27017/a.png",
+        "https://localhost./a.png",
+        "https://pbs./a.png",
         "file:///etc/passwd",
         "not a url",
     ] {
@@ -123,6 +127,48 @@ async fn asks_the_default_question_and_joins_content_parts() {
 }
 
 #[tokio::test]
+async fn reads_a_url_image_through_the_guarded_fetcher() {
+    let vision = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "choices": [{ "message": { "content": "a cat" } }]
+        })))
+        .mount(&vision)
+        .await;
+    let images = MockServer::start().await;
+    let inside = MockServer::start().await;
+    Mock::given(path("/a.png"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "image/png")
+                .set_body_bytes(PNG.to_vec()),
+        )
+        .mount(&images)
+        .await;
+    Mock::given(path("/hop"))
+        .respond_with(
+            ResponseTemplate::new(302).insert_header("location", format!("{}/a.png", inside.uri())),
+        )
+        .mount(&images)
+        .await;
+    let reader =
+        reader(&vision, "vision").with_fetcher(crate::fetch::ImageFetcher::trusting(&images.uri()));
+
+    let answer = reader
+        .describe(ImageInput::Url(format!("{}/a.png", images.uri())), None)
+        .await
+        .unwrap();
+    assert_eq!(answer, "a cat");
+
+    let error = reader
+        .describe(ImageInput::Url(format!("{}/hop", images.uri())), None)
+        .await
+        .unwrap_err();
+    assert_eq!(error.to_string(), "could not fetch that image");
+    assert!(inside.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn refuses_a_private_url_without_fetching_it() {
     let server = MockServer::start().await;
     let error = reader(&server, "vision")
@@ -131,68 +177,6 @@ async fn refuses_a_private_url_without_fetching_it() {
         .unwrap_err();
     assert!(error.to_string().contains("refusing"), "{error}");
     assert!(server.received_requests().await.unwrap().is_empty());
-}
-
-#[tokio::test]
-async fn downloads_an_image_and_trusts_the_bytes_over_a_vague_header() {
-    let server = MockServer::start().await;
-    Mock::given(path("/declared"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .insert_header("content-type", "image/png; charset=binary")
-                .set_body_bytes(PNG.to_vec()),
-        )
-        .mount(&server)
-        .await;
-    Mock::given(path("/vague"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .insert_header("content-type", "application/octet-stream")
-                .set_body_bytes(b"RIFF....WEBPVP8 ".to_vec()),
-        )
-        .mount(&server)
-        .await;
-    let client = reqwest::Client::new();
-    let (data, mime) = download_image(&client, &format!("{}/declared", server.uri()))
-        .await
-        .unwrap();
-    assert_eq!((data, mime), (PNG.to_vec(), MimeType::Png));
-    let (_, mime) = download_image(&client, &format!("{}/vague", server.uri()))
-        .await
-        .unwrap();
-    assert_eq!(mime, MimeType::Webp);
-}
-
-#[tokio::test]
-async fn rejects_a_url_that_does_not_serve_an_image() {
-    let server = MockServer::start().await;
-    Mock::given(path("/page"))
-        .respond_with(ResponseTemplate::new(200).set_body_raw("<html>", "text/html"))
-        .mount(&server)
-        .await;
-    Mock::given(path("/gone"))
-        .respond_with(ResponseTemplate::new(404))
-        .mount(&server)
-        .await;
-    let client = reqwest::Client::new();
-    let error = download_image(&client, &format!("{}/page", server.uri()))
-        .await
-        .unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("did not return an image (content-type text/html)"),
-        "{error}"
-    );
-    let error = download_image(&client, &format!("{}/gone", server.uri()))
-        .await
-        .unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .starts_with("image fetch failed (404) for "),
-        "{error}"
-    );
 }
 
 #[tokio::test]

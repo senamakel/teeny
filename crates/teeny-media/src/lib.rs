@@ -14,6 +14,7 @@
 mod candle;
 pub mod chart;
 mod error;
+pub mod fetch;
 pub mod fit;
 pub mod format;
 pub mod giphy;
