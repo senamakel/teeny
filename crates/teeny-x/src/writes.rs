@@ -1,4 +1,4 @@
-//! Writes: posting, replying, deleting, liking. Always signed as the account,
+//! Writes: posting (a reply is a post with `reply_to`), deleting, liking. Always signed as the account,
 //! never cached, and crate-private: the one public way to publish is
 //! [`crate::XPublisher`], which runs the guard and honours `DRY_RUN` first.
 
@@ -57,15 +57,6 @@ impl XApi {
                 response.errors.unwrap_or_default()
             ))),
         }
-    }
-
-    /// Answers a post.
-    pub(crate) async fn reply(&self, post_id: &PostId, text: &str) -> XResult<Created> {
-        let options = CreateOptions {
-            reply_to: Some(post_id.clone()),
-            ..CreateOptions::default()
-        };
-        self.create_post(text, &options).await
     }
 
     /// Deletes one of the account's posts. `false` when X did not say it did.

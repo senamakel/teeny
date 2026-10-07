@@ -51,29 +51,6 @@ async fn attaches_a_reply_target_a_quote_and_media() {
 }
 
 #[tokio::test]
-async fn replies_by_post_id() {
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/2/tweets"))
-        .and(body_json(
-            json!({ "text": "hi", "reply": { "in_reply_to_tweet_id": "9" } }),
-        ))
-        .respond_with(ResponseTemplate::new(201).set_body_json(json!({ "data": { "id": "102" } })))
-        .expect(1)
-        .mount(&server)
-        .await;
-    assert_eq!(
-        api(&server)
-            .reply(&"9".into(), "hi")
-            .await
-            .unwrap()
-            .id
-            .as_str(),
-        "102"
-    );
-}
-
-#[tokio::test]
 async fn a_post_without_an_id_back_is_an_error() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
