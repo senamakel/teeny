@@ -1331,6 +1331,23 @@ runs inside the ingest process (`SERVICE_ROLE=all` or `ingest`), the half of
 the account that already runs in exactly one place, next to the X webhook.
 One process, one codebase: the same `teeny-bot-1` container answers on both.
 
+### Two transports (`TELEGRAM_TRANSPORT`)
+
+- **`teeny`** (the default): Teeny's own Bot API long poll
+  (`crates/teeny/src/telegram/poller.rs`). Every message goes through
+  `teeny_jobs::chat`: the content filter on the way in and on the way out, the
+  transcript and its `TELEGRAM_HISTORY_TOKENS` budget, the house style and
+  `TELEGRAM_DRY_RUN`. The `teeny-chat` agent drafts as a public turn and holds
+  no tool that writes.
+- **`openhuman`**: OpenHuman's own Telegram channel, bound to the `teeny-chat`
+  agent. The agent's posture still applies (locked down, its named tools only,
+  `Access::public`), but the channel sends the agent's text as it is: **it
+  bypasses Teeny's outbound content filter, the house style and the transcript
+  budget**, keeps its own history, and ignores `TELEGRAM_DRY_RUN`. That is why
+  it is not the default. It is only compiled into a build with
+  `cargo build -p teeny --features openhuman-telegram`; any other build refuses
+  to boot with `TELEGRAM_TRANSPORT=openhuman`.
+
 What it answers:
 
 - everything in a DM;
