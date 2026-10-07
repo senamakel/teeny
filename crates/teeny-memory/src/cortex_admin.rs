@@ -78,7 +78,9 @@ impl CortexMemory {
         if let Some(preview_id) = preview_id {
             body["from_preview_id"] = json!(preview_id);
         }
-        Ok(serde_json::from_str(&self.post("/v1/forget", &body).await?)?)
+        Ok(serde_json::from_str(
+            &self.post("/v1/forget", &body).await?,
+        )?)
     }
 
     fn forget_body(&self, selector: &ForgetSelector) -> Value {

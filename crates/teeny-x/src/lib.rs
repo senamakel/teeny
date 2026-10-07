@@ -7,8 +7,8 @@
 //! (cached or not). Writes: only [`XPublisher`].
 
 pub mod activity;
-pub mod auth;
 pub mod article;
+pub mod auth;
 pub mod cache;
 mod client;
 mod error;

@@ -57,7 +57,9 @@ pub struct Subscription {
 impl Subscription {
     /// The account it is for, when it names one.
     pub fn user_id(&self) -> Option<&str> {
-        self.filter.as_ref().and_then(|filter| filter.user_id.as_deref())
+        self.filter
+            .as_ref()
+            .and_then(|filter| filter.user_id.as_deref())
     }
 
     /// `event_type for user`.
@@ -93,7 +95,9 @@ impl XApi {
             .as_str()
             .map(str::to_owned)
             .ok_or_else(|| {
-                XError::Missing(format!("X accepted the webhook but returned no id: {created}"))
+                XError::Missing(format!(
+                    "X accepted the webhook but returned no id: {created}"
+                ))
             })
     }
 
@@ -143,8 +147,14 @@ impl XApi {
                 "X_BEARER_TOKEN is required to manage the webhook; set it in .env".into(),
             ));
         }
-        match self.attempt(method.clone(), path, body.as_ref(), Auth::App).await {
-            Err(XError::Http { status, body: detail }) if wants_user_context(status, &detail) => {
+        match self
+            .attempt(method.clone(), path, body.as_ref(), Auth::App)
+            .await
+        {
+            Err(XError::Http {
+                status,
+                body: detail,
+            }) if wants_user_context(status, &detail) => {
                 self.attempt(method, path, body.as_ref(), Auth::User).await
             }
             other => other,

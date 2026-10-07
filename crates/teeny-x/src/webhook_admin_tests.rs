@@ -56,7 +56,10 @@ async fn retries_as_the_account_when_x_asks_for_user_context() {
             "tag": "teeny post.mention.create"
         })))
         .and(|request: &wiremock::Request| is_oauth(request))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": { "subscription_id": "s1" } })))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "data": { "subscription_id": "s1" } })),
+        )
         .expect(1)
         .mount(&server)
         .await;
@@ -82,7 +85,9 @@ async fn retries_as_the_account_on_a_403_naming_oauth_1() {
     Mock::given(method("DELETE"))
         .and(path("/2/webhooks/w1"))
         .and(|request: &wiremock::Request| is_oauth(request))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": { "deleted": true } })))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "data": { "deleted": true } })),
+        )
         .expect(1)
         .mount(&server)
         .await;
@@ -115,8 +120,12 @@ async fn creating_returns_the_new_id() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/2/webhooks"))
-        .and(body_json(json!({ "url": "https://teeny.example/webhooks/x" })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": { "id": "w9", "url": "https://teeny.example/webhooks/x" } })))
+        .and(body_json(
+            json!({ "url": "https://teeny.example/webhooks/x" }),
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(
+            json!({ "data": { "id": "w9", "url": "https://teeny.example/webhooks/x" } }),
+        ))
         .mount(&server)
         .await;
 
@@ -157,7 +166,10 @@ async fn reads_and_deletes_subscriptions() {
 async fn refuses_without_an_app_bearer() {
     let server = MockServer::start().await;
 
-    let error = api_without_bearer(&server).list_webhooks().await.unwrap_err();
+    let error = api_without_bearer(&server)
+        .list_webhooks()
+        .await
+        .unwrap_err();
 
     assert!(error.to_string().contains("X_BEARER_TOKEN"), "{error}");
     assert!(server.received_requests().await.unwrap().is_empty());

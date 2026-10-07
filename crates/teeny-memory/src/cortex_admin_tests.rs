@@ -69,7 +69,9 @@ async fn forgets_by_subject_from_the_preview() {
             "reason": "operational note leaking into public replies",
             "from_preview_id": "p1"
         })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "deleted": { "events": 1 } })))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "deleted": { "events": 1 } })),
+        )
         .expect(1)
         .mount(&server)
         .await;
