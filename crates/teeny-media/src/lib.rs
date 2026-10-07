@@ -3,6 +3,7 @@
 
 mod candle;
 pub mod chart;
+pub mod fit;
 mod error;
 mod http;
 pub mod format;
