@@ -6,6 +6,7 @@ pub mod chart;
 mod error;
 mod http;
 pub mod format;
+pub mod images;
 pub mod moon;
 pub mod png;
 pub mod types;
