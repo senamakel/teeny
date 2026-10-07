@@ -14,7 +14,8 @@ async fn x_oauth() -> (MockServer, ThreeLegged) {
         .and(path("/oauth/request_token"))
         .and(query_param("oauth_callback", "oob"))
         .respond_with(
-            ResponseTemplate::new(200).set_body_string("oauth_token=req-tok&oauth_token_secret=req-sec"),
+            ResponseTemplate::new(200)
+                .set_body_string("oauth_token=req-tok&oauth_token_secret=req-sec"),
         )
         .mount(&server)
         .await;
@@ -73,7 +74,10 @@ async fn writes_the_pair_into_the_env_file_without_printing_it() {
     let printed = printed(out);
     assert!(!printed.contains("USER-TOKEN-1"), "{printed}");
     assert!(!printed.contains("USER-SECRET-1"), "{printed}");
-    assert!(printed.contains("Wrote X_ACCESS_TOKEN and X_ACCESS_TOKEN_SECRET"), "{printed}");
+    assert!(
+        printed.contains("Wrote X_ACCESS_TOKEN and X_ACCESS_TOKEN_SECRET"),
+        "{printed}"
+    );
 }
 
 #[tokio::test]
@@ -86,7 +90,11 @@ async fn an_empty_pin_stops_before_trading_it() {
 
     assert!(error.to_string().contains("PIN"), "{error}");
     let calls = server.received_requests().await.unwrap();
-    assert!(calls.iter().all(|call| call.url.path() != "/oauth/access_token"));
+    assert!(
+        calls
+            .iter()
+            .all(|call| call.url.path() != "/oauth/access_token")
+    );
 }
 
 #[test]

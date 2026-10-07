@@ -62,14 +62,26 @@ async fn without_confirm_it_names_what_it_would_do_and_changes_nothing() {
     deletes(&server, 0).await;
     let mut out = Vec::new();
 
-    run(&x(&server), &publisher(&server, false), &queue, &args(&["900"], false), &mut out)
-        .await
-        .unwrap();
+    run(
+        &x(&server),
+        &publisher(&server, false),
+        &queue,
+        &args(&["900"], false),
+        &mut out,
+    )
+    .await
+    .unwrap();
 
     let printed = printed(out);
-    assert!(printed.contains("would delete 900 and requeue 800 (replied)"), "{printed}");
+    assert!(
+        printed.contains("would delete 900 and requeue 800 (replied)"),
+        "{printed}"
+    );
     assert!(printed.contains("Nothing was changed"), "{printed}");
-    assert_eq!(queue.status_of("800").await.unwrap(), Some(MentionStatus::Replied));
+    assert_eq!(
+        queue.status_of("800").await.unwrap(),
+        Some(MentionStatus::Replied)
+    );
 }
 
 #[tokio::test]
@@ -78,13 +90,22 @@ async fn with_confirm_it_deletes_and_requeues_the_mention_afresh() {
     deletes(&server, 1).await;
     let mut out = Vec::new();
 
-    run(&x(&server), &publisher(&server, false), &queue, &args(&["900"], true), &mut out)
-        .await
-        .unwrap();
+    run(
+        &x(&server),
+        &publisher(&server, false),
+        &queue,
+        &args(&["900"], true),
+        &mut out,
+    )
+    .await
+    .unwrap();
 
     let printed = printed(out);
     assert!(printed.contains("deleted 900"), "{printed}");
-    assert!(printed.contains("requeued 800 for a fresh reply"), "{printed}");
+    assert!(
+        printed.contains("requeued 800 for a fresh reply"),
+        "{printed}"
+    );
     let row = queue.get("800").unwrap();
     assert_eq!(row.status, MentionStatus::Pending);
     assert_eq!(row.attempts, 0);
@@ -97,21 +118,36 @@ async fn dry_run_holds_the_delete_and_the_requeue() {
     deletes(&server, 0).await;
     let mut out = Vec::new();
 
-    run(&x(&server), &publisher(&server, true), &queue, &args(&["900"], true), &mut out)
-        .await
-        .unwrap();
+    run(
+        &x(&server),
+        &publisher(&server, true),
+        &queue,
+        &args(&["900"], true),
+        &mut out,
+    )
+    .await
+    .unwrap();
 
     assert!(printed(out).contains("DRY_RUN"));
-    assert_eq!(queue.status_of("800").await.unwrap(), Some(MentionStatus::Replied));
+    assert_eq!(
+        queue.status_of("800").await.unwrap(),
+        Some(MentionStatus::Replied)
+    );
 }
 
 #[tokio::test]
 async fn refuses_anything_that_is_not_a_post_id() {
     let (server, queue) = setup().await;
 
-    let error = run(&x(&server), &publisher(&server, false), &queue, &args(&["abc"], true), &mut Vec::new())
-        .await
-        .unwrap_err();
+    let error = run(
+        &x(&server),
+        &publisher(&server, false),
+        &queue,
+        &args(&["abc"], true),
+        &mut Vec::new(),
+    )
+    .await
+    .unwrap_err();
 
     assert!(error.to_string().contains("usage"), "{error}");
 }

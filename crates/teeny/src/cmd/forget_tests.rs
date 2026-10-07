@@ -42,9 +42,13 @@ async fn find_lists_the_matching_events_with_their_ids() {
         .await;
     let mut out = Vec::new();
 
-    run(&memory(&server), &args(None, Some("droplet"), &[], false), &mut out)
-        .await
-        .unwrap();
+    run(
+        &memory(&server),
+        &args(None, Some("droplet"), &[], false),
+        &mut out,
+    )
+    .await
+    .unwrap();
 
     let printed = printed(out);
     assert!(printed.starts_with("e1\t{"), "{printed}");
@@ -63,9 +67,13 @@ async fn without_confirm_it_only_previews() {
         .await;
     let mut out = Vec::new();
 
-    run(&memory(&server), &args(None, None, &["a", "b"], false), &mut out)
-        .await
-        .unwrap();
+    run(
+        &memory(&server),
+        &args(None, None, &["a", "b"], false),
+        &mut out,
+    )
+    .await
+    .unwrap();
 
     let printed = printed(out);
     assert!(printed.contains("\"preview_id\": \"p1\""), "{printed}");
@@ -89,9 +97,13 @@ async fn with_confirm_it_forgets_from_the_preview() {
         .await;
     let mut out = Vec::new();
 
-    run(&memory(&server), &args(Some("the droplet"), None, &[], true), &mut out)
-        .await
-        .unwrap();
+    run(
+        &memory(&server),
+        &args(Some("the droplet"), None, &[], true),
+        &mut out,
+    )
+    .await
+    .unwrap();
 
     assert!(printed(out).contains("\"forgotten\": 2"));
 }
@@ -100,9 +112,13 @@ async fn with_confirm_it_forgets_from_the_preview() {
 async fn refuses_without_a_selector() {
     let server = MockServer::start().await;
 
-    let error = run(&memory(&server), &args(None, None, &[], true), &mut Vec::new())
-        .await
-        .unwrap_err();
+    let error = run(
+        &memory(&server),
+        &args(None, None, &[], true),
+        &mut Vec::new(),
+    )
+    .await
+    .unwrap_err();
 
     assert!(error.to_string().contains("usage"), "{error}");
     assert!(server.received_requests().await.unwrap().is_empty());

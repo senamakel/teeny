@@ -18,8 +18,8 @@ use std::io::Write;
 
 use anyhow::{Context, bail};
 use teeny_core::Config;
-pub use teeny_x::webhook_admin::EVENTS;
 use teeny_x::XApi;
+pub use teeny_x::webhook_admin::EVENTS;
 use teeny_x::webhook_admin::{Subscription, Webhook};
 
 /// `teeny webhook <list|register|subscribe|unsubscribe|delete>`
@@ -81,9 +81,7 @@ pub async fn run(
             )?;
             Ok(())
         }
-        WebhookCommand::Register { url, confirm } => {
-            register(x, account, url, *confirm, out).await
-        }
+        WebhookCommand::Register { url, confirm } => register(x, account, url, *confirm, out).await,
         WebhookCommand::Subscribe {
             webhook_id,
             confirm,
@@ -183,7 +181,10 @@ async fn register(
                 out,
                 "\nThe app holds one webhook, so the old one goes before the new one arrives."
             )?;
-            writeln!(out, "Between the two, only the mention poll finds mentions.")?;
+            writeln!(
+                out,
+                "Between the two, only the mention poll finds mentions."
+            )?;
         }
         writeln!(out, "\nRe-run with --confirm.")?;
         return Ok(());
@@ -245,8 +246,7 @@ async fn registered(x: &XApi) -> anyhow::Result<String> {
 }
 
 async fn subscribed_to(x: &XApi, webhook_id: &str) -> anyhow::Result<Vec<Subscription>> {
-    Ok(x
-        .list_subscriptions()
+    Ok(x.list_subscriptions()
         .await?
         .into_iter()
         .filter(|entry| entry.webhook_id.as_deref() == Some(webhook_id))

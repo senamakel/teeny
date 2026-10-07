@@ -60,6 +60,23 @@ async fn run(command: Command) -> anyhow::Result<()> {
             let port = std::env::var("PORT").ok();
             healthcheck::check(&healthcheck::health_url(port.as_deref())).await
         }
+        Command::AuthX(args) => cmd::auth_x::execute(&args).await,
+        Command::Webhook(args) => cmd::webhook::execute(&args).await,
+        Command::Forget(args) => cmd::forget::execute(&args).await,
+        Command::Remember(args) => cmd::remember::execute(&args).await,
+        Command::Unsay(args) => cmd::unsay::execute(&args).await,
+        Command::DryRun(args) => {
+            init_tracing("warn");
+            cmd::dry_run::execute(&args).await
+        }
+        Command::Cron(args) => {
+            init_tracing("warn");
+            cmd::cron::execute(&args).await
+        }
+        Command::Redteam => {
+            init_tracing("warn");
+            cmd::redteam::execute().await
+        }
     }
 }
 

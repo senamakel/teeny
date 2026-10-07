@@ -74,7 +74,10 @@ async fn list_shows_each_webhook_and_its_subscriptions() {
     assert!(printed.contains("Account: @teenydroid"), "{printed}");
     assert!(printed.contains(OLD), "{printed}");
     assert!(printed.contains("id w1   valid true"), "{printed}");
-    assert!(printed.contains("subscriptions: like.create for 42"), "{printed}");
+    assert!(
+        printed.contains("subscriptions: like.create for 42"),
+        "{printed}"
+    );
 }
 
 #[tokio::test]
@@ -101,15 +104,24 @@ async fn register_without_confirm_previews_the_move_and_writes_nothing() {
     run(
         &x(&server),
         "teenydroid",
-        &WebhookCommand::Register { url: NEW.into(), confirm: false },
+        &WebhookCommand::Register {
+            url: NEW.into(),
+            confirm: false,
+        },
         &mut out,
     )
     .await
     .unwrap();
 
     let printed = printed(out);
-    assert!(printed.contains(&format!("Would register: {NEW}")), "{printed}");
-    assert!(printed.contains(&format!("Would first retire: {OLD} (w-old)")), "{printed}");
+    assert!(
+        printed.contains(&format!("Would register: {NEW}")),
+        "{printed}"
+    );
+    assert!(
+        printed.contains(&format!("Would first retire: {OLD} (w-old)")),
+        "{printed}"
+    );
     assert!(printed.contains("Re-run with --confirm"), "{printed}");
 }
 
@@ -129,26 +141,35 @@ async fn register_retires_the_old_one_registers_and_subscribes_every_event() {
     subscriptions(&server, all_events("w-new"), None).await;
     Mock::given(method("DELETE"))
         .and(path("/2/activity/subscriptions/old-1"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": { "deleted": true } })))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "data": { "deleted": true } })),
+        )
         .expect(1)
         .mount(&server)
         .await;
     Mock::given(method("DELETE"))
         .and(path("/2/webhooks/w-old"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": { "deleted": true } })))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "data": { "deleted": true } })),
+        )
         .expect(1)
         .mount(&server)
         .await;
     Mock::given(method("POST"))
         .and(path("/2/webhooks"))
         .and(body_partial_json(json!({ "url": NEW })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": { "id": "w-new", "url": NEW } })))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "data": { "id": "w-new", "url": NEW } })),
+        )
         .expect(1)
         .mount(&server)
         .await;
     Mock::given(method("POST"))
         .and(path("/2/activity/subscriptions"))
-        .and(body_partial_json(json!({ "webhook_id": "w-new", "filter": { "user_id": "42" } })))
+        .and(body_partial_json(
+            json!({ "webhook_id": "w-new", "filter": { "user_id": "42" } }),
+        ))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": {} })))
         .expect(6)
         .mount(&server)
@@ -158,16 +179,25 @@ async fn register_retires_the_old_one_registers_and_subscribes_every_event() {
     run(
         &x(&server),
         "teenydroid",
-        &WebhookCommand::Register { url: NEW.into(), confirm: true },
+        &WebhookCommand::Register {
+            url: NEW.into(),
+            confirm: true,
+        },
         &mut out,
     )
     .await
     .unwrap();
 
     let printed = printed(out);
-    assert!(printed.contains("unsubscribed like.create for 42"), "{printed}");
+    assert!(
+        printed.contains("unsubscribed like.create for 42"),
+        "{printed}"
+    );
     assert!(printed.contains("id w-new"), "{printed}");
-    assert!(printed.contains("subscribed post.mention.create"), "{printed}");
+    assert!(
+        printed.contains("subscribed post.mention.create"),
+        "{printed}"
+    );
     assert!(printed.contains("Done."), "{printed}");
 }
 
@@ -178,19 +208,26 @@ async fn a_refused_registration_puts_the_previous_url_back() {
     subscriptions(&server, json!([]), None).await;
     Mock::given(method("DELETE"))
         .and(path("/2/webhooks/w-old"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": { "deleted": true } })))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "data": { "deleted": true } })),
+        )
         .mount(&server)
         .await;
     Mock::given(method("POST"))
         .and(path("/2/webhooks"))
         .and(body_partial_json(json!({ "url": NEW })))
-        .respond_with(ResponseTemplate::new(400).set_body_json(json!({ "errors": [{ "message": "CrcValidationFailed" }] })))
+        .respond_with(
+            ResponseTemplate::new(400)
+                .set_body_json(json!({ "errors": [{ "message": "CrcValidationFailed" }] })),
+        )
         .mount(&server)
         .await;
     Mock::given(method("POST"))
         .and(path("/2/webhooks"))
         .and(body_partial_json(json!({ "url": OLD })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": { "id": "w-back" } })))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "data": { "id": "w-back" } })),
+        )
         .expect(1)
         .mount(&server)
         .await;
@@ -199,7 +236,10 @@ async fn a_refused_registration_puts_the_previous_url_back() {
     let error = run(
         &x(&server),
         "teenydroid",
-        &WebhookCommand::Register { url: NEW.into(), confirm: true },
+        &WebhookCommand::Register {
+            url: NEW.into(),
+            confirm: true,
+        },
         &mut out,
     )
     .await
@@ -221,14 +261,20 @@ async fn subscribe_without_confirm_lists_the_missing_events() {
     run(
         &x(&server),
         "teenydroid",
-        &WebhookCommand::Subscribe { webhook_id: None, confirm: false },
+        &WebhookCommand::Subscribe {
+            webhook_id: None,
+            confirm: false,
+        },
         &mut out,
     )
     .await
     .unwrap();
 
     let printed = printed(out);
-    assert!(printed.contains("Would subscribe w1 to post.mention.create"), "{printed}");
+    assert!(
+        printed.contains("Would subscribe w1 to post.mention.create"),
+        "{printed}"
+    );
     assert!(!printed.contains("to like.create"), "{printed}");
 }
 
@@ -254,7 +300,10 @@ async fn delete_with_confirm_unsubscribes_then_deletes() {
     run(
         &x(&server),
         "teenydroid",
-        &WebhookCommand::Delete { webhook_id: "w1".into(), confirm: true },
+        &WebhookCommand::Delete {
+            webhook_id: "w1".into(),
+            confirm: true,
+        },
         &mut out,
     )
     .await
@@ -272,7 +321,10 @@ async fn delete_without_confirm_touches_nothing() {
     run(
         &x(&server),
         "teenydroid",
-        &WebhookCommand::Delete { webhook_id: "w1".into(), confirm: false },
+        &WebhookCommand::Delete {
+            webhook_id: "w1".into(),
+            confirm: false,
+        },
         &mut out,
     )
     .await

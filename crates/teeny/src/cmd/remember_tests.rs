@@ -34,7 +34,10 @@ async fn stores_the_note_as_an_agent_note_activity_with_its_labels() {
     assert!(stored[0].idempotency_key.starts_with("x:agent_note:"));
     let printed = String::from_utf8(out).unwrap();
     assert!(printed.starts_with("Stored as note:"), "{printed}");
-    assert!(printed.contains("in agent:teeny at http://cortex"), "{printed}");
+    assert!(
+        printed.contains("in agent:teeny at http://cortex"),
+        "{printed}"
+    );
 }
 
 #[tokio::test]
