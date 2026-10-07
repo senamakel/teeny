@@ -4,24 +4,15 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use teeny_safety::review::{Requeue, ReviewError};
-use teeny_store::{MentionQueue, QueuedPost};
+use teeny_store::MentionQueue;
 use teeny_x::intake::{IntakeError, MentionSink};
 use teeny_x::model::XPost;
 
 /// An X post as the queue stores it: whole, under `post`, the shape the
-/// TypeScript service wrote. A newtype because the store is generic over its
-/// post and does not depend on the X client.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct QueuedXPost(pub XPost);
-
-impl QueuedPost for QueuedXPost {
-    fn post_id(&self) -> &str {
-        self.0.id.as_str()
-    }
-}
+/// TypeScript service wrote. The jobs' type, so the webhook, the activity
+/// stream, the mention poll and the reply job share one queue.
+pub use teeny_agent::deps::QueuedXPost;
 
 /// The queue the service runs on.
 pub type Mentions = dyn MentionQueue<QueuedXPost>;

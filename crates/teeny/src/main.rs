@@ -1,10 +1,13 @@
 //! `teeny`: the service and its operator subcommands.
 
+mod adapters;
+mod app;
 mod cli;
 mod cmd;
 mod healthcheck;
 mod http;
 mod mentions;
+mod release;
 mod schedule;
 mod serve;
 mod sinks;
