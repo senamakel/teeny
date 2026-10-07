@@ -12,13 +12,16 @@
 use async_trait::async_trait;
 use url::Url;
 
-use crate::holds::{Decision, Hold, HoldKind, HoldLog, HoldLogError, HoldStatus, HoldSurface};
+use teeny_store::StoreError;
+use teeny_store::holds::{
+    DecisionDetail, Hold, HoldDecision, HoldKind, HoldLog, HoldStatus, HoldSurface,
+};
 
 /// A review that could not be carried out.
 #[derive(Debug, thiserror::Error)]
 pub enum ReviewError {
     #[error(transparent)]
-    Log(#[from] HoldLogError),
+    Log(#[from] StoreError),
     /// The approval's effect failed (a release that did not publish). The
     /// hold stays pending so it can be tried again.
     #[error("{0}")]
@@ -67,7 +70,7 @@ pub fn allowlist_entry_for(link: &str) -> Option<String> {
 /// answered as it stands.
 pub async fn review_hold(
     id: &str,
-    decision: Decision,
+    decision: HoldDecision,
     deps: &ReviewDependencies<'_>,
     note: Option<&str>,
 ) -> Result<Option<Hold>, ReviewError> {
@@ -78,12 +81,19 @@ pub async fn review_hold(
         return Ok(Some(hold));
     }
     let effect = match decision {
-        Decision::Rejected => "confirmed the filter".to_owned(),
-        Decision::Approved => approve(&hold, deps).await?,
+        HoldDecision::Rejected => "confirmed the filter".to_owned(),
+        HoldDecision::Approved => approve(&hold, deps).await?,
     };
     Ok(deps
         .holds
-        .decide(id, decision, note.map(str::to_owned), Some(effect))
+        .decide(
+            id,
+            decision,
+            &DecisionDetail {
+                note: note.map(str::to_owned),
+                effect: Some(effect),
+            },
+        )
         .await?)
 }
 

@@ -20,13 +20,13 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::holds::{HeldBy, HoldContext, HoldInput, HoldKind, HoldLog, HoldSurface};
+use crate::holds::{HoldBy, HoldContext, HoldInput, HoldKind, HoldLog, HoldSurface};
 use crate::house_style::{
     HouseStyleOptions, MAX_POST_LENGTH, apply_house_style, count_emoji, post_length,
 };
 use crate::judge::{Judge, Judgement};
 use crate::links::{AllowlistEntry, DEFAULT_LINK_ALLOWLIST, filter_links, parse_allowlist};
-use crate::screen::{Direction, screen_text};
+use crate::screen::{Direction, direction_name, screen_text};
 
 /// Why a text was held.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,7 +35,7 @@ pub struct Held {
     pub category: String,
     /// For the log and the journal. Never contains the text.
     pub reason: String,
-    pub by: HeldBy,
+    pub by: HoldBy,
 }
 
 /// The gate's answer.
@@ -50,7 +50,7 @@ impl SafetyDecision {
         matches!(self, Self::Clean)
     }
 
-    fn held(category: impl Into<String>, reason: impl Into<String>, by: HeldBy) -> Self {
+    fn held(category: impl Into<String>, reason: impl Into<String>, by: HoldBy) -> Self {
         Self::Held(Held {
             category: category.into(),
             reason: reason.into(),
@@ -223,7 +223,7 @@ impl SafetyGate {
                 SafetyDecision::held(
                     found.category.as_str(),
                     format!("contains \"{}\"", found.term),
-                    HeldBy::Screen,
+                    HoldBy::Screen,
                 )
             }
             None => self.ask(text, Direction::Inbound).await,
@@ -304,7 +304,7 @@ impl SafetyGate {
                         context: context.clone(),
                         category: "links".into(),
                         reason,
-                        by: HeldBy::Links,
+                        by: HoldBy::Links,
                         text: text.to_owned(),
                         links: removed,
                     })
@@ -331,7 +331,7 @@ impl SafetyGate {
             return SafetyDecision::held(
                 found.category.as_str(),
                 format!("contains \"{}\"", found.term),
-                HeldBy::Screen,
+                HoldBy::Screen,
             );
         }
         // Nothing left to say once the links are gone is not a message to send.
@@ -339,7 +339,7 @@ impl SafetyGate {
             return SafetyDecision::held(
                 "links",
                 "the draft was only a disallowed link",
-                HeldBy::Links,
+                HoldBy::Links,
             );
         }
         self.ask(cleaned, direction).await
@@ -358,16 +358,16 @@ impl SafetyGate {
         }
         let category = verdict.category.unwrap_or_else(|| "unknown".into());
         if direction == Direction::Inbound {
-            tracing::info!(direction = direction.as_str(), %category, reason = %verdict.reason, "safety: held by the judge");
+            tracing::info!(direction = direction_name(direction), %category, reason = %verdict.reason, "safety: held by the judge");
         } else {
-            tracing::warn!(direction = direction.as_str(), %category, reason = %verdict.reason, "safety: held by the judge");
+            tracing::warn!(direction = direction_name(direction), %category, reason = %verdict.reason, "safety: held by the judge");
         }
         let reason = if verdict.reason.is_empty() {
             "the judge held it".to_owned()
         } else {
             verdict.reason
         };
-        SafetyDecision::held(category, reason, HeldBy::Judge)
+        SafetyDecision::held(category, reason, HoldBy::Judge)
     }
 
     /// The checks a posting tool runs before anything goes out, in the legacy

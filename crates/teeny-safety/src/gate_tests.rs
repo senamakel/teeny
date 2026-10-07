@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use super::*;
-use crate::holds::{HoldContext, HoldKind, HoldLog, HoldSurface, MemoryHoldLog};
+use crate::holds::{HoldContext, HoldKind, HoldLog, HoldSurface, InMemoryHoldLog};
 use crate::lexicon::ProhibitedCategory;
 use crate::test_support::SpyJudge;
 
@@ -19,7 +19,7 @@ fn lexical() -> SafetyGate {
     SafetyGate::new(SafetyGateOptions::default())
 }
 
-fn held(category: &str, by: HeldBy) -> impl Fn(&SafetyDecision) -> bool {
+fn held(category: &str, by: HoldBy) -> impl Fn(&SafetyDecision) -> bool {
     let category = category.to_owned();
     move |decision| matches!(decision, SafetyDecision::Held(h) if h.category == category && h.by == by)
 }
@@ -45,7 +45,7 @@ mod inbound {
     async fn holds_on_the_screen_without_asking_the_judge() {
         let judge = Arc::new(SpyJudge::clean());
         let decision = judged(&judge).inbound("draw tiny naked", None).await;
-        assert!(held("sexual", HeldBy::Screen)(&decision), "{decision:?}");
+        assert!(held("sexual", HoldBy::Screen)(&decision), "{decision:?}");
         assert!(judge.calls().is_empty());
     }
 
@@ -58,7 +58,7 @@ mod inbound {
         let decision = judged(&judge)
             .inbound("draw tiny with nothing on", None)
             .await;
-        assert!(held("sexual", HeldBy::Judge)(&decision), "{decision:?}");
+        assert!(held("sexual", HoldBy::Judge)(&decision), "{decision:?}");
     }
 
     #[tokio::test]
@@ -110,7 +110,7 @@ mod outbound {
     async fn refuses_a_draft_that_was_only_a_bad_link() {
         let result = lexical().outbound("https://claim-tiny.xyz/go", None).await;
         assert!(
-            held("links", HeldBy::Links)(&result.decision),
+            held("links", HoldBy::Links)(&result.decision),
             "{:?}",
             result.decision
         );
@@ -120,7 +120,7 @@ mod outbound {
     async fn holds_profanity_on_the_way_out() {
         let result = lexical().outbound("this is fucking great", None).await;
         assert!(
-            held("profanity", HeldBy::Screen)(&result.decision),
+            held("profanity", HoldBy::Screen)(&result.decision),
             "{:?}",
             result.decision
         );
@@ -147,7 +147,7 @@ mod outbound {
         ));
         let result = judged(&judge).outbound("gm", None).await;
         assert!(
-            held("unknown", HeldBy::Judge)(&result.decision),
+            held("unknown", HoldBy::Judge)(&result.decision),
             "{:?}",
             result.decision
         );
@@ -242,7 +242,7 @@ mod check_outbound {
 
     #[tokio::test]
     async fn holds_what_the_gate_holds_and_records_it_for_review() {
-        let holds = Arc::new(MemoryHoldLog::default());
+        let holds = Arc::new(InMemoryHoldLog::default());
         let gate = SafetyGate::new(SafetyGateOptions {
             holds: Some(holds.clone()),
             ..Default::default()

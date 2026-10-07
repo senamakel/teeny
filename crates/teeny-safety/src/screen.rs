@@ -5,37 +5,27 @@
 
 use std::sync::LazyLock;
 
-use serde::{Deserialize, Serialize};
 use unicode_normalization::UnicodeNormalization;
 
 use crate::bounded::Bounded;
 use crate::lexicon::{IDIOMS, LEXICON, ProhibitedCategory};
 
-/// Which reading of the lexicon applies.
+/// Which reading of the lexicon applies: the hold log's [`Direction`].
 ///
 /// `Outbound` is the account's own words, strictest. `Narrative` (the serial)
 /// and `Article` (long-form pieces of it) are also the account's words: the
 /// hard categories are read exactly as strictly, and only the outbound-only
 /// entries (profanity) are let through, because the serial swears and the
 /// reply voice does not.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Direction {
-    Inbound,
-    Outbound,
-    Narrative,
-    Article,
-}
+pub use teeny_store::holds::Direction;
 
-impl Direction {
-    /// The spelling the holds and the judge use.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Inbound => "inbound",
-            Self::Outbound => "outbound",
-            Self::Narrative => "narrative",
-            Self::Article => "article",
-        }
+/// The spelling the holds and the judge use.
+pub fn direction_name(direction: Direction) -> &'static str {
+    match direction {
+        Direction::Inbound => "inbound",
+        Direction::Outbound => "outbound",
+        Direction::Narrative => "narrative",
+        Direction::Article => "article",
     }
 }
 

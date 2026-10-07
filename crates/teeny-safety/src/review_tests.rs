@@ -8,9 +8,9 @@ use std::sync::{Arc, Mutex};
 use super::*;
 use crate::gate::{SafetyGate, SafetyGateOptions};
 use crate::holds::{
-    HeldBy, HoldContext, HoldInput, HoldKind, HoldLog, HoldStatus, HoldSurface, MemoryHoldLog,
+    HeldLink, HoldBy, HoldContext, HoldInput, HoldKind, HoldLog, HoldStatus, HoldSurface,
+    InMemoryHoldLog,
 };
-use crate::links::RemovedLink;
 use crate::screen::Direction;
 use crate::test_support::{FlakyLog, ScriptedRelease, SpyQueue};
 
@@ -29,7 +29,7 @@ fn hold() -> HoldInput {
         context: x_context(),
         category: "sexual".into(),
         reason: "contains \"naked\"".into(),
-        by: HeldBy::Screen,
+        by: HoldBy::Screen,
         text: "draw yourself naked".into(),
         links: None,
     }
@@ -56,7 +56,7 @@ mod the_gate_records_what_it_holds {
 
     #[tokio::test]
     async fn writes_an_inbound_hold_with_the_text_and_where_it_came_from() {
-        let holds = Arc::new(MemoryHoldLog::default());
+        let holds = Arc::new(InMemoryHoldLog::default());
         gate_over(holds.clone())
             .inbound("send nudes", Some(&x_context()))
             .await;
@@ -64,7 +64,7 @@ mod the_gate_records_what_it_holds {
         assert_eq!(entry.direction, Direction::Inbound);
         assert_eq!(entry.kind, HoldKind::Message);
         assert_eq!(entry.category, "sexual");
-        assert_eq!(entry.by, HeldBy::Screen);
+        assert_eq!(entry.by, HoldBy::Screen);
         assert_eq!(entry.text, "send nudes");
         assert_eq!(entry.status, HoldStatus::Pending);
         assert_eq!(entry.context, x_context());
@@ -72,7 +72,7 @@ mod the_gate_records_what_it_holds {
 
     #[tokio::test]
     async fn writes_a_task_hold_for_the_ad_hoc_endpoint() {
-        let holds = Arc::new(MemoryHoldLog::default());
+        let holds = Arc::new(InMemoryHoldLog::default());
         gate_over(holds.clone())
             .inbound("send nudes", Some(&HoldContext::new(HoldSurface::Task)))
             .await;
@@ -84,7 +84,7 @@ mod the_gate_records_what_it_holds {
 
     #[tokio::test]
     async fn writes_a_link_hold_when_a_draft_goes_out_with_links_cut() {
-        let holds = Arc::new(MemoryHoldLog::default());
+        let holds = Arc::new(InMemoryHoldLog::default());
         let context = HoldContext {
             post_id: Some("10".into()),
             ..HoldContext::new(HoldSurface::X)
@@ -96,11 +96,11 @@ mod the_gate_records_what_it_holds {
         let entry = &holds.list(None, None).await.unwrap()[0];
         assert_eq!(entry.kind, HoldKind::Link);
         assert_eq!(entry.category, "links");
-        assert_eq!(entry.by, HeldBy::Links);
+        assert_eq!(entry.by, HoldBy::Links);
         assert_eq!(entry.text, "see https://claim-tiny.xyz/go now");
         assert_eq!(
             entry.links,
-            Some(vec![RemovedLink {
+            Some(vec![HeldLink {
                 link: "https://claim-tiny.xyz/go".into(),
                 reason: "claim-tiny.xyz is not on the link allowlist".into(),
             }])
@@ -109,7 +109,7 @@ mod the_gate_records_what_it_holds {
 
     #[tokio::test]
     async fn writes_a_draft_hold_for_a_withheld_reply_and_a_prompt_hold_for_a_refused_picture() {
-        let holds = Arc::new(MemoryHoldLog::default());
+        let holds = Arc::new(InMemoryHoldLog::default());
         let gate = gate_over(holds.clone());
         let telegram = HoldContext {
             chat_id: Some("1".into()),
@@ -136,7 +136,7 @@ mod the_gate_records_what_it_holds {
 
     #[tokio::test]
     async fn records_nothing_without_a_context_and_nothing_when_the_text_is_clean() {
-        let holds = Arc::new(MemoryHoldLog::default());
+        let holds = Arc::new(InMemoryHoldLog::default());
         let gate = gate_over(holds.clone());
         gate.inbound("send nudes", None).await;
         gate.inbound("gm", Some(&HoldContext::new(HoldSurface::X)))
@@ -162,7 +162,7 @@ mod approved_links_reach_the_gate {
 
     #[tokio::test]
     async fn reads_operator_approvals_alongside_the_built_in_list() {
-        let holds = Arc::new(MemoryHoldLog::default());
+        let holds = Arc::new(InMemoryHoldLog::default());
         holds.allow_link("claim-tiny.xyz", "h1").await.unwrap();
         let result = gate_over(holds)
             .outbound(
@@ -176,7 +176,7 @@ mod approved_links_reach_the_gate {
 
     #[tokio::test]
     async fn caches_them_and_refreshes_on_demand() {
-        let holds = Arc::new(MemoryHoldLog::default());
+        let holds = Arc::new(InMemoryHoldLog::default());
         let gate = gate_over(holds.clone());
         let x = HoldContext::new(HoldSurface::X);
         assert_eq!(
@@ -228,17 +228,22 @@ mod review_hold {
 
     #[tokio::test]
     async fn rejecting_confirms_the_filter_and_does_nothing_else() {
-        let holds = MemoryHoldLog::default();
+        let holds = InMemoryHoldLog::default();
         let id = holds.record(hold()).await.unwrap().id;
         let queue = SpyQueue::answering(true);
         let deps = ReviewDependencies {
             requeue: Some(&queue),
             ..deps(&holds)
         };
-        let reviewed = review_hold(&id, Decision::Rejected, &deps, Some("the filter was right"))
-            .await
-            .unwrap()
-            .unwrap();
+        let reviewed = review_hold(
+            &id,
+            HoldDecision::Rejected,
+            &deps,
+            Some("the filter was right"),
+        )
+        .await
+        .unwrap()
+        .unwrap();
         assert_eq!(reviewed.status, HoldStatus::Rejected);
         assert_eq!(reviewed.effect.as_deref(), Some("confirmed the filter"));
         assert_eq!(reviewed.note.as_deref(), Some("the filter was right"));
@@ -247,14 +252,14 @@ mod review_hold {
 
     #[tokio::test]
     async fn approving_a_held_x_mention_sends_it_back_to_the_queue() {
-        let holds = MemoryHoldLog::default();
+        let holds = InMemoryHoldLog::default();
         let id = holds.record(hold()).await.unwrap().id;
         let queue = SpyQueue::answering(true);
         let deps = ReviewDependencies {
             requeue: Some(&queue),
             ..deps(&holds)
         };
-        let reviewed = review_hold(&id, Decision::Approved, &deps, None)
+        let reviewed = review_hold(&id, HoldDecision::Approved, &deps, None)
             .await
             .unwrap()
             .unwrap();
@@ -264,7 +269,7 @@ mod review_hold {
 
     #[tokio::test]
     async fn approving_a_held_telegram_message_is_recorded_only() {
-        let holds = MemoryHoldLog::default();
+        let holds = InMemoryHoldLog::default();
         let telegram = HoldContext {
             chat_id: Some("1".into()),
             message_id: Some("5".into()),
@@ -283,7 +288,7 @@ mod review_hold {
             requeue: Some(&queue),
             ..deps(&holds)
         };
-        let reviewed = review_hold(&id, Decision::Approved, &deps, None)
+        let reviewed = review_hold(&id, HoldDecision::Approved, &deps, None)
             .await
             .unwrap()
             .unwrap();
@@ -297,8 +302,8 @@ mod review_hold {
 
     #[tokio::test]
     async fn approving_a_link_hold_allowlists_its_hosts_and_refreshes_the_gate() {
-        let holds = MemoryHoldLog::default();
-        let cut = |link: &str| RemovedLink {
+        let holds = InMemoryHoldLog::default();
+        let cut = |link: &str| HeldLink {
             link: link.into(),
             reason: "x".into(),
         };
@@ -306,7 +311,7 @@ mod review_hold {
             direction: Direction::Outbound,
             kind: HoldKind::Link,
             category: "links".into(),
-            by: HeldBy::Links,
+            by: HoldBy::Links,
             text: "see https://dexscreener.com/solana/abc and https://dexscreener.com/solana/def"
                 .into(),
             links: Some(vec![
@@ -322,7 +327,7 @@ mod review_hold {
             refresh_links: Some(&refresh),
             ..deps(&holds)
         };
-        let reviewed = review_hold(&id, Decision::Approved, &deps, None)
+        let reviewed = review_hold(&id, HoldDecision::Approved, &deps, None)
             .await
             .unwrap()
             .unwrap();
@@ -336,7 +341,7 @@ mod review_hold {
 
     #[tokio::test]
     async fn approving_a_draft_releases_it_and_a_failed_release_leaves_it_pending() {
-        let holds = MemoryHoldLog::default();
+        let holds = InMemoryHoldLog::default();
         let draft = HoldInput {
             direction: Direction::Outbound,
             kind: HoldKind::Draft,
@@ -351,7 +356,7 @@ mod review_hold {
             release: Some(&release),
             ..deps(&holds)
         };
-        let failed = review_hold(&id, Decision::Approved, &deps, None)
+        let failed = review_hold(&id, HoldDecision::Approved, &deps, None)
             .await
             .unwrap_err();
         assert!(failed.to_string().contains("X is down"), "{failed}");
@@ -361,7 +366,7 @@ mod review_hold {
         );
 
         *release.answer.lock().unwrap() = Ok("published on X as 99".into());
-        let reviewed = review_hold(&id, Decision::Approved, &deps, None)
+        let reviewed = review_hold(&id, HoldDecision::Approved, &deps, None)
             .await
             .unwrap()
             .unwrap();
@@ -371,20 +376,20 @@ mod review_hold {
 
     #[tokio::test]
     async fn does_not_re_run_an_effect_on_a_hold_already_decided() {
-        let holds = MemoryHoldLog::default();
+        let holds = InMemoryHoldLog::default();
         let id = holds.record(hold()).await.unwrap().id;
         let queue = SpyQueue::answering(true);
         let deps = ReviewDependencies {
             requeue: Some(&queue),
             ..deps(&holds)
         };
-        review_hold(&id, Decision::Approved, &deps, None)
+        review_hold(&id, HoldDecision::Approved, &deps, None)
             .await
             .unwrap();
-        review_hold(&id, Decision::Approved, &deps, None)
+        review_hold(&id, HoldDecision::Approved, &deps, None)
             .await
             .unwrap();
-        review_hold(&id, Decision::Rejected, &deps, None)
+        review_hold(&id, HoldDecision::Rejected, &deps, None)
             .await
             .unwrap();
         assert_eq!(queue.calls().len(), 1);
@@ -396,9 +401,9 @@ mod review_hold {
 
     #[tokio::test]
     async fn answers_nothing_for_an_unknown_id() {
-        let holds = MemoryHoldLog::default();
+        let holds = InMemoryHoldLog::default();
         assert!(
-            review_hold("nope", Decision::Approved, &deps(&holds), None)
+            review_hold("nope", HoldDecision::Approved, &deps(&holds), None)
                 .await
                 .unwrap()
                 .is_none()

@@ -12,7 +12,7 @@ use std::borrow::Cow;
 use std::sync::LazyLock;
 
 use regex::Regex;
-use serde::{Deserialize, Serialize};
+use teeny_store::holds::HeldLink;
 use url::Url;
 
 use crate::bounded::Bounded;
@@ -407,19 +407,12 @@ pub fn judge_link(link: &FoundLink, allowlist: &[AllowlistEntry]) -> LinkVerdict
     refused(format!("{host} is not on the link allowlist"))
 }
 
-/// A link that was cut, with why.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RemovedLink {
-    pub link: String,
-    pub reason: String,
-}
-
 /// A text with its disallowed links cut.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkFilterResult {
     pub text: String,
-    /// Each link that was cut. Empty when the text was already clean.
-    pub removed: Vec<RemovedLink>,
+    /// Each link that was cut, with why. Empty when the text was already clean.
+    pub removed: Vec<HeldLink>,
     /// Links that were checked and left in.
     pub kept: Vec<String>,
 }
@@ -441,7 +434,7 @@ pub fn filter_links(text: &str, allowlist: &[AllowlistEntry]) -> LinkFilterResul
             LinkVerdict::Allowed => kept.push(link.raw),
             LinkVerdict::Refused(reason) => {
                 cleaned = cleaned.replace(&link.raw, "");
-                removed.push(RemovedLink {
+                removed.push(HeldLink {
                     link: link.raw,
                     reason,
                 });

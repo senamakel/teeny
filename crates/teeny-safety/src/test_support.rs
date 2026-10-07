@@ -6,11 +6,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use async_trait::async_trait;
 
 use crate::holds::{
-    Decision, Hold, HoldCounts, HoldInput, HoldLog, HoldLogError, HoldStatus, MemoryHoldLog,
+    DecisionDetail, Hold, HoldCounts, HoldDecision, HoldInput, HoldLog, HoldStatus, InMemoryHoldLog,
 };
 use crate::judge::{Judge, JudgeVerdict, Judgement};
 use crate::review::{Release, Requeue, ReviewError};
 use crate::screen::Direction;
+use teeny_store::StoreError;
 
 /// A judge that always answers the same and remembers what it was asked.
 pub(crate) struct SpyJudge {
@@ -61,18 +62,18 @@ impl Judge for SpyJudge {
 /// A memory log that can be told to fail, as Mongo going away would.
 #[derive(Default)]
 pub(crate) struct FlakyLog {
-    pub(crate) inner: MemoryHoldLog,
+    pub(crate) inner: InMemoryHoldLog,
     pub(crate) fail_record: AtomicBool,
     pub(crate) fail_allowed_links: AtomicBool,
 }
 
-fn down() -> HoldLogError {
-    HoldLogError::new("mongo down")
+fn down() -> StoreError {
+    StoreError::Io(std::io::Error::other("mongo down"))
 }
 
 #[async_trait]
 impl HoldLog for FlakyLog {
-    async fn record(&self, entry: HoldInput) -> Result<Hold, HoldLogError> {
+    async fn record(&self, entry: HoldInput) -> Result<Hold, StoreError> {
         if self.fail_record.load(Ordering::SeqCst) {
             return Err(down());
         }
@@ -82,31 +83,30 @@ impl HoldLog for FlakyLog {
         &self,
         status: Option<HoldStatus>,
         limit: Option<usize>,
-    ) -> Result<Vec<Hold>, HoldLogError> {
+    ) -> Result<Vec<Hold>, StoreError> {
         self.inner.list(status, limit).await
     }
-    async fn get(&self, id: &str) -> Result<Option<Hold>, HoldLogError> {
+    async fn get(&self, id: &str) -> Result<Option<Hold>, StoreError> {
         self.inner.get(id).await
     }
     async fn decide(
         &self,
         id: &str,
-        decision: Decision,
-        note: Option<String>,
-        effect: Option<String>,
-    ) -> Result<Option<Hold>, HoldLogError> {
-        self.inner.decide(id, decision, note, effect).await
+        decision: HoldDecision,
+        detail: &DecisionDetail,
+    ) -> Result<Option<Hold>, StoreError> {
+        self.inner.decide(id, decision, detail).await
     }
-    async fn counts(&self) -> Result<HoldCounts, HoldLogError> {
+    async fn counts(&self) -> Result<HoldCounts, StoreError> {
         self.inner.counts().await
     }
-    async fn allowed_links(&self) -> Result<Vec<String>, HoldLogError> {
+    async fn allowed_links(&self) -> Result<Vec<String>, StoreError> {
         if self.fail_allowed_links.load(Ordering::SeqCst) {
             return Err(down());
         }
         self.inner.allowed_links().await
     }
-    async fn allow_link(&self, entry: &str, hold_id: &str) -> Result<(), HoldLogError> {
+    async fn allow_link(&self, entry: &str, hold_id: &str) -> Result<(), StoreError> {
         self.inner.allow_link(entry, hold_id).await
     }
 }

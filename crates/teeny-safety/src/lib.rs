@@ -3,7 +3,8 @@
 mod bounded;
 pub mod critic;
 pub mod gate;
-pub mod holds;
+/// The hold log's types and trait, from `teeny-store`, where the Mongo log lives.
+pub use teeny_store::holds;
 pub mod house_style;
 pub mod judge;
 pub mod lexicon;
