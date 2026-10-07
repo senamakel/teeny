@@ -4,9 +4,12 @@
 mod candle;
 pub mod chart;
 mod error;
+mod http;
 pub mod format;
 pub mod moon;
 pub mod png;
+pub mod types;
+pub mod vision;
 
 pub use candle::Candle;
 pub use error::{Error, Result};
