@@ -2,6 +2,7 @@
 //! cache in front of it, the webhook and the activity stream, and the
 //! `Publisher` seam every write goes through.
 
+pub mod activity;
 pub mod article;
 pub mod cache;
 mod client;
