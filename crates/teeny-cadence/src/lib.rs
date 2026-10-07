@@ -1,4 +1,8 @@
 //! Posting cadence: the gap, heat, budgets, the 20-hour guard, the rota, slots and the content calendar.
-//!
-//! Skeleton: filled in by a later milestone of the Rust rewrite (see the
-//! "Rust rewrite (in progress)" section of the README).
+
+pub mod calendar;
+pub mod clock;
+pub mod guard;
+pub mod media_budget;
+pub mod rota;
+pub mod slot;
