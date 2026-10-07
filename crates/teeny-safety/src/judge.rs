@@ -94,8 +94,17 @@ When in doubt on violence, weapons, drugs, hate, self-harm, or extremism, prohib
 a missed reply costs nothing; a published one cannot be unpublished. On sexual, when
 in doubt, clean: the account is playful, and a held joke is a missed morning."#;
 
-const CATEGORIES: [&str; 9] =
-    ["none", "sexual", "violence", "weapons", "drugs", "hate", "self-harm", "extremism", "profanity"];
+const CATEGORIES: [&str; 9] = [
+    "none",
+    "sexual",
+    "violence",
+    "weapons",
+    "drugs",
+    "hate",
+    "self-harm",
+    "extremism",
+    "profanity",
+];
 
 /// Reason first, then the label, then the verdict: a model fills the fields
 /// in order, and one that has just written "asks for nudity of the mascot"
@@ -150,7 +159,11 @@ fn read(answer: serde_json::Value) -> Option<JudgeVerdict> {
 }
 
 fn fail_closed(reason: String) -> JudgeVerdict {
-    JudgeVerdict { verdict: Judgement::Prohibited, category: Some("unknown".into()), reason }
+    JudgeVerdict {
+        verdict: Judgement::Prohibited,
+        category: Some("unknown".into()),
+        reason,
+    }
 }
 
 /// The judge, as one structured call to a small model at temperature zero:

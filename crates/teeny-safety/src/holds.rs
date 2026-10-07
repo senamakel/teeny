@@ -166,7 +166,11 @@ pub struct Hold {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub links: Option<Vec<RemovedLink>>,
     pub status: HoldStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "js_time::option")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "js_time::option"
+    )]
     pub decided_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
@@ -197,7 +201,11 @@ fn hold_id(at: DateTime<Utc>) -> String {
     at.timestamp_nanos_opt().hash(&mut hasher);
     let noise = base36(hasher.finish());
     let ms = u64::try_from(at.timestamp_millis()).unwrap_or_default();
-    format!("h-{}-{}", base36(ms), &noise[noise.len().saturating_sub(6)..])
+    format!(
+        "h-{}-{}",
+        base36(ms),
+        &noise[noise.len().saturating_sub(6)..]
+    )
 }
 
 impl Hold {
@@ -246,7 +254,11 @@ impl HoldLogError {
 pub trait HoldLog: Send + Sync {
     async fn record(&self, entry: HoldInput) -> Result<Hold, HoldLogError>;
     /// Newest first; `limit` defaults to 100.
-    async fn list(&self, status: Option<HoldStatus>, limit: Option<usize>) -> Result<Vec<Hold>, HoldLogError>;
+    async fn list(
+        &self,
+        status: Option<HoldStatus>,
+        limit: Option<usize>,
+    ) -> Result<Vec<Hold>, HoldLogError>;
     async fn get(&self, id: &str) -> Result<Option<Hold>, HoldLogError>;
     async fn decide(
         &self,
@@ -274,11 +286,18 @@ pub struct MemoryHoldLog {
 impl HoldLog for MemoryHoldLog {
     async fn record(&self, entry: HoldInput) -> Result<Hold, HoldLogError> {
         let hold = Hold::new(entry, Utc::now());
-        self.entries.lock().expect("not poisoned").insert(0, hold.clone());
+        self.entries
+            .lock()
+            .expect("not poisoned")
+            .insert(0, hold.clone());
         Ok(hold)
     }
 
-    async fn list(&self, status: Option<HoldStatus>, limit: Option<usize>) -> Result<Vec<Hold>, HoldLogError> {
+    async fn list(
+        &self,
+        status: Option<HoldStatus>,
+        limit: Option<usize>,
+    ) -> Result<Vec<Hold>, HoldLogError> {
         let entries = self.entries.lock().expect("not poisoned");
         Ok(entries
             .iter()
@@ -289,7 +308,13 @@ impl HoldLog for MemoryHoldLog {
     }
 
     async fn get(&self, id: &str) -> Result<Option<Hold>, HoldLogError> {
-        Ok(self.entries.lock().expect("not poisoned").iter().find(|hold| hold.id == id).cloned())
+        Ok(self
+            .entries
+            .lock()
+            .expect("not poisoned")
+            .iter()
+            .find(|hold| hold.id == id)
+            .cloned())
     }
 
     async fn decide(
@@ -300,7 +325,9 @@ impl HoldLog for MemoryHoldLog {
         effect: Option<String>,
     ) -> Result<Option<Hold>, HoldLogError> {
         let mut entries = self.entries.lock().expect("not poisoned");
-        let Some(hold) = entries.iter_mut().find(|hold| hold.id == id) else { return Ok(None) };
+        let Some(hold) = entries.iter_mut().find(|hold| hold.id == id) else {
+            return Ok(None);
+        };
         hold.status = decision.status();
         hold.decided_at = Some(Utc::now());
         if note.is_some() {
@@ -325,7 +352,13 @@ impl HoldLog for MemoryHoldLog {
     }
 
     async fn allowed_links(&self) -> Result<Vec<String>, HoldLogError> {
-        Ok(self.links.lock().expect("not poisoned").iter().map(|(entry, _)| entry.clone()).collect())
+        Ok(self
+            .links
+            .lock()
+            .expect("not poisoned")
+            .iter()
+            .map(|(entry, _)| entry.clone())
+            .collect())
     }
 
     async fn allow_link(&self, entry: &str, hold_id: &str) -> Result<(), HoldLogError> {
@@ -347,22 +380,31 @@ pub mod js_time {
         serializer.serialize_str(&at.to_rfc3339_opts(SecondsFormat::Millis, true))
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<DateTime<Utc>, D::Error> {
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<DateTime<Utc>, D::Error> {
         let text = String::deserialize(deserializer)?;
-        DateTime::parse_from_rfc3339(&text).map(|at| at.to_utc()).map_err(serde::de::Error::custom)
+        DateTime::parse_from_rfc3339(&text)
+            .map(|at| at.to_utc())
+            .map_err(serde::de::Error::custom)
     }
 
     pub mod option {
         use super::*;
 
-        pub fn serialize<S: Serializer>(at: &Option<DateTime<Utc>>, serializer: S) -> Result<S::Ok, S::Error> {
+        pub fn serialize<S: Serializer>(
+            at: &Option<DateTime<Utc>>,
+            serializer: S,
+        ) -> Result<S::Ok, S::Error> {
             match at {
                 Some(at) => super::serialize(at, serializer),
                 None => serializer.serialize_none(),
             }
         }
 
-        pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<DateTime<Utc>>, D::Error> {
+        pub fn deserialize<'de, D: Deserializer<'de>>(
+            deserializer: D,
+        ) -> Result<Option<DateTime<Utc>>, D::Error> {
             Option::<String>::deserialize(deserializer)?
                 .map(|text| DateTime::parse_from_rfc3339(&text).map(|at| at.to_utc()))
                 .transpose()

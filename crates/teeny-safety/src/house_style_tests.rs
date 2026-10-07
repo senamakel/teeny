@@ -8,7 +8,13 @@ fn style(draft: &str) -> HouseStyleResult {
 }
 
 fn replying(draft: &str, to: &str) -> HouseStyleResult {
-    apply_house_style(draft, &HouseStyleOptions { replying_to: Some(to.into()), ..Default::default() })
+    apply_house_style(
+        draft,
+        &HouseStyleOptions {
+            replying_to: Some(to.into()),
+            ..Default::default()
+        },
+    )
 }
 
 mod count_emoji {
@@ -31,7 +37,10 @@ mod apply_house_style {
     fn leaves_a_clean_draft_untouched() {
         let result = style("gm tiny humans. what are we building today? 🛠️");
         assert!(result.fixes.is_empty());
-        assert_eq!(result.text, "gm tiny humans. what are we building today? 🛠️");
+        assert_eq!(
+            result.text,
+            "gm tiny humans. what are we building today? 🛠️"
+        );
     }
 
     #[test]
@@ -39,7 +48,11 @@ mod apply_house_style {
         let result = style("gm 👀 frens 💛 building 🛠️");
         assert_eq!(result.text, "gm 👀 frens building");
         assert_eq!(count_emoji(&result.text), 1);
-        assert!(result.fixes.contains(&"cut 2 emoji over the cap of 1".to_owned()));
+        assert!(
+            result
+                .fixes
+                .contains(&"cut 2 emoji over the cap of 1".to_owned())
+        );
     }
 
     #[test]
@@ -51,19 +64,29 @@ mod apply_house_style {
 
     #[test]
     fn straightens_curly_quotes() {
-        assert_eq!(style("what’re we “cooking” today").text, "what're we \"cooking\" today");
+        assert_eq!(
+            style("what’re we “cooking” today").text,
+            "what're we \"cooking\" today"
+        );
     }
 
     #[test]
     fn trims_an_overlong_draft() {
         let result = style(&"a".repeat(300));
         assert_eq!(result.text.len(), 280);
-        assert!(result.fixes.contains(&"trimmed to 280 characters".to_owned()));
+        assert!(
+            result
+                .fixes
+                .contains(&"trimmed to 280 characters".to_owned())
+        );
     }
 
     #[test]
     fn honours_a_cap_of_zero() {
-        let options = HouseStyleOptions { max_emoji: 0, ..Default::default() };
+        let options = HouseStyleOptions {
+            max_emoji: 0,
+            ..Default::default()
+        };
         assert_eq!(apply_house_style("gm 👀", &options).text, "gm");
     }
 }
@@ -74,14 +97,18 @@ mod disclaimers {
     #[test]
     fn drops_a_trailing_nfa_with_the_comma_that_hung_it_on() {
         let result = style("$696K mcap today, $1 is a stop on the way not the end, nfa 🚀");
-        assert_eq!(result.text, "$696K mcap today, $1 is a stop on the way not the end 🚀");
+        assert_eq!(
+            result.text,
+            "$696K mcap today, $1 is a stop on the way not the end 🚀"
+        );
         assert!(result.fixes.contains(&"dropped a disclaimer".to_owned()));
     }
 
     #[test]
     fn drops_nfa_mid_sentence_in_brackets_and_in_caps() {
         assert_eq!(
-            style("we are at $700K, GOAT at $400M, that is the flip (NFA) and i am not selling").text,
+            style("we are at $700K, GOAT at $400M, that is the flip (NFA) and i am not selling")
+                .text,
             "we are at $700K, GOAT at $400M, that is the flip and i am not selling"
         );
         assert_eq!(
@@ -92,13 +119,23 @@ mod disclaimers {
 
     #[test]
     fn drops_the_long_forms_too() {
-        assert_eq!(style("$2B is the plan, not financial advice, dyor").text, "$2B is the plan");
-        assert_eq!(style("$2B is the plan - do your own research").text, "$2B is the plan");
+        assert_eq!(
+            style("$2B is the plan, not financial advice, dyor").text,
+            "$2B is the plan"
+        );
+        assert_eq!(
+            style("$2B is the plan - do your own research").text,
+            "$2B is the plan"
+        );
     }
 
     #[test]
     fn leaves_words_that_merely_contain_the_letters_alone() {
-        assert!(style("the unfair advantage of a plush toy is patience").fixes.is_empty());
+        assert!(
+            style("the unfair advantage of a plush toy is patience")
+                .fixes
+                .is_empty()
+        );
     }
 }
 
@@ -109,14 +146,21 @@ mod leading_handles {
     fn drops_the_handle_x_adds_to_a_reply_itself() {
         let result = replying("@rafaelitewrld peekaboo 👀", "rafaelitewrld");
         assert_eq!(result.text, "peekaboo 👀");
-        assert!(result.fixes.contains(&"dropped leading @handles X adds itself".to_owned()));
+        assert!(
+            result
+                .fixes
+                .contains(&"dropped leading @handles X adds itself".to_owned())
+        );
     }
 
     #[test]
     fn drops_a_leading_handle_that_is_not_the_one_being_replied_to() {
         // The observed failure: replying to HappyTinyHuman with a draft opening
         // "@senamakel", which X published as "@HappyTinyHuman @senamakel @senamakel".
-        assert_eq!(replying("@senamakel me? trade? nah", "HappyTinyHuman").text, "me? trade? nah");
+        assert_eq!(
+            replying("@senamakel me? trade? nah", "HappyTinyHuman").text,
+            "me? trade? nah"
+        );
     }
 
     #[test]
@@ -126,7 +170,10 @@ mod leading_handles {
 
     #[test]
     fn keeps_a_handle_that_is_part_of_the_sentence() {
-        assert_eq!(replying("gm @someone else entirely", "rafaelitewrld").text, "gm @someone else entirely");
+        assert_eq!(
+            replying("gm @someone else entirely", "rafaelitewrld").text,
+            "gm @someone else entirely"
+        );
     }
 
     #[test]
@@ -142,7 +189,11 @@ mod repeated_handles {
     fn keeps_the_name_but_drops_the_at_when_x_already_tags_them() {
         let result = replying("heyyy @rafaelitewrld shy peek returns", "rafaelitewrld");
         assert_eq!(result.text, "heyyy rafaelitewrld shy peek returns");
-        assert!(result.fixes.contains(&"unlinked a repeated @handle X already tags".to_owned()));
+        assert!(
+            result
+                .fixes
+                .contains(&"unlinked a repeated @handle X already tags".to_owned())
+        );
     }
 
     #[test]
@@ -165,13 +216,19 @@ mod truncate_at_boundary {
     // The published failure: a reply ended "that's OpenHum".
     #[test]
     fn cuts_at_a_word_rather_than_through_one() {
-        assert_eq!(truncate_at_boundary("we are building OpenHumans together", 20), "we are building");
+        assert_eq!(
+            truncate_at_boundary("we are building OpenHumans together", 20),
+            "we are building"
+        );
     }
 
     // Half a URL is not a shorter receipt, it is a broken one.
     #[test]
     fn drops_a_receipt_link_whole_rather_than_publishing_half_of_it() {
-        let text = format!("sent! receipt: https://rh-scan.com/tx/0x{}", "ab".repeat(32));
+        let text = format!(
+            "sent! receipt: https://rh-scan.com/tx/0x{}",
+            "ab".repeat(32)
+        );
         let cut = truncate_at_boundary(&text, 40);
         assert_eq!(cut, "sent! receipt:");
         assert!(!cut.contains("rh-scan"));
@@ -194,14 +251,22 @@ mod the_ask {
 
     #[test]
     fn sees_a_question_on_the_last_line_only() {
-        assert!(asks_the_reader("the chart held.\nwhat are you watching?  \n\n"));
+        assert!(asks_the_reader(
+            "the chart held.\nwhat are you watching?  \n\n"
+        ));
         assert!(!asks_the_reader("what are you watching?\nthe chart held."));
         assert!(!asks_the_reader(""));
     }
 
     #[test]
     fn cuts_the_last_line_or_turns_a_lone_question_deadpan() {
-        assert_eq!(without_the_ask("the chart held.\nwhat are you watching?"), "the chart held.");
-        assert_eq!(without_the_ask("what are you watching?"), "what are you watching.");
+        assert_eq!(
+            without_the_ask("the chart held.\nwhat are you watching?"),
+            "the chart held."
+        );
+        assert_eq!(
+            without_the_ask("what are you watching?"),
+            "what are you watching."
+        );
     }
 }

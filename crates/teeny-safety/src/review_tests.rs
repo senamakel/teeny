@@ -7,7 +7,9 @@ use std::sync::{Arc, Mutex};
 
 use super::*;
 use crate::gate::{SafetyGate, SafetyGateOptions};
-use crate::holds::{HeldBy, HoldContext, HoldInput, HoldKind, HoldLog, HoldStatus, HoldSurface, MemoryHoldLog};
+use crate::holds::{
+    HeldBy, HoldContext, HoldInput, HoldKind, HoldLog, HoldStatus, HoldSurface, MemoryHoldLog,
+};
 use crate::links::RemovedLink;
 use crate::screen::Direction;
 use crate::test_support::{FlakyLog, ScriptedRelease, SpyQueue};
@@ -34,11 +36,19 @@ fn hold() -> HoldInput {
 }
 
 fn gate_over(holds: Arc<dyn HoldLog>) -> SafetyGate {
-    SafetyGate::new(SafetyGateOptions { holds: Some(holds), ..Default::default() })
+    SafetyGate::new(SafetyGateOptions {
+        holds: Some(holds),
+        ..Default::default()
+    })
 }
 
 fn deps(holds: &dyn HoldLog) -> ReviewDependencies<'_> {
-    ReviewDependencies { holds, requeue: None, release: None, refresh_links: None }
+    ReviewDependencies {
+        holds,
+        requeue: None,
+        release: None,
+        refresh_links: None,
+    }
 }
 
 mod the_gate_records_what_it_holds {
@@ -47,7 +57,9 @@ mod the_gate_records_what_it_holds {
     #[tokio::test]
     async fn writes_an_inbound_hold_with_the_text_and_where_it_came_from() {
         let holds = Arc::new(MemoryHoldLog::default());
-        gate_over(holds.clone()).inbound("send nudes", Some(&x_context())).await;
+        gate_over(holds.clone())
+            .inbound("send nudes", Some(&x_context()))
+            .await;
         let entry = &holds.list(None, None).await.unwrap()[0];
         assert_eq!(entry.direction, Direction::Inbound);
         assert_eq!(entry.kind, HoldKind::Message);
@@ -61,15 +73,25 @@ mod the_gate_records_what_it_holds {
     #[tokio::test]
     async fn writes_a_task_hold_for_the_ad_hoc_endpoint() {
         let holds = Arc::new(MemoryHoldLog::default());
-        gate_over(holds.clone()).inbound("send nudes", Some(&HoldContext::new(HoldSurface::Task))).await;
-        assert_eq!(holds.list(None, None).await.unwrap()[0].kind, HoldKind::Task);
+        gate_over(holds.clone())
+            .inbound("send nudes", Some(&HoldContext::new(HoldSurface::Task)))
+            .await;
+        assert_eq!(
+            holds.list(None, None).await.unwrap()[0].kind,
+            HoldKind::Task
+        );
     }
 
     #[tokio::test]
     async fn writes_a_link_hold_when_a_draft_goes_out_with_links_cut() {
         let holds = Arc::new(MemoryHoldLog::default());
-        let context = HoldContext { post_id: Some("10".into()), ..HoldContext::new(HoldSurface::X) };
-        let result = gate_over(holds.clone()).outbound("see https://claim-tiny.xyz/go now", Some(&context)).await;
+        let context = HoldContext {
+            post_id: Some("10".into()),
+            ..HoldContext::new(HoldSurface::X)
+        };
+        let result = gate_over(holds.clone())
+            .outbound("see https://claim-tiny.xyz/go now", Some(&context))
+            .await;
         assert!(result.decision.is_clean());
         let entry = &holds.list(None, None).await.unwrap()[0];
         assert_eq!(entry.kind, HoldKind::Link);
@@ -94,14 +116,21 @@ mod the_gate_records_what_it_holds {
             message_id: Some("5".into()),
             ..HoldContext::new(HoldSurface::Telegram)
         };
-        gate.outbound("this is fucking great", Some(&telegram)).await;
+        gate.outbound("this is fucking great", Some(&telegram))
+            .await;
         let prompt = HoldContext {
             kind: Some(HoldKind::Prompt),
             tool: Some("generate_image".into()),
             ..HoldContext::new(HoldSurface::X)
         };
         gate.outbound("Tiny naked on a beach", Some(&prompt)).await;
-        let kinds: Vec<HoldKind> = holds.list(None, None).await.unwrap().iter().map(|h| h.kind).collect();
+        let kinds: Vec<HoldKind> = holds
+            .list(None, None)
+            .await
+            .unwrap()
+            .iter()
+            .map(|h| h.kind)
+            .collect();
         assert_eq!(kinds, [HoldKind::Prompt, HoldKind::Draft]);
     }
 
@@ -110,8 +139,10 @@ mod the_gate_records_what_it_holds {
         let holds = Arc::new(MemoryHoldLog::default());
         let gate = gate_over(holds.clone());
         gate.inbound("send nudes", None).await;
-        gate.inbound("gm", Some(&HoldContext::new(HoldSurface::X))).await;
-        gate.outbound("gm", Some(&HoldContext::new(HoldSurface::X))).await;
+        gate.inbound("gm", Some(&HoldContext::new(HoldSurface::X)))
+            .await;
+        gate.outbound("gm", Some(&HoldContext::new(HoldSurface::X)))
+            .await;
         assert!(holds.list(None, None).await.unwrap().is_empty());
     }
 
@@ -119,7 +150,9 @@ mod the_gate_records_what_it_holds {
     async fn never_lets_a_broken_log_turn_a_hold_into_anything_else() {
         let holds = Arc::new(FlakyLog::default());
         holds.fail_record.store(true, Ordering::SeqCst);
-        let decision = gate_over(holds).inbound("send nudes", Some(&HoldContext::new(HoldSurface::X))).await;
+        let decision = gate_over(holds)
+            .inbound("send nudes", Some(&HoldContext::new(HoldSurface::X)))
+            .await;
         assert!(!decision.is_clean());
     }
 }
@@ -132,7 +165,10 @@ mod approved_links_reach_the_gate {
         let holds = Arc::new(MemoryHoldLog::default());
         holds.allow_link("claim-tiny.xyz", "h1").await.unwrap();
         let result = gate_over(holds)
-            .outbound("see https://claim-tiny.xyz/go", Some(&HoldContext::new(HoldSurface::X)))
+            .outbound(
+                "see https://claim-tiny.xyz/go",
+                Some(&HoldContext::new(HoldSurface::X)),
+            )
             .await;
         assert_eq!(result.text, "see https://claim-tiny.xyz/go");
         assert!(result.fixes.is_empty());
@@ -143,12 +179,30 @@ mod approved_links_reach_the_gate {
         let holds = Arc::new(MemoryHoldLog::default());
         let gate = gate_over(holds.clone());
         let x = HoldContext::new(HoldSurface::X);
-        assert_eq!(gate.outbound("https://claim-tiny.xyz/go ok", Some(&x)).await.fixes.len(), 1);
+        assert_eq!(
+            gate.outbound("https://claim-tiny.xyz/go ok", Some(&x))
+                .await
+                .fixes
+                .len(),
+            1
+        );
         holds.allow_link("claim-tiny.xyz", "h1").await.unwrap();
         // Still cached.
-        assert_eq!(gate.outbound("https://claim-tiny.xyz/go ok", None).await.fixes.len(), 1);
+        assert_eq!(
+            gate.outbound("https://claim-tiny.xyz/go ok", None)
+                .await
+                .fixes
+                .len(),
+            1
+        );
         gate.refresh_approved_links();
-        assert_eq!(gate.outbound("https://claim-tiny.xyz/go ok", None).await.fixes.len(), 0);
+        assert_eq!(
+            gate.outbound("https://claim-tiny.xyz/go ok", None)
+                .await
+                .fixes
+                .len(),
+            0
+        );
     }
 
     #[tokio::test]
@@ -159,7 +213,13 @@ mod approved_links_reach_the_gate {
         gate.outbound("x", None).await;
         holds.fail_allowed_links.store(true, Ordering::SeqCst);
         gate.refresh_approved_links();
-        assert_eq!(gate.outbound("https://claim-tiny.xyz/go ok", None).await.fixes.len(), 0);
+        assert_eq!(
+            gate.outbound("https://claim-tiny.xyz/go ok", None)
+                .await
+                .fixes
+                .len(),
+            0
+        );
     }
 }
 
@@ -171,8 +231,14 @@ mod review_hold {
         let holds = MemoryHoldLog::default();
         let id = holds.record(hold()).await.unwrap().id;
         let queue = SpyQueue::answering(true);
-        let deps = ReviewDependencies { requeue: Some(&queue), ..deps(&holds) };
-        let reviewed = review_hold(&id, Decision::Rejected, &deps, Some("the filter was right")).await.unwrap().unwrap();
+        let deps = ReviewDependencies {
+            requeue: Some(&queue),
+            ..deps(&holds)
+        };
+        let reviewed = review_hold(&id, Decision::Rejected, &deps, Some("the filter was right"))
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(reviewed.status, HoldStatus::Rejected);
         assert_eq!(reviewed.effect.as_deref(), Some("confirmed the filter"));
         assert_eq!(reviewed.note.as_deref(), Some("the filter was right"));
@@ -184,8 +250,14 @@ mod review_hold {
         let holds = MemoryHoldLog::default();
         let id = holds.record(hold()).await.unwrap().id;
         let queue = SpyQueue::answering(true);
-        let deps = ReviewDependencies { requeue: Some(&queue), ..deps(&holds) };
-        let reviewed = review_hold(&id, Decision::Approved, &deps, None).await.unwrap().unwrap();
+        let deps = ReviewDependencies {
+            requeue: Some(&queue),
+            ..deps(&holds)
+        };
+        let reviewed = review_hold(&id, Decision::Approved, &deps, None)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(queue.calls(), ["10"]);
         assert_eq!(reviewed.effect.as_deref(), Some("requeued to be answered"));
     }
@@ -198,32 +270,66 @@ mod review_hold {
             message_id: Some("5".into()),
             ..HoldContext::new(HoldSurface::Telegram)
         };
-        let id = holds.record(HoldInput { context: telegram, ..hold() }).await.unwrap().id;
+        let id = holds
+            .record(HoldInput {
+                context: telegram,
+                ..hold()
+            })
+            .await
+            .unwrap()
+            .id;
         let queue = SpyQueue::answering(true);
-        let deps = ReviewDependencies { requeue: Some(&queue), ..deps(&holds) };
-        let reviewed = review_hold(&id, Decision::Approved, &deps, None).await.unwrap().unwrap();
-        assert!(reviewed.effect.unwrap().contains("cannot be answered after the fact"));
+        let deps = ReviewDependencies {
+            requeue: Some(&queue),
+            ..deps(&holds)
+        };
+        let reviewed = review_hold(&id, Decision::Approved, &deps, None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            reviewed
+                .effect
+                .unwrap()
+                .contains("cannot be answered after the fact")
+        );
     }
 
     #[tokio::test]
     async fn approving_a_link_hold_allowlists_its_hosts_and_refreshes_the_gate() {
         let holds = MemoryHoldLog::default();
-        let cut = |link: &str| RemovedLink { link: link.into(), reason: "x".into() };
+        let cut = |link: &str| RemovedLink {
+            link: link.into(),
+            reason: "x".into(),
+        };
         let input = HoldInput {
             direction: Direction::Outbound,
             kind: HoldKind::Link,
             category: "links".into(),
             by: HeldBy::Links,
-            text: "see https://dexscreener.com/solana/abc and https://dexscreener.com/solana/def".into(),
-            links: Some(vec![cut("https://dexscreener.com/solana/abc"), cut("https://dexscreener.com/solana/def")]),
+            text: "see https://dexscreener.com/solana/abc and https://dexscreener.com/solana/def"
+                .into(),
+            links: Some(vec![
+                cut("https://dexscreener.com/solana/abc"),
+                cut("https://dexscreener.com/solana/def"),
+            ]),
             ..hold()
         };
         let id = holds.record(input).await.unwrap().id;
         let refreshed = Mutex::new(0);
         let refresh = || *refreshed.lock().unwrap() += 1;
-        let deps = ReviewDependencies { refresh_links: Some(&refresh), ..deps(&holds) };
-        let reviewed = review_hold(&id, Decision::Approved, &deps, None).await.unwrap().unwrap();
-        assert_eq!(reviewed.effect.as_deref(), Some("allowlisted dexscreener.com"));
+        let deps = ReviewDependencies {
+            refresh_links: Some(&refresh),
+            ..deps(&holds)
+        };
+        let reviewed = review_hold(&id, Decision::Approved, &deps, None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            reviewed.effect.as_deref(),
+            Some("allowlisted dexscreener.com")
+        );
         assert_eq!(holds.allowed_links().await.unwrap(), ["dexscreener.com"]);
         assert_eq!(*refreshed.lock().unwrap(), 1);
     }
@@ -238,14 +344,27 @@ mod review_hold {
             ..hold()
         };
         let id = holds.record(draft).await.unwrap().id;
-        let release = ScriptedRelease { answer: Mutex::new(Err("X is down".into())) };
-        let deps = ReviewDependencies { release: Some(&release), ..deps(&holds) };
-        let failed = review_hold(&id, Decision::Approved, &deps, None).await.unwrap_err();
+        let release = ScriptedRelease {
+            answer: Mutex::new(Err("X is down".into())),
+        };
+        let deps = ReviewDependencies {
+            release: Some(&release),
+            ..deps(&holds)
+        };
+        let failed = review_hold(&id, Decision::Approved, &deps, None)
+            .await
+            .unwrap_err();
         assert!(failed.to_string().contains("X is down"), "{failed}");
-        assert_eq!(holds.get(&id).await.unwrap().unwrap().status, HoldStatus::Pending);
+        assert_eq!(
+            holds.get(&id).await.unwrap().unwrap().status,
+            HoldStatus::Pending
+        );
 
         *release.answer.lock().unwrap() = Ok("published on X as 99".into());
-        let reviewed = review_hold(&id, Decision::Approved, &deps, None).await.unwrap().unwrap();
+        let reviewed = review_hold(&id, Decision::Approved, &deps, None)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(reviewed.status, HoldStatus::Approved);
         assert_eq!(reviewed.effect.as_deref(), Some("published on X as 99"));
     }
@@ -255,24 +374,47 @@ mod review_hold {
         let holds = MemoryHoldLog::default();
         let id = holds.record(hold()).await.unwrap().id;
         let queue = SpyQueue::answering(true);
-        let deps = ReviewDependencies { requeue: Some(&queue), ..deps(&holds) };
-        review_hold(&id, Decision::Approved, &deps, None).await.unwrap();
-        review_hold(&id, Decision::Approved, &deps, None).await.unwrap();
-        review_hold(&id, Decision::Rejected, &deps, None).await.unwrap();
+        let deps = ReviewDependencies {
+            requeue: Some(&queue),
+            ..deps(&holds)
+        };
+        review_hold(&id, Decision::Approved, &deps, None)
+            .await
+            .unwrap();
+        review_hold(&id, Decision::Approved, &deps, None)
+            .await
+            .unwrap();
+        review_hold(&id, Decision::Rejected, &deps, None)
+            .await
+            .unwrap();
         assert_eq!(queue.calls().len(), 1);
-        assert_eq!(holds.get(&id).await.unwrap().unwrap().status, HoldStatus::Approved);
+        assert_eq!(
+            holds.get(&id).await.unwrap().unwrap().status,
+            HoldStatus::Approved
+        );
     }
 
     #[tokio::test]
     async fn answers_nothing_for_an_unknown_id() {
         let holds = MemoryHoldLog::default();
-        assert!(review_hold("nope", Decision::Approved, &deps(&holds), None).await.unwrap().is_none());
+        assert!(
+            review_hold("nope", Decision::Approved, &deps(&holds), None)
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
     fn turns_a_cut_link_into_a_host_entry() {
-        assert_eq!(allowlist_entry_for("https://Dexscreener.com/solana/abc?x=1").as_deref(), Some("dexscreener.com"));
-        assert_eq!(allowlist_entry_for("evil.xyz/claim").as_deref(), Some("evil.xyz"));
+        assert_eq!(
+            allowlist_entry_for("https://Dexscreener.com/solana/abc?x=1").as_deref(),
+            Some("dexscreener.com")
+        );
+        assert_eq!(
+            allowlist_entry_for("evil.xyz/claim").as_deref(),
+            Some("evil.xyz")
+        );
         assert_eq!(allowlist_entry_for("not a url at all ://"), None);
     }
 }

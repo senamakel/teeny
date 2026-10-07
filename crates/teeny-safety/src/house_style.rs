@@ -71,7 +71,11 @@ pub struct HouseStyleOptions {
 
 impl Default for HouseStyleOptions {
     fn default() -> Self {
-        Self { max_emoji: 1, max_length: MAX_POST_LENGTH, replying_to: None }
+        Self {
+            max_emoji: 1,
+            max_length: MAX_POST_LENGTH,
+            replying_to: None,
+        }
     }
 }
 
@@ -85,7 +89,9 @@ pub struct HouseStyleResult {
 
 fn tidy_blanks(text: &str) -> String {
     let text = RUNS_OF_BLANKS.replace_all(text, " ");
-    BLANKS_BEFORE_PUNCTUATION.replace_all(&text, "$1").into_owned()
+    BLANKS_BEFORE_PUNCTUATION
+        .replace_all(&text, "$1")
+        .into_owned()
 }
 
 /// Keeps the first `max_emoji` sequences and drops the rest, tidying the gaps.
@@ -93,7 +99,11 @@ fn cap_emoji(text: &str, max_emoji: usize) -> String {
     let mut seen = 0;
     let capped = EMOJI_SEQUENCE.replace_all(text, |caps: &regex::Captures<'_>| {
         seen += 1;
-        if seen <= max_emoji { caps[0].to_owned() } else { String::new() }
+        if seen <= max_emoji {
+            caps[0].to_owned()
+        } else {
+            String::new()
+        }
     });
     tidy_blanks(&capped).trim().to_owned()
 }
@@ -122,7 +132,11 @@ pub fn truncate_at_boundary(text: &str, max_length: usize) -> String {
         return text.to_owned();
     }
     let cut = prefix_units(text, max_length);
-    let last_space = cut.char_indices().rev().find(|(_, c)| c.is_whitespace()).map(|(i, _)| i);
+    let last_space = cut
+        .char_indices()
+        .rev()
+        .find(|(_, c)| c.is_whitespace())
+        .map(|(i, _)| i);
     // No whitespace at all: one very long token, and half of it is meaningless.
     let trimmed = match last_space {
         Some(index) if index > 0 => &cut[..index],
@@ -179,14 +193,21 @@ pub fn apply_house_style(draft: &str, options: &HouseStyleOptions) -> HouseStyle
             caps[0][..1].to_owned()
         });
         let trimmed = tidied.trim();
-        text = trimmed.strip_suffix([',', ';', ':']).unwrap_or(trimmed).to_owned();
+        text = trimmed
+            .strip_suffix([',', ';', ':'])
+            .unwrap_or(trimmed)
+            .to_owned();
         fixes.push("dropped a disclaimer".to_owned());
     }
 
     let emoji = count_emoji(&text);
     if emoji > options.max_emoji {
         text = cap_emoji(&text, options.max_emoji);
-        fixes.push(format!("cut {} emoji over the cap of {}", emoji - options.max_emoji, options.max_emoji));
+        fixes.push(format!(
+            "cut {} emoji over the cap of {}",
+            emoji - options.max_emoji,
+            options.max_emoji
+        ));
     }
 
     if post_length(&text) > options.max_length {
@@ -200,7 +221,11 @@ pub fn apply_house_style(draft: &str, options: &HouseStyleOptions) -> HouseStyle
 /// Whether the post ends by asking the reader something: a question mark on
 /// its last line.
 pub fn asks_the_reader(text: &str) -> bool {
-    let last = text.trim().split('\n').rfind(|line| !line.trim().is_empty()).unwrap_or_default();
+    let last = text
+        .trim()
+        .split('\n')
+        .rfind(|line| !line.trim().is_empty())
+        .unwrap_or_default();
     last.trim_end().ends_with('?')
 }
 

@@ -36,7 +36,11 @@ fn push_once(found: &mut Vec<String>, spelling: &str) {
 /// The leading run of handles on a reply is X's machinery, not a reference:
 /// "@teenydroid gm" is addressed to the account, not about it. Anything after
 /// that run, and any name at all, is somebody talking about the account.
-pub fn find_self_references<S: AsRef<str>>(text: &str, bot_username: &str, names: &[S]) -> Vec<String> {
+pub fn find_self_references<S: AsRef<str>>(
+    text: &str,
+    bot_username: &str,
+    names: &[S],
+) -> Vec<String> {
     let handle = bot_username.trim_start_matches('@');
     let body = LEADING_HANDLES.replace(text, "");
     let mut found = Vec::new();
@@ -50,7 +54,11 @@ pub fn find_self_references<S: AsRef<str>>(text: &str, bot_username: &str, names
         if name.is_empty() {
             continue;
         }
-        let pattern = Bounded::new(&format!(r"(?i){}\b", regex::escape(name)), tagged_or_glued, false);
+        let pattern = Bounded::new(
+            &format!(r"(?i){}\b", regex::escape(name)),
+            tagged_or_glued,
+            false,
+        );
         for range in pattern.find_all(text) {
             push_once(&mut found, &text[range]);
         }
@@ -65,7 +73,11 @@ pub fn self_reference_note(found: &[String]) -> Vec<String> {
     if found.is_empty() {
         return Vec::new();
     }
-    let names = found.iter().map(|name| format!("\"{name}\"")).collect::<Vec<_>>().join(" and ");
+    let names = found
+        .iter()
+        .map(|name| format!("\"{name}\""))
+        .collect::<Vec<_>>()
+        .join(" and ");
     [
         String::new(),
         format!("NOTE, from the account's own records, not from the post: {names} in this conversation is YOU."),

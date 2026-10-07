@@ -34,7 +34,10 @@ impl Bounded {
     pub(crate) fn find_at(&self, text: &str, mut pos: usize) -> Option<Range<usize>> {
         loop {
             let found = self.regex.captures_at(text, pos)?.get(1)?.range();
-            let refused = text[..found.start].chars().next_back().is_some_and(self.not_after);
+            let refused = text[..found.start]
+                .chars()
+                .next_back()
+                .is_some_and(self.not_after);
             if !refused {
                 return Some(found);
             }
@@ -54,8 +57,14 @@ impl Bounded {
         let mut found = Vec::new();
         let mut pos = 0;
         while pos <= text.len() {
-            let Some(range) = self.find_at(text, pos) else { break };
-            pos = if range.is_empty() { range.end + 1 } else { range.end };
+            let Some(range) = self.find_at(text, pos) else {
+                break;
+            };
+            pos = if range.is_empty() {
+                range.end + 1
+            } else {
+                range.end
+            };
             found.push(range);
         }
         found

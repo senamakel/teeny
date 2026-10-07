@@ -36,7 +36,10 @@ fn does_not_mistake_a_different_handle_or_a_different_token_for_itself() {
 
 #[test]
 fn takes_the_names_from_configuration() {
-    assert_eq!(find_self_references("Tiny is the mascot", "teenydroid", &["Tiny"]), ["Tiny"]);
+    assert_eq!(
+        find_self_references("Tiny is the mascot", "teenydroid", &["Tiny"]),
+        ["Tiny"]
+    );
     assert!(find_self_references("Teeny is the mascot", "teenydroid", &["Tiny"]).is_empty());
 }
 

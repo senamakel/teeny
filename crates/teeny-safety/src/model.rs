@@ -31,11 +31,17 @@ pub struct Message {
 
 impl Message {
     pub fn system(content: impl Into<String>) -> Self {
-        Self { role: Role::System, content: content.into() }
+        Self {
+            role: Role::System,
+            content: content.into(),
+        }
     }
 
     pub fn user(content: impl Into<String>) -> Self {
-        Self { role: Role::User, content: content.into() }
+        Self {
+            role: Role::User,
+            content: content.into(),
+        }
     }
 }
 
@@ -73,7 +79,10 @@ pub struct ScriptedModel {
 
 impl ScriptedModel {
     pub fn new(answers: impl IntoIterator<Item = Result<Value, String>>) -> Self {
-        Self { answers: Mutex::new(answers.into_iter().collect()), requests: Mutex::new(Vec::new()) }
+        Self {
+            answers: Mutex::new(answers.into_iter().collect()),
+            requests: Mutex::new(Vec::new()),
+        }
     }
 
     /// Every request made so far.

@@ -20,7 +20,9 @@ fn matches_the_erc20_regardless_of_checksum_casing() {
 
 #[test]
 fn says_nothing_about_a_contract_that_is_not_the_accounts_own() {
-    assert!(find_own_token_addresses("buy 0x1234567890123456789012345678901234567890", OWN).is_empty());
+    assert!(
+        find_own_token_addresses("buy 0x1234567890123456789012345678901234567890", OWN).is_empty()
+    );
 }
 
 #[test]

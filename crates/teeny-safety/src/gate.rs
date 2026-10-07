@@ -21,7 +21,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::holds::{HeldBy, HoldContext, HoldInput, HoldKind, HoldLog, HoldSurface};
-use crate::house_style::{HouseStyleOptions, MAX_POST_LENGTH, apply_house_style, count_emoji, post_length};
+use crate::house_style::{
+    HouseStyleOptions, MAX_POST_LENGTH, apply_house_style, count_emoji, post_length,
+};
 use crate::judge::{Judge, Judgement};
 use crate::links::{AllowlistEntry, DEFAULT_LINK_ALLOWLIST, filter_links, parse_allowlist};
 use crate::screen::{Direction, screen_text};
@@ -49,7 +51,11 @@ impl SafetyDecision {
     }
 
     fn held(category: impl Into<String>, reason: impl Into<String>, by: HeldBy) -> Self {
-        Self::Held(Held { category: category.into(), reason: reason.into(), by })
+        Self::Held(Held {
+            category: category.into(),
+            reason: reason.into(),
+            by,
+        })
     }
 }
 
@@ -111,7 +117,12 @@ pub struct OutboundDraft {
 impl OutboundDraft {
     /// A draft under the default emoji cap of one, replying to nobody.
     pub fn new(text: impl Into<String>, context: HoldContext) -> Self {
-        Self { text: text.into(), context, max_emoji: 1, replying_to: None }
+        Self {
+            text: text.into(),
+            context,
+            max_emoji: 1,
+            replying_to: None,
+        }
     }
 }
 
@@ -139,7 +150,10 @@ pub struct SafetyGate {
 impl SafetyGate {
     pub fn new(options: SafetyGateOptions) -> Self {
         let configured = parse_allowlist(
-            DEFAULT_LINK_ALLOWLIST.iter().copied().chain(options.extra_allowed_links.iter().map(String::as_str)),
+            DEFAULT_LINK_ALLOWLIST
+                .iter()
+                .copied()
+                .chain(options.extra_allowed_links.iter().map(String::as_str)),
         );
         Self {
             judge: options.judge,
@@ -156,7 +170,12 @@ impl SafetyGate {
     /// approved set as it was, never empties it.
     async fn allowlist(&self) -> Vec<AllowlistEntry> {
         if let Some(holds) = &self.holds {
-            let stale = self.approved.lock().expect("not poisoned").at.is_none_or(|at| at.elapsed() > self.ttl);
+            let stale = self
+                .approved
+                .lock()
+                .expect("not poisoned")
+                .at
+                .is_none_or(|at| at.elapsed() > self.ttl);
             if stale {
                 let read = holds.allowed_links().await;
                 let mut approved = self.approved.lock().expect("not poisoned");
@@ -170,7 +189,11 @@ impl SafetyGate {
             }
         }
         let approved = self.approved.lock().expect("not poisoned");
-        self.configured.iter().chain(approved.entries.iter()).cloned().collect()
+        self.configured
+            .iter()
+            .chain(approved.entries.iter())
+            .cloned()
+            .collect()
     }
 
     /// Forgets the cached approvals, so the next check reads the log.
@@ -197,16 +220,22 @@ impl SafetyGate {
         let decision = match screen_text(text, Direction::Inbound) {
             Some(found) => {
                 tracing::info!(category = %found.category, term = found.term, "safety: inbound held by the screen");
-                SafetyDecision::held(found.category.as_str(), format!("contains \"{}\"", found.term), HeldBy::Screen)
+                SafetyDecision::held(
+                    found.category.as_str(),
+                    format!("contains \"{}\"", found.term),
+                    HeldBy::Screen,
+                )
             }
             None => self.ask(text, Direction::Inbound).await,
         };
         if let (SafetyDecision::Held(held), Some(context)) = (&decision, context) {
-            let kind = context.kind.unwrap_or(if context.surface == HoldSurface::Task {
-                HoldKind::Task
-            } else {
-                HoldKind::Message
-            });
+            let kind = context
+                .kind
+                .unwrap_or(if context.surface == HoldSurface::Task {
+                    HoldKind::Task
+                } else {
+                    HoldKind::Message
+                });
             self.hold(HoldInput {
                 direction: Direction::Inbound,
                 kind,
@@ -231,7 +260,10 @@ impl SafetyGate {
         let links = filter_links(text, &self.allowlist().await);
         let cut = !links.removed.is_empty();
         if cut {
-            fixes.push(format!("cut {} link(s) not on the allowlist", links.removed.len()));
+            fixes.push(format!(
+                "cut {} link(s) not on the allowlist",
+                links.removed.len()
+            ));
             tracing::warn!(removed = ?links.removed, "safety: cut links from an outbound draft");
         }
 
@@ -260,7 +292,12 @@ impl SafetyGate {
                     .await;
                 }
                 SafetyDecision::Clean if cut => {
-                    let reason = links.removed.iter().map(|r| r.reason.as_str()).collect::<Vec<_>>().join("; ");
+                    let reason = links
+                        .removed
+                        .iter()
+                        .map(|r| r.reason.as_str())
+                        .collect::<Vec<_>>()
+                        .join("; ");
                     self.hold(HoldInput {
                         direction: Direction::Outbound,
                         kind: HoldKind::Link,
@@ -276,23 +313,42 @@ impl SafetyGate {
                 SafetyDecision::Clean => {}
             }
         }
-        OutboundResult { decision, text: links.text, fixes }
+        OutboundResult {
+            decision,
+            text: links.text,
+            fixes,
+        }
     }
 
-    async fn outbound_decision(&self, cleaned: &str, links_cut: bool, direction: Direction) -> SafetyDecision {
+    async fn outbound_decision(
+        &self,
+        cleaned: &str,
+        links_cut: bool,
+        direction: Direction,
+    ) -> SafetyDecision {
         if let Some(found) = screen_text(cleaned, direction) {
             tracing::warn!(category = %found.category, term = found.term, "safety: outbound held by the screen");
-            return SafetyDecision::held(found.category.as_str(), format!("contains \"{}\"", found.term), HeldBy::Screen);
+            return SafetyDecision::held(
+                found.category.as_str(),
+                format!("contains \"{}\"", found.term),
+                HeldBy::Screen,
+            );
         }
         // Nothing left to say once the links are gone is not a message to send.
         if links_cut && !cleaned.chars().any(|c| c.is_ascii_alphanumeric()) {
-            return SafetyDecision::held("links", "the draft was only a disallowed link", HeldBy::Links);
+            return SafetyDecision::held(
+                "links",
+                "the draft was only a disallowed link",
+                HeldBy::Links,
+            );
         }
         self.ask(cleaned, direction).await
     }
 
     async fn ask(&self, text: &str, direction: Direction) -> SafetyDecision {
-        let Some(judge) = &self.judge else { return SafetyDecision::Clean };
+        let Some(judge) = &self.judge else {
+            return SafetyDecision::Clean;
+        };
         if text.trim().is_empty() {
             return SafetyDecision::Clean;
         }
@@ -306,7 +362,11 @@ impl SafetyGate {
         } else {
             tracing::warn!(direction = direction.as_str(), %category, reason = %verdict.reason, "safety: held by the judge");
         }
-        let reason = if verdict.reason.is_empty() { "the judge held it".to_owned() } else { verdict.reason };
+        let reason = if verdict.reason.is_empty() {
+            "the judge held it".to_owned()
+        } else {
+            verdict.reason
+        };
         SafetyDecision::held(category, reason, HeldBy::Judge)
     }
 
@@ -317,7 +377,9 @@ impl SafetyGate {
     pub async fn check_outbound(&self, draft: &OutboundDraft) -> Verdict {
         let length = post_length(&draft.text);
         if length > MAX_POST_LENGTH {
-            return Verdict::Refuse(format!("the text is {length} characters, over the {MAX_POST_LENGTH} limit."));
+            return Verdict::Refuse(format!(
+                "the text is {length} characters, over the {MAX_POST_LENGTH} limit."
+            ));
         }
         let emoji = count_emoji(&draft.text);
         if emoji > draft.max_emoji {

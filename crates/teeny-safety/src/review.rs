@@ -71,7 +71,9 @@ pub async fn review_hold(
     deps: &ReviewDependencies<'_>,
     note: Option<&str>,
 ) -> Result<Option<Hold>, ReviewError> {
-    let Some(hold) = deps.holds.get(id).await? else { return Ok(None) };
+    let Some(hold) = deps.holds.get(id).await? else {
+        return Ok(None);
+    };
     if hold.status != HoldStatus::Pending {
         return Ok(Some(hold));
     }
@@ -79,7 +81,10 @@ pub async fn review_hold(
         Decision::Rejected => "confirmed the filter".to_owned(),
         Decision::Approved => approve(&hold, deps).await?,
     };
-    Ok(deps.holds.decide(id, decision, note.map(str::to_owned), Some(effect)).await?)
+    Ok(deps
+        .holds
+        .decide(id, decision, note.map(str::to_owned), Some(effect))
+        .await?)
 }
 
 async fn approve(hold: &Hold, deps: &ReviewDependencies<'_>) -> Result<String, ReviewError> {
@@ -105,11 +110,19 @@ async fn approve(hold: &Hold, deps: &ReviewDependencies<'_>) -> Result<String, R
             Ok(format!("allowlisted {}", hosts.join(", ")))
         }
         HoldKind::Message => {
-            let post_id = hold.context.post_id.as_deref().filter(|_| hold.context.surface == HoldSurface::X);
+            let post_id = hold
+                .context
+                .post_id
+                .as_deref()
+                .filter(|_| hold.context.surface == HoldSurface::X);
             let Some(post_id) = post_id else {
-                return Ok("recorded; a held chat message cannot be answered after the fact".into());
+                return Ok(
+                    "recorded; a held chat message cannot be answered after the fact".into(),
+                );
             };
-            let Some(requeue) = deps.requeue else { return Ok("recorded; no queue to return it to".into()) };
+            let Some(requeue) = deps.requeue else {
+                return Ok("recorded; no queue to return it to".into());
+            };
             Ok(if requeue.requeue(post_id).await? {
                 "requeued to be answered".into()
             } else {

@@ -5,7 +5,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
 
-use crate::holds::{Decision, Hold, HoldCounts, HoldInput, HoldLog, HoldLogError, HoldStatus, MemoryHoldLog};
+use crate::holds::{
+    Decision, Hold, HoldCounts, HoldInput, HoldLog, HoldLogError, HoldStatus, MemoryHoldLog,
+};
 use crate::judge::{Judge, JudgeVerdict, Judgement};
 use crate::review::{Release, Requeue, ReviewError};
 use crate::screen::Direction;
@@ -18,11 +20,18 @@ pub(crate) struct SpyJudge {
 
 impl SpyJudge {
     pub(crate) fn new(verdict: JudgeVerdict) -> Self {
-        Self { verdict, calls: Mutex::new(Vec::new()) }
+        Self {
+            verdict,
+            calls: Mutex::new(Vec::new()),
+        }
     }
 
     pub(crate) fn clean() -> Self {
-        Self::new(JudgeVerdict { verdict: Judgement::Clean, category: None, reason: String::new() })
+        Self::new(JudgeVerdict {
+            verdict: Judgement::Clean,
+            category: None,
+            reason: String::new(),
+        })
     }
 
     pub(crate) fn prohibited(category: &str, reason: &str) -> Self {
@@ -41,7 +50,10 @@ impl SpyJudge {
 #[async_trait]
 impl Judge for SpyJudge {
     async fn judge(&self, text: &str, direction: Direction) -> JudgeVerdict {
-        self.calls.lock().unwrap().push((text.to_owned(), direction));
+        self.calls
+            .lock()
+            .unwrap()
+            .push((text.to_owned(), direction));
         self.verdict.clone()
     }
 }
@@ -66,7 +78,11 @@ impl HoldLog for FlakyLog {
         }
         self.inner.record(entry).await
     }
-    async fn list(&self, status: Option<HoldStatus>, limit: Option<usize>) -> Result<Vec<Hold>, HoldLogError> {
+    async fn list(
+        &self,
+        status: Option<HoldStatus>,
+        limit: Option<usize>,
+    ) -> Result<Vec<Hold>, HoldLogError> {
         self.inner.list(status, limit).await
     }
     async fn get(&self, id: &str) -> Result<Option<Hold>, HoldLogError> {
@@ -103,7 +119,10 @@ pub(crate) struct SpyQueue {
 
 impl SpyQueue {
     pub(crate) fn answering(answer: bool) -> Self {
-        Self { answer, calls: Mutex::new(Vec::new()) }
+        Self {
+            answer,
+            calls: Mutex::new(Vec::new()),
+        }
     }
 
     pub(crate) fn calls(&self) -> Vec<String> {
@@ -127,6 +146,10 @@ pub(crate) struct ScriptedRelease {
 #[async_trait]
 impl Release for ScriptedRelease {
     async fn release(&self, _hold: &Hold) -> Result<String, ReviewError> {
-        self.answer.lock().unwrap().clone().map_err(ReviewError::Effect)
+        self.answer
+            .lock()
+            .unwrap()
+            .clone()
+            .map_err(ReviewError::Effect)
     }
 }

@@ -61,35 +61,194 @@ where
                 return None;
             }
             let Some(slash) = entry.find('/') else {
-                return Some(AllowlistEntry { host: entry.to_owned(), path_prefix: None, root_only: false });
+                return Some(AllowlistEntry {
+                    host: entry.to_owned(),
+                    path_prefix: None,
+                    root_only: false,
+                });
             };
             let (host, path) = entry.split_at(slash);
             let host = host.to_owned();
             if path == "/" {
-                return Some(AllowlistEntry { host, path_prefix: None, root_only: true });
+                return Some(AllowlistEntry {
+                    host,
+                    path_prefix: None,
+                    root_only: true,
+                });
             }
             let prefix = path.trim_end_matches('/').to_owned();
-            Some(AllowlistEntry { host, path_prefix: Some(prefix), root_only: false })
+            Some(AllowlistEntry {
+                host,
+                path_prefix: Some(prefix),
+                root_only: false,
+            })
         })
         .collect()
 }
 
 /// Common enough that a bare "name.tld" in a post is a link everybody taps.
 const LINKABLE_TLDS: &[&str] = &[
-    "com", "net", "org", "io", "ai", "co", "me", "app", "dev", "xyz", "fun", "place", "so",
-    "gg", "to", "ly", "sh", "link", "site", "online", "info", "biz", "tv", "cc", "finance",
-    "exchange", "cash", "money", "crypto", "sol", "eth", "wtf", "lol", "club", "live", "life",
-    "world", "zone", "network", "tech", "digital", "cloud", "page", "run", "one", "top",
-    "pro", "vip", "win", "bet", "best", "store", "shop", "space", "website", "today", "news",
-    "art", "design", "us", "uk", "de", "fr", "ru", "cn", "in", "jp", "br", "ca", "au", "nl",
-    "ch", "es", "it", "se", "no", "fi", "pl", "kr", "tw", "hk", "sg", "id", "ph", "vn", "th",
-    "tr", "ua", "cz", "be", "at", "dk", "ie", "pt", "gr", "nz", "za", "mx", "ar", "cl", "ng",
-    "ke", "eu", "is", "im", "ac", "st", "fm", "am", "ws", "tk", "ml", "ga", "cf", "gq", "pw",
-    "icu", "click", "monster", "rest", "bond", "cyou", "buzz", "cam", "quest", "sbs", "lat",
-    "mov", "zip", "work", "guru", "ninja", "email", "team", "trade", "markets", "capital",
-    "fund", "ventures", "partners", "solutions", "services", "agency", "studio", "games",
-    "game", "social", "chat", "wiki", "blog", "tools", "systems", "foundation", "dao",
-    "nft", "coin", "token", "wallet", "swap", "dex", "defi",
+    "com",
+    "net",
+    "org",
+    "io",
+    "ai",
+    "co",
+    "me",
+    "app",
+    "dev",
+    "xyz",
+    "fun",
+    "place",
+    "so",
+    "gg",
+    "to",
+    "ly",
+    "sh",
+    "link",
+    "site",
+    "online",
+    "info",
+    "biz",
+    "tv",
+    "cc",
+    "finance",
+    "exchange",
+    "cash",
+    "money",
+    "crypto",
+    "sol",
+    "eth",
+    "wtf",
+    "lol",
+    "club",
+    "live",
+    "life",
+    "world",
+    "zone",
+    "network",
+    "tech",
+    "digital",
+    "cloud",
+    "page",
+    "run",
+    "one",
+    "top",
+    "pro",
+    "vip",
+    "win",
+    "bet",
+    "best",
+    "store",
+    "shop",
+    "space",
+    "website",
+    "today",
+    "news",
+    "art",
+    "design",
+    "us",
+    "uk",
+    "de",
+    "fr",
+    "ru",
+    "cn",
+    "in",
+    "jp",
+    "br",
+    "ca",
+    "au",
+    "nl",
+    "ch",
+    "es",
+    "it",
+    "se",
+    "no",
+    "fi",
+    "pl",
+    "kr",
+    "tw",
+    "hk",
+    "sg",
+    "id",
+    "ph",
+    "vn",
+    "th",
+    "tr",
+    "ua",
+    "cz",
+    "be",
+    "at",
+    "dk",
+    "ie",
+    "pt",
+    "gr",
+    "nz",
+    "za",
+    "mx",
+    "ar",
+    "cl",
+    "ng",
+    "ke",
+    "eu",
+    "is",
+    "im",
+    "ac",
+    "st",
+    "fm",
+    "am",
+    "ws",
+    "tk",
+    "ml",
+    "ga",
+    "cf",
+    "gq",
+    "pw",
+    "icu",
+    "click",
+    "monster",
+    "rest",
+    "bond",
+    "cyou",
+    "buzz",
+    "cam",
+    "quest",
+    "sbs",
+    "lat",
+    "mov",
+    "zip",
+    "work",
+    "guru",
+    "ninja",
+    "email",
+    "team",
+    "trade",
+    "markets",
+    "capital",
+    "fund",
+    "ventures",
+    "partners",
+    "solutions",
+    "services",
+    "agency",
+    "studio",
+    "games",
+    "game",
+    "social",
+    "chat",
+    "wiki",
+    "blog",
+    "tools",
+    "systems",
+    "foundation",
+    "dao",
+    "nft",
+    "coin",
+    "token",
+    "wallet",
+    "swap",
+    "dex",
+    "defi",
 ];
 
 fn regex(pattern: &str) -> Regex {
@@ -107,7 +266,9 @@ static SPACED_SCHEME: LazyLock<Regex> =
 /// plain URL: "tinyhumans[.]ai", "tinyhumans(dot)ai", "hxxps://".
 fn deobfuscate(text: &str) -> String {
     let text = DOTS.replace_all(text, ".");
-    let text = HXXP.replace_all(&text, |caps: &regex::Captures<'_>| caps[0].replace(['x', 'X'], "t"));
+    let text = HXXP.replace_all(&text, |caps: &regex::Captures<'_>| {
+        caps[0].replace(['x', 'X'], "t")
+    });
     SPACED_SCHEME.replace_all(&text, "http${1}://").into_owned()
 }
 
@@ -149,7 +310,8 @@ pub fn find_links(text: &str) -> Vec<FoundLink> {
         if raw.is_empty() {
             continue;
         }
-        let explicit = has_scheme(raw) || raw.get(..4).is_some_and(|w| w.eq_ignore_ascii_case("www."));
+        let explicit =
+            has_scheme(raw) || raw.get(..4).is_some_and(|w| w.eq_ignore_ascii_case("www."));
         if !explicit {
             let host = raw.split(['/', ':', '?', '#']).next().unwrap_or_default();
             let tld = host.rsplit('.').next().unwrap_or_default().to_lowercase();
@@ -159,9 +321,15 @@ pub fn find_links(text: &str) -> Vec<FoundLink> {
                 continue;
             }
         }
-        let absolute: Cow<'_, str> =
-            if has_scheme(raw) { raw.into() } else { format!("https://{raw}").into() };
-        found.push(FoundLink { raw: raw.to_owned(), url: Url::parse(&absolute).ok() });
+        let absolute: Cow<'_, str> = if has_scheme(raw) {
+            raw.into()
+        } else {
+            format!("https://{raw}").into()
+        };
+        found.push(FoundLink {
+            raw: raw.to_owned(),
+            url: Url::parse(&absolute).ok(),
+        });
     }
     found
 }
@@ -189,7 +357,9 @@ static IPV4: LazyLock<Regex> = LazyLock::new(|| regex(r"^[0-9]+\.[0-9]+\.[0-9]+\
 /// a Cyrillic "а" in the name, a raw IP, a port.
 pub fn judge_link(link: &FoundLink, allowlist: &[AllowlistEntry]) -> LinkVerdict {
     let refused = |reason: String| LinkVerdict::Refused(reason);
-    let Some(url) = &link.url else { return refused("not a parseable URL".into()) };
+    let Some(url) = &link.url else {
+        return refused("not a parseable URL".into());
+    };
     if url.scheme() != "https" && url.scheme() != "http" {
         return refused(format!("scheme {}: is not http(s)", url.scheme()));
     }
@@ -271,17 +441,28 @@ pub fn filter_links(text: &str, allowlist: &[AllowlistEntry]) -> LinkFilterResul
             LinkVerdict::Allowed => kept.push(link.raw),
             LinkVerdict::Refused(reason) => {
                 cleaned = cleaned.replace(&link.raw, "");
-                removed.push(RemovedLink { link: link.raw, reason });
+                removed.push(RemovedLink {
+                    link: link.raw,
+                    reason,
+                });
             }
         }
     }
     if removed.is_empty() {
-        return LinkFilterResult { text: text.to_owned(), removed, kept };
+        return LinkFilterResult {
+            text: text.to_owned(),
+            removed,
+            kept,
+        };
     }
     let tidied = RUNS_OF_BLANKS.replace_all(&cleaned, " ");
     let tidied = BLANKS_BEFORE_PUNCTUATION.replace_all(&tidied, "$1");
     let tidied = EMPTY_BRACKETS.replace_all(&tidied, "");
-    LinkFilterResult { text: tidied.trim().to_owned(), removed, kept }
+    LinkFilterResult {
+        text: tidied.trim().to_owned(),
+        removed,
+        kept,
+    }
 }
 
 #[cfg(test)]

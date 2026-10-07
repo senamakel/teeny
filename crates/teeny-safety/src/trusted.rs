@@ -13,9 +13,13 @@ fn bare(handle: &str) -> &str {
 
 /// Whether `username` is one of `trusted`, ignoring case and a leading `@`.
 pub fn is_trusted_handle<S: AsRef<str>>(username: Option<&str>, trusted: &[S]) -> bool {
-    let Some(username) = username.filter(|name| !name.is_empty()) else { return false };
+    let Some(username) = username.filter(|name| !name.is_empty()) else {
+        return false;
+    };
     let handle = bare(username);
-    trusted.iter().any(|entry| bare(entry.as_ref()).eq_ignore_ascii_case(handle))
+    trusted
+        .iter()
+        .any(|entry| bare(entry.as_ref()).eq_ignore_ascii_case(handle))
 }
 
 /// The trusted handles that spoke in this conversation, once each, in the
@@ -43,7 +47,11 @@ pub fn trusted_voices_note(found: &[String]) -> Vec<String> {
     if found.is_empty() {
         return Vec::new();
     }
-    let list = found.iter().map(|handle| format!("@{handle}")).collect::<Vec<_>>().join(" and ");
+    let list = found
+        .iter()
+        .map(|handle| format!("@{handle}"))
+        .collect::<Vec<_>>()
+        .join(" and ");
     let verb = if found.len() == 1 { "is" } else { "are" };
     [
         String::new(),

@@ -113,8 +113,12 @@ fn term_pattern(term: &str, loose_gaps: bool) -> Bounded {
     Bounded::new(&body, alnum, true)
 }
 
-static IDIOM_PATTERNS: LazyLock<Vec<Bounded>> =
-    LazyLock::new(|| IDIOMS.iter().map(|idiom| term_pattern(idiom, true)).collect());
+static IDIOM_PATTERNS: LazyLock<Vec<Bounded>> = LazyLock::new(|| {
+    IDIOMS
+        .iter()
+        .map(|idiom| term_pattern(idiom, true))
+        .collect()
+});
 
 struct Compiled {
     category: ProhibitedCategory,
@@ -128,7 +132,11 @@ static COMPILED: LazyLock<Vec<Compiled>> = LazyLock::new(|| {
         .map(|entry| Compiled {
             category: entry.category,
             outbound_only: entry.outbound_only,
-            terms: entry.terms.iter().map(|term| (*term, term_pattern(term, false))).collect(),
+            terms: entry
+                .terms
+                .iter()
+                .map(|term| (*term, term_pattern(term, false)))
+                .collect(),
         })
         .collect()
 });
@@ -178,7 +186,10 @@ pub fn screen_text_with(text: &str, direction: Direction, idioms: bool) -> Optio
                 continue;
             }
             if pattern.is_match(&plain) || pattern.is_match(&leet) {
-                best = Some(ScreenMatch { category: entry.category, term });
+                best = Some(ScreenMatch {
+                    category: entry.category,
+                    term,
+                });
             }
         }
     }
