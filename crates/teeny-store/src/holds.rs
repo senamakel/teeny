@@ -36,6 +36,11 @@ pub const LIST_MAX: usize = 500;
 #[serde(rename_all = "lowercase")]
 pub enum HoldStatus {
     Pending,
+    /// Claimed by a decision whose effect is being carried out. Never a
+    /// resting state: it ends approved or rejected, or back at pending when
+    /// the release failed. One left here means the process stopped mid-way,
+    /// and the hold is not offered again, because the post may be out.
+    Releasing,
     Approved,
     Rejected,
 }
@@ -223,12 +228,20 @@ pub struct HoldCounts {
     pub pending: u64,
     pub approved: u64,
     pub rejected: u64,
+    /// Left out when there are none, so the counts read as they always did.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub releasing: u64,
+}
+
+fn is_zero(count: &u64) -> bool {
+    *count == 0
 }
 
 impl HoldCounts {
     fn add(&mut self, status: HoldStatus, total: u64) {
         match status {
             HoldStatus::Pending => self.pending += total,
+            HoldStatus::Releasing => self.releasing += total,
             HoldStatus::Approved => self.approved += total,
             HoldStatus::Rejected => self.rejected += total,
         }
@@ -263,6 +276,14 @@ pub trait HoldLog: Send + Sync {
         decision: HoldDecision,
         detail: &DecisionDetail,
     ) -> Result<Option<Hold>>;
+    /// Takes a pending hold for a decision, atomically: pending becomes
+    /// releasing, and the hold is returned. `None` when it is not pending
+    /// (another decision has it, or it is decided) or does not exist. Only
+    /// the caller that gets the hold back may carry out the decision.
+    async fn claim(&self, id: &str) -> Result<Option<Hold>>;
+    /// Puts a claimed hold back to pending after its release failed, with
+    /// the failure as its effect. `None` when it was not claimed.
+    async fn unclaim(&self, id: &str, error: &str) -> Result<Option<Hold>>;
     async fn counts(&self) -> Result<HoldCounts>;
     /// Hosts an operator approved, in allowlist spelling. The gate reads
     /// these alongside the built-in list, so an approval takes effect
@@ -277,6 +298,36 @@ pub trait HoldLog: Send + Sync {
 pub struct InMemoryHoldLog {
     entries: Mutex<Vec<Hold>>,
     links: Mutex<Vec<AllowedLink>>,
+}
+
+impl InMemoryHoldLog {
+    /// Moves a hold from one status to another under the lock, so two
+    /// callers cannot both see `from`; `None` when it is not at `from`.
+    fn move_status(
+        &self,
+        id: &str,
+        from: HoldStatus,
+        to: HoldStatus,
+        effect: Option<String>,
+    ) -> Option<Hold> {
+        let mut entries = self
+            .entries
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let hold = entries
+            .iter_mut()
+            .find(|hold| hold.id == id && hold.status == from)?;
+        hold.status = to;
+        if effect.is_some() {
+            hold.effect = effect;
+        }
+        Some(hold.clone())
+    }
+}
+
+/// The effect a pending hold carries after a release that did not publish.
+fn release_failed(error: &str) -> String {
+    format!("release failed, still pending: {error}")
 }
 
 #[async_trait]
@@ -335,6 +386,19 @@ impl HoldLog for InMemoryHoldLog {
             hold.effect = Some(effect.clone());
         }
         Ok(Some(hold.clone()))
+    }
+
+    async fn claim(&self, id: &str) -> Result<Option<Hold>> {
+        Ok(self.move_status(id, HoldStatus::Pending, HoldStatus::Releasing, None))
+    }
+
+    async fn unclaim(&self, id: &str, error: &str) -> Result<Option<Hold>> {
+        Ok(self.move_status(
+            id,
+            HoldStatus::Releasing,
+            HoldStatus::Pending,
+            Some(release_failed(error)),
+        ))
     }
 
     async fn counts(&self) -> Result<HoldCounts> {
@@ -475,6 +539,33 @@ impl HoldLog for MongoHoldLog {
         Ok(self
             .typed()
             .find_one_and_update(doc! { "id": id }, doc! { "$set": set })
+            .return_document(ReturnDocument::After)
+            .await?)
+    }
+
+    async fn claim(&self, id: &str) -> Result<Option<Hold>> {
+        self.ready().await?;
+        Ok(self
+            .typed()
+            .find_one_and_update(
+                doc! { "id": id, "status": bson::to_bson(&HoldStatus::Pending)? },
+                doc! { "$set": { "status": bson::to_bson(&HoldStatus::Releasing)? } },
+            )
+            .return_document(ReturnDocument::After)
+            .await?)
+    }
+
+    async fn unclaim(&self, id: &str, error: &str) -> Result<Option<Hold>> {
+        self.ready().await?;
+        Ok(self
+            .typed()
+            .find_one_and_update(
+                doc! { "id": id, "status": bson::to_bson(&HoldStatus::Releasing)? },
+                doc! { "$set": {
+                    "status": bson::to_bson(&HoldStatus::Pending)?,
+                    "effect": release_failed(error),
+                } },
+            )
             .return_document(ReturnDocument::After)
             .await?)
     }

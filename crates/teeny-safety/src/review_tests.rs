@@ -12,7 +12,7 @@ use crate::holds::{
     InMemoryHoldLog,
 };
 use crate::screen::Direction;
-use crate::test_support::{FlakyLog, ScriptedRelease, SpyQueue};
+use crate::test_support::{CountingRelease, FlakyLog, ScriptedRelease, SpyQueue};
 
 fn x_context() -> HoldContext {
     HoldContext {
@@ -360,9 +360,14 @@ mod review_hold {
             .await
             .unwrap_err();
         assert!(failed.to_string().contains("X is down"), "{failed}");
-        assert_eq!(
-            holds.get(&id).await.unwrap().unwrap().status,
-            HoldStatus::Pending
+        let back = holds.get(&id).await.unwrap().unwrap();
+        assert_eq!(back.status, HoldStatus::Pending);
+        assert!(
+            back.effect
+                .as_deref()
+                .unwrap_or_default()
+                .contains("X is down"),
+            "the failure is recorded on the hold: {back:?}"
         );
 
         *release.answer.lock().unwrap() = Ok("published on X as 99".into());
@@ -372,6 +377,81 @@ mod review_hold {
             .unwrap();
         assert_eq!(reviewed.status, HoldStatus::Approved);
         assert_eq!(reviewed.effect.as_deref(), Some("published on X as 99"));
+    }
+
+    fn draft_hold() -> HoldInput {
+        HoldInput {
+            direction: Direction::Outbound,
+            kind: HoldKind::Draft,
+            text: "gm frens".into(),
+            ..hold()
+        }
+    }
+
+    #[tokio::test]
+    async fn two_approvals_at_once_publish_a_draft_once() {
+        let holds = InMemoryHoldLog::default();
+        let id = holds.record(draft_hold()).await.unwrap().id;
+        let release = CountingRelease::default();
+        let deps = ReviewDependencies {
+            release: Some(&release),
+            ..deps(&holds)
+        };
+        let (first, second) = tokio::join!(
+            review_hold(&id, HoldDecision::Approved, &deps, None),
+            review_hold(&id, HoldDecision::Approved, &deps, None),
+        );
+        first.unwrap();
+        second.unwrap();
+        assert_eq!(release.releases.load(Ordering::SeqCst), 1);
+        let settled = holds.get(&id).await.unwrap().unwrap();
+        assert_eq!(settled.status, HoldStatus::Approved);
+        assert_eq!(settled.effect.as_deref(), Some("published on X as 1"));
+    }
+
+    #[tokio::test]
+    async fn a_release_whose_decision_could_not_be_written_is_marked_released_with_a_note() {
+        let holds = FlakyLog::default();
+        let id = holds.record(draft_hold()).await.unwrap().id;
+        holds.fail_decides.store(1, Ordering::SeqCst);
+        let release = CountingRelease::default();
+        let deps = ReviewDependencies {
+            release: Some(&release),
+            ..deps(&holds)
+        };
+        let reviewed = review_hold(&id, HoldDecision::Approved, &deps, Some("ok"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(reviewed.status, HoldStatus::Approved);
+        assert_eq!(reviewed.effect.as_deref(), Some("published on X as 1"));
+        let note = reviewed.note.unwrap();
+        assert!(note.contains("ok") && note.contains("mongo down"), "{note}");
+    }
+
+    #[tokio::test]
+    async fn a_release_whose_decision_cannot_be_written_at_all_is_never_offered_again() {
+        let holds = FlakyLog::default();
+        let id = holds.record(draft_hold()).await.unwrap().id;
+        holds.fail_decides.store(2, Ordering::SeqCst);
+        let release = CountingRelease::default();
+        let deps = ReviewDependencies {
+            release: Some(&release),
+            ..deps(&holds)
+        };
+        let failed = review_hold(&id, HoldDecision::Approved, &deps, None)
+            .await
+            .unwrap_err();
+        assert!(failed.to_string().contains("mongo down"), "{failed}");
+        assert_eq!(
+            holds.get(&id).await.unwrap().unwrap().status,
+            HoldStatus::Releasing,
+            "published, so never pending again"
+        );
+        review_hold(&id, HoldDecision::Approved, &deps, None)
+            .await
+            .unwrap();
+        assert_eq!(release.releases.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

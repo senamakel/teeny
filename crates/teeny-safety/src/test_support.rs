@@ -65,6 +65,8 @@ pub(crate) struct FlakyLog {
     pub(crate) inner: InMemoryHoldLog,
     pub(crate) fail_record: AtomicBool,
     pub(crate) fail_allowed_links: AtomicBool,
+    /// How many of the next decisions fail.
+    pub(crate) fail_decides: std::sync::atomic::AtomicUsize,
 }
 
 fn down() -> StoreError {
@@ -95,7 +97,19 @@ impl HoldLog for FlakyLog {
         decision: HoldDecision,
         detail: &DecisionDetail,
     ) -> Result<Option<Hold>, StoreError> {
+        let failing = self
+            .fail_decides
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1));
+        if failing.is_ok() {
+            return Err(down());
+        }
         self.inner.decide(id, decision, detail).await
+    }
+    async fn claim(&self, id: &str) -> Result<Option<Hold>, StoreError> {
+        self.inner.claim(id).await
+    }
+    async fn unclaim(&self, id: &str, error: &str) -> Result<Option<Hold>, StoreError> {
+        self.inner.unclaim(id, error).await
     }
     async fn counts(&self) -> Result<HoldCounts, StoreError> {
         self.inner.counts().await
@@ -151,5 +165,21 @@ impl Release for ScriptedRelease {
             .unwrap()
             .clone()
             .map_err(ReviewError::Effect)
+    }
+}
+
+/// A publisher that counts its releases and takes a moment over each, as X
+/// does, so two approvals can overlap.
+#[derive(Default)]
+pub(crate) struct CountingRelease {
+    pub(crate) releases: std::sync::atomic::AtomicUsize,
+}
+
+#[async_trait]
+impl Release for CountingRelease {
+    async fn release(&self, _hold: &Hold) -> Result<String, ReviewError> {
+        tokio::task::yield_now().await;
+        let n = self.releases.fetch_add(1, Ordering::SeqCst) + 1;
+        Ok(format!("published on X as {n}"))
     }
 }

@@ -92,7 +92,8 @@ async fn contract(holds: &dyn HoldLog) {
         HoldCounts {
             pending: 1,
             approved: 1,
-            rejected: 0
+            rejected: 0,
+            releasing: 0
         }
     );
 
@@ -104,6 +105,37 @@ async fn contract(holds: &dyn HoldLog) {
     let mut allowed = holds.allowed_links().await.unwrap();
     allowed.sort();
     assert_eq!(allowed, ["*.y.example", "x.example"]);
+
+    // A decision claims the hold first, once: two approvals at the same
+    // moment get one claim between them.
+    let third = holds.record(hold("three")).await.unwrap();
+    let (a, b) = tokio::join!(holds.claim(&third.id), holds.claim(&third.id));
+    let claimed: Vec<Hold> = [a.unwrap(), b.unwrap()].into_iter().flatten().collect();
+    assert_eq!(claimed.len(), 1, "{claimed:?}");
+    assert_eq!(claimed[0].status, HoldStatus::Releasing);
+    assert_eq!(claimed[0].text, "three");
+    assert_eq!(holds.claim(&first.id).await.unwrap(), None, "decided");
+    assert_eq!(holds.claim("h-none").await.unwrap(), None);
+    assert_eq!(holds.counts().await.unwrap().releasing, 1);
+    assert_eq!(
+        holds.list(Some(HoldStatus::Releasing), None).await.unwrap()[0].id,
+        third.id
+    );
+
+    // A release that failed puts it back, saying why.
+    let back = holds
+        .unclaim(&third.id, "X is down")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(back.status, HoldStatus::Pending);
+    assert!(back.effect.unwrap().contains("X is down"));
+    assert_eq!(
+        holds.unclaim(&third.id, "again").await.unwrap(),
+        None,
+        "only a claimed hold goes back"
+    );
+    assert!(holds.claim(&third.id).await.unwrap().is_some());
 }
 
 #[tokio::test]
@@ -141,6 +173,26 @@ fn a_hold_is_spelled_as_the_typescript_service_stored_it() {
             "category": "unknown", "reason": "r", "by": "judge", "text": "t",
             "status": "rejected", "decidedAt": "d",
         })
+    );
+}
+
+#[test]
+fn a_hold_being_released_is_spelled_releasing_and_the_counts_keep_their_shape() {
+    assert_eq!(
+        serde_json::to_value(HoldStatus::Releasing).unwrap(),
+        json!("releasing")
+    );
+    assert_eq!(
+        serde_json::to_value(HoldCounts::default()).unwrap(),
+        json!({ "pending": 0, "approved": 0, "rejected": 0 })
+    );
+    assert_eq!(
+        serde_json::to_value(HoldCounts {
+            releasing: 2,
+            ..HoldCounts::default()
+        })
+        .unwrap(),
+        json!({ "pending": 0, "approved": 0, "rejected": 0, "releasing": 2 })
     );
 }
 
