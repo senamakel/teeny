@@ -184,3 +184,38 @@ pub fn scratch(name: &str) -> PathBuf {
         .unwrap_or(0);
     std::env::temp_dir().join(format!("teeny-jobs-{name}-{}-{nanos}", std::process::id()))
 }
+
+/// A runner that answers every turn with a closure over the request, and
+/// keeps every request.
+pub struct FnRunner {
+    answer: Box<dyn Fn(&crate::runner::AgentRun) -> String + Send + Sync>,
+    pub seen: Mutex<Vec<crate::runner::AgentRun>>,
+}
+
+impl FnRunner {
+    pub fn new(answer: impl Fn(&crate::runner::AgentRun) -> String + Send + Sync + 'static) -> Self {
+        Self { answer: Box::new(answer), seen: Mutex::new(Vec::new()) }
+    }
+
+    pub fn seen(&self) -> Vec<crate::runner::AgentRun> {
+        self.seen.lock().expect("lock").clone()
+    }
+}
+
+#[async_trait]
+impl crate::runner::AgentRunner for FnRunner {
+    async fn run(
+        &self,
+        run: crate::runner::AgentRun,
+    ) -> Result<crate::runner::AgentOutcome, crate::runner::RunError> {
+        let reply = (self.answer)(&run);
+        self.seen.lock().expect("lock").push(run);
+        Ok(crate::runner::AgentOutcome {
+            reply,
+            session_id: "fn".into(),
+            tool_calls: Vec::new(),
+            usage: None,
+            model: None,
+        })
+    }
+}
