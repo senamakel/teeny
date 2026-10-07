@@ -7,6 +7,7 @@ pub mod article;
 pub mod cache;
 mod client;
 mod error;
+pub mod intake;
 mod media;
 pub mod mention;
 pub mod model;
