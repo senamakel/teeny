@@ -19,3 +19,6 @@ pub mod heat;
 pub mod chat;
 pub mod narrative;
 pub mod moon;
+pub mod lore;
+pub mod chart;
+pub mod quote;
