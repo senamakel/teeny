@@ -96,6 +96,8 @@ pub struct Published {
     /// X's id, or a `dry-run-` placeholder.
     pub id: PostId,
     pub dry_run: bool,
+    /// The text as it went out (or would have): the guard's rewrite.
+    pub text: String,
 }
 
 /// Publishes as the account, through a guard, honouring `DRY_RUN`.
@@ -125,6 +127,23 @@ impl XPublisher {
 
     /// Guard, length check, `DRY_RUN`, post.
     pub async fn post(&self, draft: Draft) -> Result<Published, PublishError> {
+        self.post_with_media(draft, || async { Ok(Vec::new()) })
+            .await
+    }
+
+    /// [`post`](Self::post), with the attachments made by `attach` only once
+    /// the guard has passed the draft and only when the post is real: a
+    /// refused or rehearsed post uploads nothing. The ids `attach` returns
+    /// are added to the draft's own.
+    pub async fn post_with_media<F, Fut>(
+        &self,
+        draft: Draft,
+        attach: F,
+    ) -> Result<Published, PublishError>
+    where
+        F: FnOnce() -> Fut + Send,
+        Fut: Future<Output = Result<Vec<String>, PublishError>> + Send,
+    {
         let draft = self.guard.check(&draft).await?;
         let length = draft.length();
         if length > MAX_POST_LENGTH {
@@ -135,17 +154,21 @@ impl XPublisher {
             return Ok(Published {
                 id: dry_run_id(),
                 dry_run: true,
+                text: draft.text,
             });
         }
+        let mut media_ids = draft.media_ids;
+        media_ids.extend(attach().await?);
         let options = CreateOptions {
             reply_to: draft.reply_to,
             quote: draft.quote,
-            media_ids: draft.media_ids,
+            media_ids,
         };
         let created = self.x.create_post(&draft.text, &options).await?;
         Ok(Published {
             id: created.id,
             dry_run: false,
+            text: draft.text,
         })
     }
 

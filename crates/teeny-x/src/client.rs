@@ -17,7 +17,7 @@ use tokio::sync::OnceCell;
 use crate::error::{XError, XResult};
 use crate::model::{
     Identity, MentionWindow, OwnPostMetrics, SearchOptions, SearchPage, Trend, TrendOptions,
-    WindowStart, XPost,
+    WindowStart, XPost, XUser,
 };
 use crate::oauth::{OAuth1, percent_encode};
 use crate::wire::{Envelope, RawPost, RawTrend, RawUser, to_posts};
@@ -31,6 +31,8 @@ const POST_FIELDS: &str = "created_at,conversation_id,text,attachments,public_me
 /// Photos carry `url`; videos and GIFs only a preview frame.
 const MEDIA_FIELDS: &str = "media_key,type,url,preview_image_url,alt_text";
 const USER_FIELDS: &str = "username";
+/// What a lookup by handle asks for about the account.
+const USER_LOOKUP_FIELDS: &str = "created_at,description,public_metrics,verified";
 const EXPANSIONS: &str = "author_id,in_reply_to_user_id,attachments.media_keys";
 
 /// How much of an error body is kept.
@@ -283,6 +285,39 @@ impl XApi {
             })
             .await
             .cloned()
+    }
+
+    /// The account behind `username` (a leading `@` is ignored); `None`
+    /// when X has no such account (suspended, deactivated, never existed).
+    pub async fn user_by_username(&self, username: &str) -> XResult<Option<XUser>> {
+        let handle = username.trim().trim_start_matches('@');
+        let response: Envelope<RawUser> = self
+            .call(
+                Method::GET,
+                &format!("/2/users/by/username/{}", percent_encode(handle)),
+                &[("user.fields", USER_LOOKUP_FIELDS.to_owned())],
+                None,
+                Auth::App,
+            )
+            .await?;
+        let Some(user) = response.data else {
+            return Ok(None);
+        };
+        let Some(id) = user.id else {
+            return Ok(None);
+        };
+        let metrics = user.public_metrics;
+        Ok(Some(XUser {
+            id,
+            username: user.username.unwrap_or_else(|| handle.to_owned()),
+            name: user.name,
+            description: user.description,
+            created_at: user.created_at,
+            verified: user.verified,
+            followers: metrics.as_ref().and_then(|m| m.followers_count),
+            following: metrics.as_ref().and_then(|m| m.following_count),
+            posts: metrics.as_ref().and_then(|m| m.tweet_count),
+        }))
     }
 
     /// The account's own numeric id.

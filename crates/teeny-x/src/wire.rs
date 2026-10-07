@@ -67,6 +67,10 @@ pub struct RawMetrics {
 pub struct RawUser {
     pub id: Option<UserId>,
     pub username: Option<String>,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub created_at: Option<String>,
+    pub verified: Option<bool>,
     pub public_metrics: Option<RawUserMetrics>,
     pub connection_status: Option<Vec<String>>,
 }
@@ -74,6 +78,8 @@ pub struct RawUser {
 #[derive(Debug, Default, Deserialize)]
 pub struct RawUserMetrics {
     pub followers_count: Option<u64>,
+    pub following_count: Option<u64>,
+    pub tweet_count: Option<u64>,
 }
 
 #[derive(Debug, Default, Deserialize)]

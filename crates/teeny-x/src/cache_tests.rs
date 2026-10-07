@@ -11,7 +11,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use teeny_core::types::{PostId, UserId};
 
 use super::*;
-use crate::model::{OwnPostMetrics, SearchOptions, Trend, TrendOptions, XPost};
+use crate::model::{OwnPostMetrics, SearchOptions, Trend, TrendOptions, XPost, XUser};
 use crate::{XError, XResult};
 
 fn post(id: &str) -> XPost {
@@ -30,6 +30,7 @@ struct Calls {
     trends: AtomicUsize,
     metrics: AtomicUsize,
     follows: AtomicUsize,
+    users: AtomicUsize,
 }
 
 /// A fake X that counts what it is asked, and takes a moment to answer so
@@ -83,6 +84,24 @@ impl XReads for FakeX {
     async fn follows_account(&self, id: &UserId) -> Option<bool> {
         self.calls.follows.fetch_add(1, Ordering::SeqCst);
         (id.as_str() != "unknown").then_some(true)
+    }
+    async fn user_by_username(&self, username: &str) -> XResult<Option<XUser>> {
+        self.calls.users.fetch_add(1, Ordering::SeqCst);
+        Ok(Some(user(username)))
+    }
+}
+
+fn user(username: &str) -> XUser {
+    XUser {
+        id: "9".into(),
+        username: username.to_owned(),
+        name: None,
+        description: None,
+        created_at: None,
+        verified: None,
+        followers: None,
+        following: None,
+        posts: None,
     }
 }
 
@@ -291,6 +310,9 @@ async fn a_failed_read_is_not_cached_and_reaches_every_waiter() {
         async fn follows_account(&self, _id: &UserId) -> Option<bool> {
             unreachable!()
         }
+        async fn user_by_username(&self, _username: &str) -> XResult<Option<XUser>> {
+            unreachable!()
+        }
     }
     let x = Arc::new(Failing(AtomicUsize::new(0)));
     let c = CachedX::new(
@@ -375,4 +397,19 @@ async fn x_cache_enabled_decides_whether_reads_go_through_the_store() {
     reads.get_post(&"7".into()).await.unwrap();
     reads.get_post(&"7".into()).await.unwrap();
     assert_eq!(count(&x.calls.get_post), 2, "no store, no cache");
+}
+
+#[tokio::test]
+async fn looks_an_account_up_on_x_every_time() {
+    let x = Arc::new(FakeX::default());
+    let c = cached(&x, CacheOptions::default());
+    assert_eq!(
+        c.user_by_username("stonks").await.unwrap(),
+        Some(user("stonks"))
+    );
+    assert_eq!(
+        c.user_by_username("stonks").await.unwrap(),
+        Some(user("stonks"))
+    );
+    assert_eq!(count(&x.calls.users), 2);
 }

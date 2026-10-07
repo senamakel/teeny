@@ -118,6 +118,32 @@ pub struct Identity {
     pub followers: Option<u64>,
 }
 
+/// An X account, looked up by its handle.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct XUser {
+    pub id: UserId,
+    pub username: String,
+    /// The display name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// The bio, written by the account's owner.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// When the account joined, ISO 8601.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verified: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub followers: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub following: Option<u64>,
+    /// Posts the account has published.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub posts: Option<u64>,
+}
+
 /// How a recent search orders its results.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

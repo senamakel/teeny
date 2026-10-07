@@ -61,7 +61,8 @@ async fn posts_what_the_guard_returns() {
         published,
         Published {
             id: "100".into(),
-            dry_run: false
+            dry_run: false,
+            text: "GM".into(),
         }
     );
 }
@@ -173,4 +174,66 @@ async fn unsays_a_post_when_live() {
             .await
             .unwrap()
     );
+}
+
+#[tokio::test]
+async fn a_dry_run_says_what_would_have_gone_out() {
+    let server = MockServer::start().await;
+    no_posts(&server).await;
+    let published = publisher(&server, Shout, true)
+        .post(Draft::new("gm"))
+        .await
+        .unwrap();
+    assert!(published.dry_run);
+    assert_eq!(published.text, "GM");
+}
+
+/// Counts the times it is asked to attach, and hands back one media id.
+fn attacher(
+    calls: &Arc<std::sync::atomic::AtomicUsize>,
+) -> impl FnOnce() -> std::future::Ready<Result<Vec<String>, PublishError>> + Send + use<> {
+    let calls = Arc::clone(calls);
+    move || {
+        calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        std::future::ready(Ok(vec!["m9".to_owned()]))
+    }
+}
+
+#[tokio::test]
+async fn attaches_only_after_the_guard_and_only_for_real() {
+    let server = MockServer::start().await;
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    no_posts(&server).await;
+
+    let refused = publisher(&server, Refuse, false)
+        .post_with_media(Draft::new("buy $FAKE"), attacher(&calls))
+        .await;
+    assert!(matches!(refused, Err(PublishError::Refused(_))));
+    let rehearsed = publisher(&server, NoopGuard, true)
+        .post_with_media(Draft::new("gm"), attacher(&calls))
+        .await
+        .unwrap();
+    assert!(rehearsed.dry_run);
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn puts_the_attached_media_on_the_post() {
+    let server = MockServer::start().await;
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    Mock::given(method("POST"))
+        .and(path("/2/tweets"))
+        .and(body_json(
+            json!({ "text": "gm", "media": { "media_ids": ["m9"] } }),
+        ))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({ "data": { "id": "101" } })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let published = publisher(&server, NoopGuard, false)
+        .post_with_media(Draft::new("gm"), attacher(&calls))
+        .await
+        .unwrap();
+    assert_eq!(published.id, "101".into());
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
 }

@@ -31,7 +31,7 @@ use teeny_core::types::{PostId, UserId};
 
 use crate::client::XApi;
 use crate::error::{XError, XResult};
-use crate::model::{OwnPostMetrics, SearchOptions, SortOrder, Trend, TrendOptions, XPost};
+use crate::model::{OwnPostMetrics, SearchOptions, SortOrder, Trend, TrendOptions, XPost, XUser};
 
 /// The reads worth keeping. [`XApi`] answers them from X; [`CachedX`] from
 /// the store first. A read-only tool takes a `&dyn XReads` and cannot tell.
@@ -47,6 +47,9 @@ pub trait XReads: Send + Sync {
     async fn trends(&self, options: TrendOptions) -> XResult<Vec<Trend>>;
     async fn post_metrics(&self, ids: &[PostId]) -> XResult<Vec<OwnPostMetrics>>;
     async fn follows_account(&self, user_id: &UserId) -> Option<bool>;
+    /// An account by its handle. Not kept: a profile changes, and a lookup
+    /// is one user, not a bill per post.
+    async fn user_by_username(&self, username: &str) -> XResult<Option<XUser>>;
 }
 
 #[async_trait]
@@ -72,6 +75,9 @@ impl XReads for XApi {
     }
     async fn follows_account(&self, user_id: &UserId) -> Option<bool> {
         XApi::follows_account(self, user_id).await
+    }
+    async fn user_by_username(&self, username: &str) -> XResult<Option<XUser>> {
+        XApi::user_by_username(self, username).await
     }
 }
 
@@ -494,6 +500,10 @@ impl<R: XReads + 'static> XReads for CachedX<R> {
                 .await;
         }
         answer
+    }
+
+    async fn user_by_username(&self, username: &str) -> XResult<Option<XUser>> {
+        self.inner.x.user_by_username(username).await
     }
 }
 

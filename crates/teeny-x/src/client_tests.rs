@@ -3,7 +3,7 @@ use wiremock::matchers::{header, method, path, query_param};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
 use super::*;
-use crate::model::SortOrder;
+use crate::model::{SortOrder, XUser};
 use crate::test_support::{api, api_without_bearer, is_oauth};
 
 const POST_FIELDS: &str = "created_at,conversation_id,text,attachments,public_metrics";
@@ -334,4 +334,59 @@ async fn an_error_status_is_an_http_error_with_the_body() {
         }
         other => panic!("expected an HTTP error, got {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn looks_up_an_account_by_its_handle_on_the_app_bearer() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/2/users/by/username/stonksrocks"))
+        .and(query_param(
+            "user.fields",
+            "created_at,description,public_metrics,verified",
+        ))
+        .and(header("authorization", "Bearer app-bearer"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": {
+                "id": "42",
+                "username": "StonksRocks",
+                "name": "Stonks",
+                "description": "an open-source dapp",
+                "created_at": "2021-03-04T05:06:07.000Z",
+                "verified": false,
+                "public_metrics": { "followers_count": 1200, "following_count": 30, "tweet_count": 999 }
+            }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let user = api(&server).user_by_username("@stonksrocks").await.unwrap();
+    assert_eq!(
+        user,
+        Some(XUser {
+            id: "42".into(),
+            username: "StonksRocks".into(),
+            name: Some("Stonks".into()),
+            description: Some("an open-source dapp".into()),
+            created_at: Some("2021-03-04T05:06:07.000Z".into()),
+            verified: Some(false),
+            followers: Some(1200),
+            following: Some(30),
+            posts: Some(999),
+        })
+    );
+}
+
+#[tokio::test]
+async fn an_account_x_does_not_have_is_none() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/2/users/by/username/nobody"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "errors": [{ "title": "Not Found Error", "detail": "Could not find user with username: [nobody]." }]
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    assert_eq!(api(&server).user_by_username("nobody").await.unwrap(), None);
 }
