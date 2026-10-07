@@ -22,6 +22,10 @@ pub enum XError {
     /// X refused an Article; it gates them on Premium+.
     #[error("X refused the article ({status}): {body}")]
     ArticleRefused { status: u16, body: String },
+    /// The error of a read another caller was already making; the cache
+    /// shares one request between callers asking the same thing at once.
+    #[error("{0}")]
+    Shared(std::sync::Arc<XError>),
 }
 
 /// `Result` with [`XError`].

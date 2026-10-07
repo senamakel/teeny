@@ -3,6 +3,7 @@
 //! `Publisher` seam every write goes through.
 
 pub mod article;
+pub mod cache;
 mod client;
 mod error;
 mod media;
