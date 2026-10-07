@@ -4113,6 +4113,19 @@ dependencies = [
 [[package]]
 name = "teeny-cadence"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "chrono-tz",
+ "cron",
+ "regex",
+ "serde",
+ "serde_json",
+ "teeny-core",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "teeny-core"
@@ -4149,6 +4162,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "chrono",
+ "futures",
  "image",
  "reqwest",
  "resvg",
@@ -4165,6 +4179,18 @@ dependencies = [
 [[package]]
 name = "teeny-memory"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "teeny-core",
+ "thiserror",
+ "tokio",
+ "wiremock",
+]
 
 [[package]]
 name = "teeny-safety"
