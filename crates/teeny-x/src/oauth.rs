@@ -145,15 +145,20 @@ impl OAuth1 {
         )
     }
 
+    /// The `oauth_*` set. A signer with no token (the app alone, asking for
+    /// a request token) sends no `oauth_token` at all, as RFC 5849 has it.
     fn oauth_params(&self, nonce: &str, timestamp: u64) -> Vec<(&'static str, String)> {
-        vec![
+        let mut params = vec![
             ("oauth_consumer_key", self.consumer_key.clone()),
             ("oauth_nonce", nonce.to_owned()),
             ("oauth_signature_method", "HMAC-SHA1".to_owned()),
             ("oauth_timestamp", timestamp.to_string()),
-            ("oauth_token", self.token.clone()),
-            ("oauth_version", "1.0".to_owned()),
-        ]
+        ];
+        if !self.token.is_empty() {
+            params.push(("oauth_token", self.token.clone()));
+        }
+        params.push(("oauth_version", "1.0".to_owned()));
+        params
     }
 }
 

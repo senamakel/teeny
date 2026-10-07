@@ -89,3 +89,25 @@ fn never_prints_its_secrets() {
     assert!(!printed.contains("kAcSOqF21Fu85e7zjz7ZN2U4ZRhfV3WpwPAoE3Z7kBw"));
     assert!(!printed.contains("LswwdoUaIvS8ltyTt5jkRh4J50vUPVVHtR2YPi5kE"));
 }
+
+#[test]
+fn a_consumer_only_signer_sends_no_token() {
+    let signer = OAuth1::new("ck", Secret::new("cs"), "", Secret::new(""));
+    let header = signer.header_with(
+        "POST",
+        "https://api.x.com/oauth/request_token?oauth_callback=oob",
+        &[],
+        NONCE,
+        TIMESTAMP,
+    );
+    assert!(!header.contains("oauth_token"), "{header}");
+    let base = signer.base_string(
+        "POST",
+        "https://api.x.com/oauth/request_token?oauth_callback=oob",
+        &[],
+        NONCE,
+        TIMESTAMP,
+    );
+    assert!(!base.contains("oauth_token"), "{base}");
+    assert!(base.contains("oauth_callback%3Doob"), "{base}");
+}

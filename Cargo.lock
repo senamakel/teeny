@@ -4392,6 +4392,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "url",
  "wiremock",
 ]
 
