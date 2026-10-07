@@ -89,3 +89,31 @@ impl ActivityMemory for RecordingMemory {
 pub fn services() -> Services {
     Services::new(SECRET, Arc::new(ActivityIntake::new(Arc::new(RecordingMemory::default()))))
 }
+
+/// A directory of its own under the system temp dir, removed on drop.
+pub struct Scratch(pub std::path::PathBuf);
+
+impl Scratch {
+    pub fn new(name: &str) -> Self {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("teeny-http-{name}-{}-{n}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        Self(dir)
+    }
+
+    /// Writes `contents` at `relative`, making the directories on the way.
+    pub fn write(&self, relative: &str, contents: impl AsRef<[u8]>) -> std::path::PathBuf {
+        let path = self.0.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, contents).unwrap();
+        path
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
