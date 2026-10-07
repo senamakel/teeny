@@ -90,6 +90,13 @@ impl TelegramApi {
         }
     }
 
+    /// A request that failed on the way. The token is in the URL's path, and
+    /// a `reqwest::Error` prints its URL, so the URL is dropped first: this
+    /// text is logged.
+    fn unsent(method: &'static str, error: reqwest::Error) -> TelegramError {
+        Self::failed(method, error.without_url())
+    }
+
     async fn read<T: DeserializeOwned>(
         method: &'static str,
         response: reqwest::Response,
@@ -97,7 +104,7 @@ impl TelegramApi {
         let answer: Answer<T> = response
             .json()
             .await
-            .map_err(|error| Self::failed(method, error))?;
+            .map_err(|error| Self::unsent(method, error))?;
         match (answer.ok, answer.result) {
             (true, Some(result)) => Ok(result),
             _ => Err(TelegramError {
@@ -124,7 +131,7 @@ impl TelegramApi {
             .json(&body)
             .send()
             .await
-            .map_err(|error| Self::failed(method, error))?;
+            .map_err(|error| Self::unsent(method, error))?;
         Self::read(method, response).await
     }
 
@@ -223,7 +230,7 @@ impl TelegramApi {
         let part = reqwest::multipart::Part::bytes(media.data.clone())
             .file_name(file)
             .mime_str(media.mime_type.as_str())
-            .map_err(|error| Self::failed(method, error))?;
+            .map_err(|error| Self::unsent(method, error))?;
         let mut form = reqwest::multipart::Form::new()
             .text("chat_id", chat_id.to_string())
             .part(field, part);
@@ -237,7 +244,7 @@ impl TelegramApi {
             .multipart(form)
             .send()
             .await
-            .map_err(|error| Self::failed(method, error))?;
+            .map_err(|error| Self::unsent(method, error))?;
         let sent: Sent = Self::read(method, response).await?;
         Ok(sent.message_id)
     }
@@ -273,3 +280,7 @@ impl teeny_jobs::calendar::TelegramSender for TelegramApi {
         Ok(TelegramApi::send_media(self, chat_id, media, caption).await?)
     }
 }
+
+#[cfg(test)]
+#[path = "api_tests.rs"]
+mod tests;
