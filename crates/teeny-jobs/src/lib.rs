@@ -7,20 +7,22 @@
 //! scheduler (OpenHuman cron system jobs) calls the `run` entry point of each
 //! job module.
 
-pub mod runner;
-pub mod ctx;
-pub mod journal_glue;
-pub mod morning;
+pub mod afternoon;
+pub mod article;
 pub mod backrooms;
 pub mod brain_fold;
-pub mod ingest;
-pub mod reply;
-pub mod heat;
-pub mod chat;
-pub mod narrative;
-pub mod moon;
-pub mod lore;
-pub mod chart;
-pub mod quote;
-pub mod afternoon;
 pub mod calendar;
+pub mod chart;
+pub mod chat;
+pub mod ctx;
+pub mod evening;
+pub mod heat;
+pub mod ingest;
+pub mod journal_glue;
+pub mod lore;
+pub mod moon;
+pub mod morning;
+pub mod narrative;
+pub mod quote;
+pub mod reply;
+pub mod runner;
