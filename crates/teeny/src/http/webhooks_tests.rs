@@ -29,7 +29,10 @@ const BOT: &str = "2094854245468000256";
 fn signed(payload: &str) -> String {
     let mut mac = Hmac::<Sha256>::new_from_slice(SECRET.as_bytes()).unwrap();
     mac.update(payload.as_bytes());
-    format!("sha256={}", base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes()))
+    format!(
+        "sha256={}",
+        base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes())
+    )
 }
 
 fn delivery_request(payload: &str, signature: Option<&str>) -> Request<Body> {
@@ -83,9 +86,16 @@ fn rig(account: Account) -> Rig {
     let queue = Arc::new(InMemoryMentionQueue::default());
     let people = Arc::new(People::default());
     let intake = ActivityIntake::new(Arc::new(RecordingMemory::default()))
-        .with_queue(Arc::new(QueueAdapter(queue.clone())), Arc::new(account), "TinyMascot")
+        .with_queue(
+            Arc::new(QueueAdapter(queue.clone())),
+            Arc::new(account),
+            "TinyMascot",
+        )
         .with_people(people.clone());
-    let app = router(Services { queue: Some(queue.clone()), ..Services::new(SECRET, Arc::new(intake)) });
+    let app = router(Services {
+        queue: Some(queue.clone()),
+        ..Services::new(SECRET, Arc::new(intake))
+    });
     Rig { app, queue, people }
 }
 
@@ -94,7 +104,10 @@ async fn answers_challenge_response_checks() {
     let app = router(services());
     let answer = call(&app, get("/webhooks/x?crc_token=challenge")).await;
     assert_eq!(answer.status, StatusCode::OK);
-    assert_eq!(answer.json(), json!({ "response_token": signed("challenge") }));
+    assert_eq!(
+        answer.json(),
+        json!({ "response_token": signed("challenge") })
+    );
 
     for uri in ["/webhooks/x", "/webhooks/x?crc_token="] {
         let refused = call(&app, get(uri)).await;
@@ -106,13 +119,19 @@ async fn answers_challenge_response_checks() {
 #[tokio::test]
 async fn rejects_unsigned_events_and_captures_signed_activity() {
     let memory = Arc::new(RecordingMemory::default());
-    let app = router(Services::new(SECRET, Arc::new(ActivityIntake::new(memory.clone()))));
+    let app = router(Services::new(
+        SECRET,
+        Arc::new(ActivityIntake::new(memory.clone())),
+    ));
     let payload = json!({ "tweet_create_events": [{ "id_str": "123", "text": "hello" }], "favorite_events": [{ "id": "456" }] })
         .to_string();
 
     let unsigned = call(&app, delivery_request(&payload, None)).await;
     assert_eq!(unsigned.status, StatusCode::UNAUTHORIZED);
-    assert_eq!(unsigned.json(), json!({ "error": "invalid webhook signature" }));
+    assert_eq!(
+        unsigned.json(),
+        json!({ "error": "invalid webhook signature" })
+    );
     let forged = call(&app, delivery_request(&payload, Some("sha256=nope"))).await;
     assert_eq!(forged.status, StatusCode::UNAUTHORIZED);
 
@@ -122,7 +141,10 @@ async fn rejects_unsigned_events_and_captures_signed_activity() {
     // Only the non-post event reaches memory; the post goes to the queue.
     eventually(|| memory.0.lock().unwrap().len() == 1).await;
     let entry = memory.0.lock().unwrap()[0].clone();
-    assert_eq!((entry.kind.as_str(), entry.id.as_str()), ("favorite_events", "456"));
+    assert_eq!(
+        (entry.kind.as_str(), entry.id.as_str()),
+        ("favorite_events", "456")
+    );
 }
 
 #[tokio::test]
@@ -130,8 +152,18 @@ async fn verifies_the_bytes_not_a_reparse_of_them() {
     let app = router(services());
     let payload = "{\"favorite_events\":[{\"id\":\"456\"}]}";
     let respaced = "{ \"favorite_events\": [ { \"id\": \"456\" } ] }";
-    assert_eq!(call(&app, delivery_request(respaced, Some(&signed(payload)))).await.status, StatusCode::UNAUTHORIZED);
-    assert_eq!(call(&app, delivery_request(respaced, Some(&signed(respaced)))).await.status, StatusCode::OK);
+    assert_eq!(
+        call(&app, delivery_request(respaced, Some(&signed(payload))))
+            .await
+            .status,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        call(&app, delivery_request(respaced, Some(&signed(respaced))))
+            .await
+            .status,
+        StatusCode::OK
+    );
 }
 
 #[tokio::test]
@@ -159,11 +191,22 @@ async fn queues_a_mention_using_the_full_text_of_a_truncated_post() {
     })
     .to_string();
 
-    assert_eq!(call(&rig.app, delivery_request(&payload, Some(&signed(&payload)))).await.status, StatusCode::OK);
+    assert_eq!(
+        call(
+            &rig.app,
+            delivery_request(&payload, Some(&signed(&payload)))
+        )
+        .await
+        .status,
+        StatusCode::OK
+    );
     let queued = rig.queue.get("900").expect("queued").post.0;
     assert_eq!(queued.text, "hey @TinyMascot the whole thing");
     assert_eq!(queued.author_username.as_deref(), Some("someone"));
-    assert_eq!(queued.created_at.as_deref(), Some("2026-09-02T13:30:16.000Z"));
+    assert_eq!(
+        queued.created_at.as_deref(),
+        Some("2026-09-02T13:30:16.000Z")
+    );
 }
 
 #[tokio::test]
@@ -173,10 +216,22 @@ async fn never_queues_the_accounts_own_posts_and_nothing_when_it_cannot_say_who_
         "tweet_create_events": [{ "id_str": "901", "text": "gm from the bot", "user": { "id_str": BOT, "screen_name": "TinyMascot" } }],
     })
     .to_string();
-    for account in [Account(Ok(Some(BOT))), Account(Ok(None)), Account(Err("Could not find user"))] {
+    for account in [
+        Account(Ok(Some(BOT))),
+        Account(Ok(None)),
+        Account(Err("Could not find user")),
+    ] {
         let rig = rig(account);
         // Still 200: X retries anything else until it disables the webhook.
-        assert_eq!(call(&rig.app, delivery_request(&payload, Some(&signed(&payload)))).await.status, StatusCode::OK);
+        assert_eq!(
+            call(
+                &rig.app,
+                delivery_request(&payload, Some(&signed(&payload)))
+            )
+            .await
+            .status,
+            StatusCode::OK
+        );
         assert!(rig.queue.get("901").is_none());
     }
 }
@@ -196,13 +251,33 @@ async fn queues_a_mention_from_the_activity_api_envelope_and_credits_the_people(
     } })
     .to_string();
 
-    assert_eq!(call(&rig.app, delivery_request(&mention, Some(&signed(&mention)))).await.status, StatusCode::OK);
-    assert_eq!(call(&rig.app, delivery_request(&follow, Some(&signed(&follow)))).await.status, StatusCode::OK);
+    assert_eq!(
+        call(
+            &rig.app,
+            delivery_request(&mention, Some(&signed(&mention)))
+        )
+        .await
+        .status,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(&rig.app, delivery_request(&follow, Some(&signed(&follow))))
+            .await
+            .status,
+        StatusCode::OK
+    );
 
     let queued = rig.queue.get("906").expect("queued").post.0;
-    assert_eq!((queued.text.as_str(), queued.author_username.as_deref()), ("yo @TinyMascot", Some("someone")));
+    assert_eq!(
+        (queued.text.as_str(), queued.author_username.as_deref()),
+        ("yo @TinyMascot", Some("someone"))
+    );
     let people = rig.people.0.lock().unwrap().clone();
-    assert!(people.contains(&ActivityInteraction { user_id: "44".into(), username: None, kind: InteractionKind::Follow }));
+    assert!(people.contains(&ActivityInteraction {
+        user_id: "44".into(),
+        username: None,
+        kind: InteractionKind::Follow
+    }));
 }
 
 #[derive(Default)]
@@ -229,7 +304,10 @@ const FAVORITE: &str = "{\"favorite_events\":[{\"id\":\"456\"}]}";
 #[tokio::test]
 async fn sends_a_verified_delivery_on_body_and_signature_untouched() {
     let copies = Arc::new(Copies::default());
-    let app = router(Services { forwarder: Some(copies.clone()), ..services() });
+    let app = router(Services {
+        forwarder: Some(copies.clone()),
+        ..services()
+    });
 
     let answer = call(&app, delivery_request(FAVORITE, Some(&signed(FAVORITE)))).await;
     assert_eq!(answer.status, StatusCode::OK);
@@ -242,7 +320,10 @@ async fn sends_a_verified_delivery_on_body_and_signature_untouched() {
 #[tokio::test]
 async fn forwards_nothing_x_did_not_sign() {
     let copies = Arc::new(Copies::default());
-    let app = router(Services { forwarder: Some(copies.clone()), ..services() });
+    let app = router(Services {
+        forwarder: Some(copies.clone()),
+        ..services()
+    });
     let answer = call(&app, delivery_request(FAVORITE, Some("sha256=nope"))).await;
     assert_eq!(answer.status, StatusCode::UNAUTHORIZED);
     tokio::time::sleep(Duration::from_millis(20)).await;
@@ -251,7 +332,10 @@ async fn forwards_nothing_x_did_not_sign() {
 
 #[tokio::test]
 async fn answers_x_even_when_the_receiver_never_does() {
-    let app = router(Services { forwarder: Some(Arc::new(Stuck)), ..services() });
+    let app = router(Services {
+        forwarder: Some(Arc::new(Stuck)),
+        ..services()
+    });
     let answer = tokio::time::timeout(
         Duration::from_secs(2),
         call(&app, delivery_request(FAVORITE, Some(&signed(FAVORITE)))),
@@ -268,7 +352,10 @@ async fn the_forwarder_posts_the_bytes_with_the_signature_and_a_bearer_and_swall
         .and(path("/x"))
         .and(has_header("content-type", "application/json"))
         .and(has_header(SIGNATURE_HEADER, "sha256=abc"))
-        .and(has_header("authorization", "Bearer a-token-of-sixteen-chars"))
+        .and(has_header(
+            "authorization",
+            "Bearer a-token-of-sixteen-chars",
+        ))
         .and(body_string("{\"a\":1}"))
         .respond_with(ResponseTemplate::new(503))
         .expect(1)
@@ -280,13 +367,19 @@ async fn the_forwarder_posts_the_bytes_with_the_signature_and_a_bearer_and_swall
         Duration::from_secs(10),
     );
 
-    forwarder.forward(Bytes::from_static(b"{\"a\":1}"), Some("sha256=abc".into())).await;
+    forwarder
+        .forward(Bytes::from_static(b"{\"a\":1}"), Some("sha256=abc".into()))
+        .await;
 }
 
 #[tokio::test]
 async fn the_forwarder_sends_no_signature_or_bearer_it_does_not_have() {
     let receiver = MockServer::start().await;
-    Mock::given(method("POST")).respond_with(ResponseTemplate::new(200)).expect(1).mount(&receiver).await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&receiver)
+        .await;
     HttpForwarder::new(receiver.uri(), None, Duration::from_secs(10))
         .forward(Bytes::from_static(b"{}"), None)
         .await;
@@ -309,7 +402,8 @@ async fn the_forwarder_survives_a_receiver_that_is_down_or_slow() {
         .await;
     tokio::time::timeout(
         Duration::from_secs(2),
-        HttpForwarder::new(slow.uri(), None, Duration::from_millis(100)).forward(Bytes::from_static(b"{}"), None),
+        HttpForwarder::new(slow.uri(), None, Duration::from_millis(100))
+            .forward(Bytes::from_static(b"{}"), None),
     )
     .await
     .expect("gave up at its own timeout");

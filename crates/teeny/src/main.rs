@@ -1,12 +1,14 @@
 //! `teeny`: the service and its operator subcommands.
 
 mod cli;
+mod healthcheck;
 mod http;
 mod mentions;
+mod serve;
+mod sinks;
 
 use std::process::ExitCode;
 
-use anyhow::bail;
 use clap::Parser;
 use openhuman_core::core::runtime::{AGENT_WORKER_STACK_BYTES, MAX_BLOCKING_THREADS};
 use teeny_core::Config;
@@ -42,12 +44,25 @@ async fn run(command: Command) -> anyhow::Result<()> {
     match command {
         Command::Serve => {
             // Refuse a bad environment the same way legacy did, before
-            // anything starts; the service itself lands in later milestones.
-            Config::from_env()?;
-            bail!("serve: the configuration loads, but the service is not built yet")
+            // anything starts.
+            let config = Config::from_env()?;
+            init_tracing(&config.server.log_level);
+            // TODO(schedule): the cron jobs, the activity stream and the
+            // reply worker start here in their milestones.
+            serve::serve(&config).await
         }
-        Command::Healthcheck => bail!("healthcheck: there is no service to check yet"),
+        Command::Healthcheck => {
+            let port = std::env::var("PORT").ok();
+            healthcheck::check(&healthcheck::health_url(port.as_deref())).await
+        }
     }
+}
+
+/// Logs to stderr at `LOG_LEVEL`, overridable with `RUST_LOG`.
+fn init_tracing(level: &str) {
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(level));
+    let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
 }
 
 #[cfg(test)]

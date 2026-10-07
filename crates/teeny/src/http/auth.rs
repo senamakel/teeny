@@ -33,14 +33,23 @@ pub fn matches_token(provided: Option<&str>, expected: &str) -> bool {
         return false;
     };
     let (a, b) = (provided.as_bytes(), expected.as_bytes());
-    a.len() == b.len() && a.iter().zip(b).fold(0u8, |difference, (x, y)| difference | (x ^ y)) == 0
+    a.len() == b.len()
+        && a.iter()
+            .zip(b)
+            .fold(0u8, |difference, (x, y)| difference | (x ^ y))
+            == 0
 }
 
 /// `Ok` when the request carries the operator's token; otherwise the answer
 /// to send. `browser` asks for a Basic challenge rather than a Bearer one.
+// A refusal is a whole response; it is built once, on the way out.
+#[allow(clippy::result_large_err)]
 pub fn authorise(token: Option<&str>, headers: &HeaderMap, browser: bool) -> Result<(), Response> {
     let Some(expected) = token else {
-        return Err(error(StatusCode::SERVICE_UNAVAILABLE, "AGENT_API_TOKEN is not set"));
+        return Err(error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "AGENT_API_TOKEN is not set",
+        ));
     };
     let sent = headers
         .get(header::AUTHORIZATION)
@@ -54,9 +63,10 @@ pub fn authorise(token: Option<&str>, headers: &HeaderMap, browser: bool) -> Res
         "Bearer"
     };
     let mut refused = error(StatusCode::UNAUTHORIZED, "unauthorized");
-    refused
-        .headers_mut()
-        .insert(header::WWW_AUTHENTICATE, HeaderValue::from_static(challenge));
+    refused.headers_mut().insert(
+        header::WWW_AUTHENTICATE,
+        HeaderValue::from_static(challenge),
+    );
     Err(refused)
 }
 

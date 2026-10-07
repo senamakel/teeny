@@ -8,8 +8,14 @@ use crate::http::test_support::Scratch;
 
 fn checkout() -> Scratch {
     let dir = Scratch::new("brain");
-    dir.write("company/teeny/company.toml", "[company]\nname = \"Teeny\"\noutput = \"a mind\"\n");
-    dir.write("company/teeny/agents/scout.toml", "role = \"Scout\"\ndescription = \"watches\"\n");
+    dir.write(
+        "company/teeny/company.toml",
+        "[company]\nname = \"Teeny\"\noutput = \"a mind\"\n",
+    );
+    dir.write(
+        "company/teeny/agents/scout.toml",
+        "role = \"Scout\"\ndescription = \"watches\"\n",
+    );
     dir.write(
         "company/teeny/agents/curator.toml",
         "role = \"Curator\"\ndescription = \"edits\"\ntier = \"orchestrator\"\n",
@@ -19,10 +25,23 @@ fn checkout() -> Scratch {
     dir.write(
         "company/teeny/workflows/reflect.toml",
         [
-            "id = \"reflect\"", "name = \"Reflect\"", "description = \"look, learn, revise\"",
-            "[[node]]", "id = \"daily\"", "kind = \"trigger\"", "name = \"Every morning\"", "schedule = \"0 6 * * *\"",
-            "[[node]]", "id = \"look\"", "kind = \"agent\"", "name = \"Look\"", "agent = \"scout\"",
-            "[[edge]]", "from = \"daily\"", "to = \"look\"", "label = \"go\"",
+            "id = \"reflect\"",
+            "name = \"Reflect\"",
+            "description = \"look, learn, revise\"",
+            "[[node]]",
+            "id = \"daily\"",
+            "kind = \"trigger\"",
+            "name = \"Every morning\"",
+            "schedule = \"0 6 * * *\"",
+            "[[node]]",
+            "id = \"look\"",
+            "kind = \"agent\"",
+            "name = \"Look\"",
+            "agent = \"scout\"",
+            "[[edge]]",
+            "from = \"daily\"",
+            "to = \"look\"",
+            "label = \"go\"",
         ]
         .join("\n"),
     );
@@ -39,7 +58,13 @@ async fn serves_the_roster_the_workflow_graph_and_the_latest_runs_one_row_per_ru
     let dir = checkout();
     dir.write(
         "companies/teeny/runs.jsonl",
-        [run("r1", "running", 1), run("r2", "pending", 2), run("r1", "succeeded", 1), String::new()].join("\n"),
+        [
+            run("r1", "running", 1),
+            run("r2", "pending", 2),
+            run("r1", "succeeded", 1),
+            String::new(),
+        ]
+        .join("\n"),
     );
     dir.write(
         "companies/teeny/run-steps.jsonl",
@@ -55,7 +80,10 @@ async fn serves_the_roster_the_workflow_graph_and_the_latest_runs_one_row_per_ru
 
     let snapshot = serde_json::to_value(brain.snapshot(40, 300).await.unwrap()).unwrap();
     assert_eq!(snapshot["source"], "live");
-    assert_eq!(snapshot["company"], json!({ "name": "Teeny", "output": "a mind", "slug": "teeny" }));
+    assert_eq!(
+        snapshot["company"],
+        json!({ "name": "Teeny", "output": "a mind", "slug": "teeny" })
+    );
     assert_eq!(
         snapshot["agents"],
         json!([
@@ -75,7 +103,10 @@ async fn serves_the_roster_the_workflow_graph_and_the_latest_runs_one_row_per_ru
         }])
     );
     // The host's own row, whole, the last write of each run winning.
-    assert_eq!(snapshot["runs"][0], serde_json::from_str::<serde_json::Value>(&run("r2", "pending", 2)).unwrap());
+    assert_eq!(
+        snapshot["runs"][0],
+        serde_json::from_str::<serde_json::Value>(&run("r2", "pending", 2)).unwrap()
+    );
     let runs: Vec<(&str, &str)> = snapshot["runs"]
         .as_array()
         .unwrap()
@@ -92,7 +123,10 @@ async fn serves_the_roster_the_workflow_graph_and_the_latest_runs_one_row_per_ru
 #[tokio::test]
 async fn bounds_the_runs_and_keeps_the_latest_steps_cut_to_length() {
     let dir = checkout();
-    dir.write("companies/teeny/runs.jsonl", [run("a", "ok", 1), run("b", "ok", 2), run("c", "ok", 3)].join("\n"));
+    dir.write(
+        "companies/teeny/runs.jsonl",
+        [run("a", "ok", 1), run("b", "ok", 2), run("c", "ok", 3)].join("\n"),
+    );
     let long = "x".repeat(700);
     dir.write(
         "companies/teeny/run-steps.jsonl",
@@ -101,15 +135,29 @@ async fn bounds_the_runs_and_keeps_the_latest_steps_cut_to_length() {
             .collect::<Vec<_>>()
             .join("\n"),
     );
-    let snapshot = BrainReader::new(&dir.0, "teeny").snapshot(1, 2).await.unwrap();
+    let snapshot = BrainReader::new(&dir.0, "teeny")
+        .snapshot(1, 2)
+        .await
+        .unwrap();
 
     assert_eq!(snapshot.runs.len(), 1);
     assert_eq!(snapshot.runs[0]["id"], "c");
     // Oldest first, then the last two kept.
-    let seqs: Vec<_> = snapshot.steps.iter().map(|step| step.step_seq.clone()).collect();
+    let seqs: Vec<_> = snapshot
+        .steps
+        .iter()
+        .map(|step| step.step_seq.clone())
+        .collect();
     assert_eq!(seqs, [json!(2), json!(1)]);
     let step = &snapshot.steps[0].step;
-    assert_eq!((step.kind.as_str(), step.status.as_str(), step.label.as_str()), ("note", "ok", ""));
+    assert_eq!(
+        (
+            step.kind.as_str(),
+            step.status.as_str(),
+            step.label.as_str()
+        ),
+        ("note", "ok", "")
+    );
     assert_eq!(step.detail.as_deref().map(str::len), Some(600));
     assert_eq!(step.result.as_deref(), Some("r"));
 }
@@ -120,10 +168,21 @@ async fn is_empty_not_broken_when_there_is_no_brain_and_no_record() {
     let brain = BrainReader::new(&empty.0, "teeny");
     assert!(!brain.exists().await);
     let snapshot = brain.snapshot(40, 300).await.unwrap();
-    assert_eq!(snapshot.company, BrainCompany { name: "teeny".into(), output: None, slug: "teeny".into() });
+    assert_eq!(
+        snapshot.company,
+        BrainCompany {
+            name: "teeny".into(),
+            output: None,
+            slug: "teeny".into()
+        }
+    );
     assert!(snapshot.agents.is_empty() && snapshot.workflows.is_empty());
     assert!(snapshot.runs.is_empty() && snapshot.steps.is_empty());
-    assert!(tail_lines(&empty.0.join("missing.jsonl"), 512 * 1024).await.is_empty());
+    assert!(
+        tail_lines(&empty.0.join("missing.jsonl"), 512 * 1024)
+            .await
+            .is_empty()
+    );
 }
 
 #[tokio::test]

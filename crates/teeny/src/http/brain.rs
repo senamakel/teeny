@@ -130,7 +130,9 @@ impl BrainReader {
         self.dir.join("companies").join(&self.slug)
     }
 
-    /// Whether there is a brain at the path at all.
+    /// Whether there is a brain at the path at all. The usage fold asks
+    /// first; it arrives with the schedule.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub async fn exists(&self) -> bool {
         tokio::fs::metadata(self.definition().join("company.toml"))
             .await
@@ -217,14 +219,19 @@ impl BrainReader {
             .into_iter()
             .filter_map(|id| by_id.remove(&id))
             .collect();
-        let created = |run: &Value| run.get("createdAtMillis").and_then(Value::as_f64).unwrap_or(0.0);
+        let created = |run: &Value| {
+            run.get("createdAtMillis")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0)
+        };
         runs.sort_by(|a, b| created(b).total_cmp(&created(a)));
         runs.truncate(limit);
         runs
     }
 
     async fn steps(&self, run_ids: &HashSet<&str>, limit: usize) -> Vec<BrainStep> {
-        let rows = json_lines(&tail_lines(&self.record().join("run-steps.jsonl"), STEPS_TAIL).await);
+        let rows =
+            json_lines(&tail_lines(&self.record().join("run-steps.jsonl"), STEPS_TAIL).await);
         let mut steps: Vec<BrainStep> = rows
             .into_iter()
             .filter_map(|row| {
@@ -234,7 +241,8 @@ impl BrainReader {
                 }
                 let step = row.get("step").filter(|step| truthy(step))?;
                 let field = |name: &str| step.get(name).and_then(Value::as_str);
-                let cut = |name: &str| field(name).map(|text| text.chars().take(STEP_TEXT).collect());
+                let cut =
+                    |name: &str| field(name).map(|text| text.chars().take(STEP_TEXT).collect());
                 Some(BrainStep {
                     run_id: run_id.to_owned(),
                     step_seq: row.get("stepSeq").cloned().unwrap_or(Value::Null),
@@ -259,8 +267,12 @@ impl BrainReader {
 #[async_trait]
 impl BrainSource for BrainReader {
     async fn snapshot(&self, runs: usize, steps: usize) -> anyhow::Result<BrainSnapshot> {
-        let (company, agents, workflows, runs) =
-            tokio::join!(self.company(), self.agents(), self.workflows(), self.runs(runs));
+        let (company, agents, workflows, runs) = tokio::join!(
+            self.company(),
+            self.agents(),
+            self.workflows(),
+            self.runs(runs)
+        );
         let run_ids: HashSet<&str> = runs
             .iter()
             .filter_map(|run| run.get("id").and_then(Value::as_str))
@@ -290,7 +302,10 @@ fn truthy(value: &Value) -> bool {
 }
 
 fn text(table: &toml::Table, key: &str) -> Option<String> {
-    table.get(key).and_then(toml::Value::as_str).map(str::to_owned)
+    table
+        .get(key)
+        .and_then(toml::Value::as_str)
+        .map(str::to_owned)
 }
 
 /// The array of tables at `key`; anything in it that is not a table reads

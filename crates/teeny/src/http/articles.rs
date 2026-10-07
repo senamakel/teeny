@@ -16,14 +16,24 @@ use super::reply::{bounded, error, internal};
 type Params = Query<HashMap<String, String>>;
 
 /// What the operator sees and the site does not.
-const OPERATOR_DETAIL: [&str; 6] = ["problems", "error", "critique", "proof", "judge", "contentState"];
+const OPERATOR_DETAIL: [&str; 6] = [
+    "problems",
+    "error",
+    "critique",
+    "proof",
+    "judge",
+    "contentState",
+];
 
 fn everything(params: &Params) -> bool {
     matches!(params.get("all").map(String::as_str), Some("1" | "true"))
 }
 
 fn unconfigured() -> Response {
-    error(StatusCode::SERVICE_UNAVAILABLE, "no article store is configured")
+    error(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "no article store is configured",
+    )
 }
 
 pub async fn list(state: State, params: Params) -> Response {
@@ -68,8 +78,14 @@ pub async fn media(state: State, Path((slug, file)): Path<(String, String)>) -> 
     match articles.media(&slug, &file).await {
         Ok(Some(media)) => (
             [
-                (header::CONTENT_TYPE, HeaderValue::from_static(media.mime_type)),
-                (header::CACHE_CONTROL, HeaderValue::from_static("public, max-age=86400")),
+                (
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static(media.mime_type),
+                ),
+                (
+                    header::CACHE_CONTROL,
+                    HeaderValue::from_static("public, max-age=86400"),
+                ),
             ],
             media.data,
         )

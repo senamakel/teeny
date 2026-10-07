@@ -10,7 +10,10 @@ use crate::http::test_support::*;
 use crate::http::{Services, router};
 
 fn app(dir: &Scratch) -> axum::Router {
-    router(Services { articles: Some(Arc::new(FileArticleStore::new(&dir.0))), ..services() })
+    router(Services {
+        articles: Some(Arc::new(FileArticleStore::new(&dir.0))),
+        ..services()
+    })
 }
 
 fn the_inch(dir: &Scratch) {
@@ -50,10 +53,34 @@ async fn serves_the_published_articles_and_every_rehearsal_on_request() {
     assert_eq!(body["articles"][0]["cover"], "cover.png");
     assert_eq!(body["articles"][0]["postId"], "9001");
 
-    assert_eq!(call(&app, get("/articles?all=1")).await.json()["articles"].as_array().unwrap().len(), 2);
-    assert_eq!(call(&app, get("/articles?all=true")).await.json()["articles"].as_array().unwrap().len(), 2);
-    assert_eq!(call(&app, get("/articles?all=yes")).await.json()["articles"].as_array().unwrap().len(), 1);
-    assert_eq!(call(&app, get("/articles?all=1&limit=1")).await.json()["articles"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        call(&app, get("/articles?all=1")).await.json()["articles"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        call(&app, get("/articles?all=true")).await.json()["articles"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        call(&app, get("/articles?all=yes")).await.json()["articles"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        call(&app, get("/articles?all=1&limit=1")).await.json()["articles"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
 }
 
 #[tokio::test]
@@ -68,11 +95,20 @@ async fn serves_one_piece_without_the_operator_detail_unless_asked() {
     assert_eq!(body["title"], "the inch");
     assert_eq!(body["markdown"], "## the gap\n\na");
     assert_eq!(body["cover"]["file"], "cover.png");
-    for private in ["problems", "error", "critique", "proof", "judge", "contentState"] {
+    for private in [
+        "problems",
+        "error",
+        "critique",
+        "proof",
+        "judge",
+        "contentState",
+    ] {
         assert!(body.get(private).is_none(), "{private} leaked");
     }
 
-    let whole = call(&app, get("/articles/20260923-the-inch?all=1")).await.json();
+    let whole = call(&app, get("/articles/20260923-the-inch?all=1"))
+        .await
+        .json();
     assert_eq!(whole["problems"].as_array().unwrap().len(), 1);
     assert_eq!(whole["critique"], "Verdict: FLAT");
 
@@ -90,7 +126,10 @@ async fn serves_its_pictures_and_nothing_else() {
     let cover = call(&app, get("/articles/20260923-the-inch/media/cover.png")).await;
     assert_eq!(cover.status, StatusCode::OK);
     assert_eq!(cover.headers[header::CONTENT_TYPE], "image/png");
-    assert_eq!(cover.headers[header::CACHE_CONTROL], "public, max-age=86400");
+    assert_eq!(
+        cover.headers[header::CACHE_CONTROL],
+        "public, max-age=86400"
+    );
     assert_eq!(cover.body.as_ref(), [0x89, 0x50, 0x4e, 0x47]);
 
     let other = call(&app, get("/articles/20260923-the-inch/media/other.png")).await;
@@ -103,7 +142,11 @@ async fn serves_its_pictures_and_nothing_else() {
         "/articles/..%2F..%2Fetc/media/passwd.png",
         "/articles/%2E%2E/media/cover.png",
     ] {
-        assert_eq!(call(&app, get(traversal)).await.status, StatusCode::NOT_FOUND, "{traversal}");
+        assert_eq!(
+            call(&app, get(traversal)).await.status,
+            StatusCode::NOT_FOUND,
+            "{traversal}"
+        );
     }
 }
 
@@ -113,6 +156,9 @@ async fn says_so_when_no_store_is_configured() {
     for uri in ["/articles", "/articles/a", "/articles/a/media/b.png"] {
         let answer = call(&app, get(uri)).await;
         assert_eq!(answer.status, StatusCode::SERVICE_UNAVAILABLE, "{uri}");
-        assert_eq!(answer.json(), json!({ "error": "no article store is configured" }));
+        assert_eq!(
+            answer.json(),
+            json!({ "error": "no article store is configured" })
+        );
     }
 }

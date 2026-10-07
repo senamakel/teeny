@@ -17,5 +17,8 @@ async fn answers_an_unknown_route_the_way_fastify_did() {
     // Fastify has no 405: a known path under the wrong method is a 404 too.
     let wrong_method = call(&app, post_json("/health", "{}")).await;
     assert_eq!(wrong_method.status, StatusCode::NOT_FOUND);
-    assert_eq!(wrong_method.json()["message"], "Route POST:/health not found");
+    assert_eq!(
+        wrong_method.json()["message"],
+        "Route POST:/health not found"
+    );
 }

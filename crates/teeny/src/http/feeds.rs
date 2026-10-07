@@ -56,7 +56,10 @@ pub async fn health(state: State) -> Response {
 
 pub async fn queue(state: State) -> Response {
     let Some(queue) = &state.queue else {
-        return error(StatusCode::SERVICE_UNAVAILABLE, "no mention queue is configured");
+        return error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "no mention queue is configured",
+        );
     };
     match queue.counts().await {
         Ok(counts) => Json(json!({ "counts": counts })).into_response(),
@@ -114,7 +117,10 @@ pub async fn mind(state: State, params: Params) -> Response {
 /// Every model call, newest first and redacted, with the totals.
 pub async fn ledger(state: State, params: Params) -> Response {
     let Some(ledger) = &state.ledger else {
-        return error(StatusCode::SERVICE_UNAVAILABLE, "no inference ledger is configured");
+        return error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "no inference ledger is configured",
+        );
     };
     let limit = bounded(param(&params, "limit"), 50, 1, 200);
     let filter = RecentFilter {

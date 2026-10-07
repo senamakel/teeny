@@ -29,7 +29,11 @@ fn request(content_type: Option<&str>, body: impl Into<Body>) -> Request<Body> {
 #[tokio::test]
 async fn keeps_the_raw_bytes_of_a_json_body_beside_the_parse() {
     let raw = "{ \"a\" : 1 }";
-    let answer = call(&app(), request(Some("application/json; charset=utf-8"), raw)).await;
+    let answer = call(
+        &app(),
+        request(Some("application/json; charset=utf-8"), raw),
+    )
+    .await;
     assert_eq!(answer.status, StatusCode::OK);
     assert_eq!(answer.json(), json!({ "raw": raw, "body": { "a": 1 } }));
 }
@@ -77,7 +81,11 @@ async fn refuses_json_that_does_not_parse_and_an_empty_json_body() {
 async fn refuses_a_media_type_it_has_no_parser_for() {
     for content_type in [Some("application/xml"), None] {
         let answer = call(&app(), request(content_type, "<a/>")).await;
-        assert_eq!(answer.status, StatusCode::UNSUPPORTED_MEDIA_TYPE, "{content_type:?}");
+        assert_eq!(
+            answer.status,
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "{content_type:?}"
+        );
         assert_eq!(answer.json()["code"], "FST_ERR_CTP_INVALID_MEDIA_TYPE");
     }
 }

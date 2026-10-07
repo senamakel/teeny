@@ -39,8 +39,17 @@ pub async fn call(app: &Router, request: Request<Body>) -> Answer {
     let response = app.clone().oneshot(request).await.expect("infallible");
     let status = response.status();
     let headers = response.headers().clone();
-    let body = response.into_body().collect().await.expect("a body").to_bytes();
-    Answer { status, headers, body }
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("a body")
+        .to_bytes();
+    Answer {
+        status,
+        headers,
+        body,
+    }
 }
 
 pub fn get(uri: &str) -> Request<Body> {
@@ -87,7 +96,10 @@ impl ActivityMemory for RecordingMemory {
 
 /// A server with nothing configured but the webhook.
 pub fn services() -> Services {
-    Services::new(SECRET, Arc::new(ActivityIntake::new(Arc::new(RecordingMemory::default()))))
+    Services::new(
+        SECRET,
+        Arc::new(ActivityIntake::new(Arc::new(RecordingMemory::default()))),
+    )
 }
 
 /// A directory of its own under the system temp dir, removed on drop.
@@ -97,7 +109,8 @@ impl Scratch {
     pub fn new(name: &str) -> Self {
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("teeny-http-{name}-{}-{n}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("teeny-http-{name}-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         Self(dir)

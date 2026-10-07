@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tiny · held for review</title>
+<style>
+  :root { color-scheme: light dark; --line: #8884; --muted: #888; --ok: #2f9e44; --no: #c92a2a; --link: #1971c2; }
+  body { font: 14px/1.45 system-ui, sans-serif; margin: 0; padding: 20px 16px; max-width: 900px; margin-inline: auto; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin-bottom: 16px; }
+  nav { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+  nav button { border: 1px solid var(--line); background: transparent; color: inherit; padding: 6px 12px; border-radius: 999px; cursor: pointer; }
+  nav button[aria-pressed="true"] { background: #8882; font-weight: 600; }
+  .hold { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+  .meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+  .tag { border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; }
+  .tag.cat { font-weight: 600; color: inherit; }
+  .text { white-space: pre-wrap; word-break: break-word; margin: 6px 0 8px; }
+  .reason { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+  .links li { font-family: ui-monospace, monospace; font-size: 12px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .actions button { border: 0; color: white; padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+  .approve { background: var(--ok); } .reject { background: var(--no); }
+  .actions input { flex: 1; min-width: 160px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: inherit; }
+  .effect { font-size: 12px; color: var(--muted); }
+  .empty { color: var(--muted); padding: 24px 0; text-align: center; }
+  .err { color: var(--no); }
+</style>
+</head>
+<body>
+<h1>Held for review</h1>
+<div class="sub" id="counts">loading…</div>
+<nav>
+  <button data-status="pending" aria-pressed="true">pending</button>
+  <button data-status="approved">approved</button>
+  <button data-status="rejected">rejected</button>
+</nav>
+<div id="list"></div>
+<script>
+(() => {
+  let status = 'pending';
+  const list = document.getElementById('list');
+  const countsEl = document.getElementById('counts');
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  const where = (h) => {
+    const c = h.context || {};
+    if (c.surface === 'x') return 'X' + (c.postId ? ' · post ' + c.postId : '') + (c.authorUsername ? ' · @' + c.authorUsername : '') + (c.tool ? ' · ' + c.tool : '');
+    if (c.surface === 'telegram') return 'Telegram · chat ' + (c.chatId || '?') + (c.authorName ? ' · ' + c.authorName : c.authorUsername ? ' · @' + c.authorUsername : '');
+    if (c.surface === 'chart') return 'chart agent' + (c.tool ? ' · ' + c.tool : '');
+    if (c.surface === 'calendar') return 'calendar' + (c.tool ? ' · ' + c.tool : '');
+    if (c.surface === 'morning') return 'morning post' + (c.tool ? ' · ' + c.tool : '');
+    if (c.surface === 'moon') return 'moon chart';
+    if (c.surface === 'lore') return 'lore post';
+    if (c.surface === 'quote') return 'quote post' + (c.postId ? ' · quoting ' + c.postId : '') + (c.authorUsername ? ' · @' + c.authorUsername : '');
+    return c.surface || '';
+  };
+  const whatApprovingDoes = (h) => {
+    if (h.kind === 'link') return 'approve = allowlist the host(s) from now on';
+    if (h.kind === 'message' && h.context && h.context.surface === 'x') return 'approve = answer this mention after all';
+    if (h.kind === 'draft' && h.context && h.context.surface === 'calendar') return 'approve = mark the filter wrong; the item posts again on its next run';
+    if (h.kind === 'draft' && h.context && h.context.surface === 'morning') return 'approve = mark the filter wrong; the morning post runs again tomorrow';
+    if (h.kind === 'draft' && h.context && h.context.surface === 'moon') return 'approve = mark the filter wrong; the moon chart runs again tomorrow';
+    if (h.kind === 'draft') return 'approve = publish this draft as written';
+    return 'approve = mark the filter wrong; nothing is re-sent';
+  };
+  async function load() {
+    const res = await fetch('/safety/holds?status=' + status + '&limit=200');
+    if (!res.ok) { list.innerHTML = '<p class="err">could not load: ' + res.status + '</p>'; return; }
+    const data = await res.json();
+    const c = data.counts;
+    countsEl.textContent = c.pending + ' pending · ' + c.approved + ' approved · ' + c.rejected + ' rejected';
+    if (!data.holds.length) { list.innerHTML = '<p class="empty">nothing ' + status + '</p>'; return; }
+    list.innerHTML = data.holds.map((h) => `
+      <div class="hold" data-id="${esc(h.id)}">
+        <div class="meta">
+          <span class="tag cat">${esc(h.category)}</span>
+          <span class="tag">${esc(h.direction)} · ${esc(h.kind)}</span>
+          <span class="tag">by ${esc(h.by)}</span>
+          <span>${esc(where(h))}</span>
+          <span>${esc(new Date(h.at).toLocaleString())}</span>
+        </div>
+        <div class="text">${esc(h.text)}</div>
+        <div class="reason">${esc(h.reason)}</div>
+        ${h.links && h.links.length ? '<ul class="links">' + h.links.map((l) => '<li>' + esc(l.link) + ' <span class="effect">— ' + esc(l.reason) + '</span></li>').join('') + '</ul>' : ''}
+        ${h.status === 'pending'
+          ? `<div class="actions">
+               <button class="approve">approve</button>
+               <button class="reject">reject</button>
+               <input placeholder="note (optional)">
+               <span class="effect">${esc(whatApprovingDoes(h))}</span>
+             </div>`
+          : `<div class="effect">${esc(h.status)} ${esc(new Date(h.decidedAt || h.at).toLocaleString())}${h.effect ? ' · ' + esc(h.effect) : ''}${h.note ? ' · “' + esc(h.note) + '”' : ''}</div>`}
+      </div>`).join('');
+  }
+  list.addEventListener('click', async (event) => {
+    const button = event.target.closest('button');
+    if (!button) return;
+    const card = button.closest('.hold');
+    const decision = button.classList.contains('approve') ? 'approved' : button.classList.contains('reject') ? 'rejected' : null;
+    if (!decision) return;
+    const note = card.querySelector('input').value.trim();
+    button.disabled = true;
+    const res = await fetch('/safety/holds/' + encodeURIComponent(card.dataset.id) + '/decision', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ decision, ...(note ? { note } : {}) }),
+    });
+    if (!res.ok) { button.disabled = false; alert('failed: ' + res.status + ' ' + (await res.text())); return; }
+    await load();
+  });
+  document.querySelector('nav').addEventListener('click', (event) => {
+    const b = event.target.closest('button'); if (!b) return;
+    status = b.dataset.status;
+    document.querySelectorAll('nav button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    load();
+  });
+  load();
+})();
+</script>
+</body>
+</html>

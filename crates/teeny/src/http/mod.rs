@@ -14,23 +14,27 @@
 //! There is no CORS layer, as there was none in the TypeScript: the site
 //! reads these server-side, and a browser only ever opens `/safety`.
 
-mod auth;
-pub mod body;
 pub mod article_store;
 mod articles;
+mod auth;
+pub mod body;
 pub mod brain;
 mod feeds;
+pub mod operator;
 mod reply;
+pub mod safety;
+mod validate;
 pub mod webhooks;
 
 #[cfg(test)]
-mod test_support;
+pub(crate) mod test_support;
 
 use std::sync::Arc;
 
 use axum::Router;
-use axum::routing::get;
-use teeny_store::{InferenceLedger, Journal};
+use axum::routing::{get, post};
+use teeny_safety::gate::SafetyGate;
+use teeny_store::InferenceLedger;
 use teeny_x::intake::ActivityIntake;
 
 use crate::mentions::Mentions;
@@ -38,6 +42,8 @@ use crate::mentions::Mentions;
 pub use article_store::ArticleStore;
 pub use brain::BrainSource;
 pub use feeds::{BrowserStatus, Mind, MindStatus};
+pub use operator::{AgentRunner, AlgoCritique};
+pub use safety::Review;
 pub use webhooks::{Forwarder, HttpForwarder};
 
 /// Everything the routes can reach. Only the consumer secret and the intake
@@ -56,6 +62,15 @@ pub struct Services {
     pub ledger: Option<Arc<dyn InferenceLedger>>,
     pub brain: Option<Arc<dyn BrainSource>>,
     pub articles: Option<Arc<dyn ArticleStore>>,
+    /// The content filter: an ad-hoc task it holds never reaches the agent,
+    /// and an approved link reaches it at once.
+    pub safety: Option<Arc<SafetyGate>>,
+    /// The holds, served at `/safety`.
+    pub review: Option<Review>,
+    /// The ranker's reader, at `/critique`.
+    pub critic: Option<Arc<dyn AlgoCritique>>,
+    /// The agent, at `/agent/run`.
+    pub agent: Option<Arc<dyn AgentRunner>>,
     /// The browser's state for `/health`; `null` until the browser is wired.
     pub browser: Option<Arc<dyn BrowserStatus>>,
 }
@@ -73,6 +88,10 @@ impl Services {
             ledger: None,
             brain: None,
             articles: None,
+            safety: None,
+            review: None,
+            critic: None,
+            agent: None,
             browser: None,
         }
     }
@@ -92,7 +111,15 @@ pub fn router(services: Services) -> Router {
         .route("/articles", get(articles::list))
         .route("/articles/{slug}", get(articles::one))
         .route("/articles/{slug}/media/{file}", get(articles::media))
-        .route("/webhooks/x", get(webhooks::challenge).post(webhooks::delivery))
+        .route(
+            "/webhooks/x",
+            get(webhooks::challenge).post(webhooks::delivery),
+        )
+        .route("/safety", get(safety::dashboard))
+        .route("/safety/holds", get(safety::holds))
+        .route("/safety/holds/{id}/decision", post(safety::decide))
+        .route("/critique", post(operator::critique))
+        .route("/agent/run", post(operator::run))
         .fallback(reply::not_found)
         .method_not_allowed_fallback(reply::not_found)
         .with_state(Arc::new(services))
