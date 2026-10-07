@@ -12,6 +12,7 @@ mod media;
 pub mod mention;
 pub mod model;
 pub mod oauth;
+pub mod stream;
 pub mod webhook;
 mod wire;
 mod writes;
