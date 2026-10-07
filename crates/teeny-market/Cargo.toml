@@ -1,0 +1,13 @@
+[package]
+name = "teeny-market"
+description = "Market data (DexScreener, GeckoTerminal, GMGN, Solana, CoinGecko), technical analysis and the read-only market tools."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

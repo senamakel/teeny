@@ -1,0 +1,24 @@
+[package]
+name = "teeny"
+description = "The Teeny service: the HTTP server, the schedule and the operator subcommands."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "teeny"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+openhuman-core.workspace = true
+openhuman-embed.workspace = true
+teeny-agent.workspace = true
+teeny-core.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

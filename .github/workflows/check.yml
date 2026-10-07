@@ -7,9 +7,15 @@
 # main, so a PR whose tests did not typecheck merged green and turned the
 # deploy red afterwards -- five times in one morning.
 #
-# `npm run typecheck` is `tsc -p tsconfig.test.json`, which covers the tests;
-# `npm run build` is the production tsconfig, which is what the container
-# compiles. Both run, because either alone has let the other's errors through.
+# Three jobs while the Rust rewrite lands beside the TypeScript service:
+#
+# - legacy: the TypeScript service, now in legacy/. `npm run typecheck` is
+#   `tsc -p tsconfig.test.json`, which covers the tests; `npm run build` is the
+#   production tsconfig, which is what the container compiles. Both run,
+#   because either alone has let the other's errors through.
+# - rust: the cargo workspace at the root, on the toolchain rust-toolchain.toml
+#   pins, plus the duplicate OpenHuman-crate tripwire.
+# - web: the Next.js site.
 
 name: check
 
@@ -18,25 +24,61 @@ on:
   workflow_call:
 
 jobs:
-  check:
+  legacy:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: legacy
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            web/package-lock.json
+          cache-dependency-path: legacy/package-lock.json
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run build
       - run: npm test
+
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      # Not `submodules: recursive`: that would also fetch brain/, which this
+      # job has no use for. OpenHuman and its nested vendors, shallow.
+      - uses: actions/checkout@v5
+      - name: Fetch vendor/openhuman
+        run: git submodule update --init --recursive --depth 1 --jobs 8 vendor/openhuman
+      # OpenHuman links X11, xdo, evdev, ALSA and udev on Linux.
+      - name: Install system headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libssl-dev libasound2-dev libxdo-dev libxtst-dev \
+            libx11-dev libxi-dev libevdev-dev libudev-dev
+      # Keep in step with rust-toolchain.toml (and vendor/openhuman's).
+      - uses: dtolnay/rust-toolchain@1.96.1
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: scripts/check-dup-crates.sh
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
       - run: npm ci
-        working-directory: web
       - run: npm run lint
-        working-directory: web
       - run: npm run build
-        working-directory: web

@@ -1,0 +1,13 @@
+[package]
+name = "teeny-media"
+description = "Giphy, vision, image and video generation, the media store and the chart renderer (SVG to PNG via resvg)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

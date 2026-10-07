@@ -1,0 +1,13 @@
+[package]
+name = "teeny-memory"
+description = "The CortexDB client with the same scope, labels and idempotency as the TypeScript service, plus the recall_memory and remember tools."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

@@ -1,0 +1,13 @@
+[package]
+name = "teeny-cadence"
+description = "Posting cadence: the gap, heat, budgets, the 20-hour guard, the rota, slots and the content calendar."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

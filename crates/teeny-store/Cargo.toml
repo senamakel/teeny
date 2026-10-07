@@ -1,0 +1,13 @@
+[package]
+name = "teeny-store"
+description = "Mongo repositories (queue, X cache, journal, ledgers, people, holds, Telegram transcript) and the file-state cursors."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

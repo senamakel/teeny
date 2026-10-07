@@ -1,0 +1,13 @@
+[package]
+name = "teeny-x"
+description = "The X API client (OAuth 1.0a, bearer reads, v2 posts, media, Articles, activity stream, webhooks), its typed tools and the Publisher guard."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

@@ -1,0 +1,20 @@
+[package]
+name = "teeny-core"
+description = "Teeny's configuration (the legacy env surface, typed), shared types and errors."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+chrono.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

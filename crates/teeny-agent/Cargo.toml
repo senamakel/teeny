@@ -1,0 +1,18 @@
+[package]
+name = "teeny-agent"
+description = "The OpenHuman runtime cell, agent specs and posture, the ledger meter, harnesses and the posting pipelines."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The trimmed OpenHuman build (`skills` + `modules` only); the feature set is
+# fixed in the workspace table so every crate that names OpenHuman agrees.
+openhuman-core.workspace = true
+openhuman-embed.workspace = true
+teeny-core.workspace = true
+
+[lints]
+workspace = true
