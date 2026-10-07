@@ -10,6 +10,7 @@ pub mod images;
 pub mod moon;
 pub mod png;
 pub mod types;
+pub mod videos;
 pub mod vision;
 
 pub use candle::Candle;

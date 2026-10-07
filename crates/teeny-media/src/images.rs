@@ -5,12 +5,10 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD as BASE64;
 use serde_json::{Map, Value, json};
 
 use crate::error::{Error, Result};
-use crate::http::{endpoint, error_detail, json_body};
+use crate::http::{decode_base64_lenient, endpoint, error_detail, json_body};
 use crate::types::{GeneratedImage, ImageAspect, ImageGenerator, MimeType};
 use crate::vision::sniff;
 
@@ -137,10 +135,7 @@ impl ImageGenerator for OpenAiImageGenerator {
             first.and_then(|first| first.get(name)).and_then(Value::as_str).filter(|value| !value.is_empty())
         };
         if let Some(encoded) = field("b64_json") {
-            let data = BASE64
-                .decode(encoded.trim())
-                .map_err(|error| Error::failed(format!("image generation returned bad base64: {error}")))?;
-            return typed(data);
+            return typed(decode_base64_lenient(encoded));
         }
         if let Some(url) = field("url") {
             let download = self.client.get(url).timeout(DOWNLOAD_TIMEOUT).send().await?;
