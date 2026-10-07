@@ -17,7 +17,7 @@ use teeny_store::{ChatTranscript, InMemoryChatTranscript, TranscriptEntry};
 use super::*;
 use crate::ctx::{Conversation, JobCtx};
 use crate::reply::test_support::ProbeMemory;
-use crate::runner::{AgentKey, Origin, ScriptedRunner};
+use crate::runner::{AgentKey, AgentOutcome, Origin, ScriptedRunner, ToolCallRecord};
 
 fn now() -> chrono::DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 9, 2, 12, 0, 0).unwrap()
@@ -49,23 +49,35 @@ fn answer(text: Option<&str>, tone: &str) -> String {
 
 struct Subject {
     ctx: JobCtx,
+    clock: Arc<ManualClock>,
     runner: Arc<ScriptedRunner>,
     memory: Arc<ProbeMemory>,
     transcript: Arc<InMemoryChatTranscript>,
 }
 
 fn subject_with(runner: ScriptedRunner, memory: ProbeMemory, extra: &[(&str, &str)]) -> Subject {
+    subject_using(runner, memory, extra, |_| {})
+}
+
+fn subject_using(
+    runner: ScriptedRunner,
+    memory: ProbeMemory,
+    extra: &[(&str, &str)],
+    tweak: impl FnOnce(&mut Deps),
+) -> Subject {
     let runner = Arc::new(runner);
     let memory = Arc::new(memory);
     let transcript = Arc::new(InMemoryChatTranscript::default());
     let mut deps = Deps::fake();
     deps.memory = memory.clone();
+    tweak(&mut deps);
     let mut vars = fake_vars();
     vars.retain(|(key, _)| *key != "DRY_RUN");
     vars.push(("DRY_RUN", "false"));
     vars.extend_from_slice(extra);
+    let clock = Arc::new(ManualClock::new(now()));
     let mut ctx = JobCtx::fake(runner.clone())
-        .with_clock(Arc::new(ManualClock::new(now())))
+        .with_clock(clock.clone())
         .with_conversation(Conversation {
             transcript: transcript.clone(),
             ..Conversation::fake()
@@ -74,6 +86,7 @@ fn subject_with(runner: ScriptedRunner, memory: ProbeMemory, extra: &[(&str, &st
     ctx.config = Arc::new(Config::from_vars(vars).unwrap());
     Subject {
         ctx,
+        clock,
         runner,
         memory,
         transcript,
@@ -228,20 +241,27 @@ async fn applies_house_style_one_emoji_no_em_dashes() {
     );
 }
 
-// telegram-bot: "logs instead of sending in dry run, and still remembers
-// what it would have said"
+// telegram-bot: "logs instead of sending in dry run" -- but unlike the
+// legacy bot, a rehearsal writes nothing to memory: the reply was never
+// sent, and CortexDB is the live store. The transcript keeps the line.
 #[tokio::test]
-async fn sends_nothing_in_dry_run_and_still_remembers_what_it_would_have_said() {
-    let it = subject_with(
-        gm(),
-        ProbeMemory::default(),
-        &[("TELEGRAM_DRY_RUN", "true")],
-    );
-    assert_eq!(handle_message(&it.ctx, &dm("10", "hello")).await, None);
-    assert_eq!(it.memory.captured_kinds(), vec!["message", "reply"]);
-    let turns = it.transcript.recent("1", 5_000, &[]).await.unwrap();
-    assert_eq!(turns.last().unwrap().text, "gm fren");
-    assert_eq!(turns.last().unwrap().from, Speaker::Bot);
+async fn sends_nothing_in_dry_run_and_writes_nothing_to_memory() {
+    // TELEGRAM_DRY_RUN sends nothing; DRY_RUN alone still lets Telegram
+    // answer (the switches are separate), but neither writes to memory.
+    for (dry, sent) in [
+        (("TELEGRAM_DRY_RUN", "true"), None),
+        (("DRY_RUN", "true"), Some("gm fren")),
+    ] {
+        let it = subject_with(gm(), ProbeMemory::default(), &[dry]);
+        assert_eq!(
+            handle_message(&it.ctx, &dm("10", "hello")).await.as_deref(),
+            sent
+        );
+        assert!(it.memory.captured_kinds().is_empty(), "{dry:?}");
+        let turns = it.transcript.recent("1", 5_000, &[]).await.unwrap();
+        assert_eq!(turns.last().unwrap().text, "gm fren");
+        assert_eq!(turns.last().unwrap().from, Speaker::Bot);
+    }
 }
 
 // A reaction is the transport's to send; a turn that is only a reaction
@@ -263,10 +283,12 @@ async fn hands_the_transport_a_reaction_with_or_without_text() {
             .reply(json!({ "reaction": "🔥", "incomingTone": "friendly" }).to_string()),
     );
     assert_eq!(
-        respond(&alone.ctx, &dm("10", "gm")).await,
+        respond(&alone.ctx, &dm("10", "gm"), &GifRation::default()).await,
         Some(ChatAnswer {
             text: None,
-            reaction: Some("🔥".into())
+            reaction: Some("🔥".into()),
+            gif_url: None,
+            media: None,
         })
     );
     let turns = alone.transcript.recent("1", 5_000, &[]).await.unwrap();
@@ -277,10 +299,12 @@ async fn hands_the_transport_a_reaction_with_or_without_text() {
         json!({ "reply": "gm fren", "reaction": "❤", "incomingTone": "friendly" }).to_string(),
     ));
     assert_eq!(
-        respond(&both.ctx, &dm("10", "gm")).await,
+        respond(&both.ctx, &dm("10", "gm"), &GifRation::default()).await,
         Some(ChatAnswer {
             text: Some("gm fren".into()),
-            reaction: Some("❤".into())
+            reaction: Some("❤".into()),
+            gif_url: None,
+            media: None,
         })
     );
 }
@@ -294,7 +318,10 @@ async fn hands_over_nothing_in_dry_run_reaction_included() {
         ProbeMemory::default(),
         &[("TELEGRAM_DRY_RUN", "true")],
     );
-    assert_eq!(respond(&it.ctx, &dm("10", "gm")).await, None);
+    assert_eq!(
+        respond(&it.ctx, &dm("10", "gm"), &GifRation::default()).await,
+        None
+    );
 }
 
 #[tokio::test]
@@ -387,4 +414,239 @@ async fn keeps_a_line_it_was_not_asked_about_for_the_next_turn() {
             .prompt
             .contains("- Bob: the chart looked good today")
     );
+}
+
+// --- GIFs and generated media: telegram-bot.test.ts and chat-model.ts ---
+
+/// A Giphy that records what it was asked, or is down.
+#[derive(Default)]
+struct RecordingGifs {
+    down: bool,
+    asked: std::sync::Mutex<Vec<(String, bool)>>,
+}
+
+#[async_trait::async_trait]
+impl teeny_media::giphy::GifSource for RecordingGifs {
+    async fn search(
+        &self,
+        query: &str,
+        channel_only: bool,
+    ) -> teeny_media::Result<Vec<teeny_media::giphy::Gif>> {
+        self.asked
+            .lock()
+            .unwrap()
+            .push((query.to_owned(), channel_only));
+        if self.down {
+            return Err(teeny_media::Error::failed("giphy down"));
+        }
+        // Nothing in the account's own channel; one on the rest of Giphy.
+        Ok(if channel_only {
+            Vec::new()
+        } else {
+            vec![teeny_media::giphy::Gif {
+                id: "g".into(),
+                title: "wave".into(),
+                page_url: "p".into(),
+                media_url: "https://g/wave.gif".into(),
+                mime_type: teeny_media::types::MimeType::Gif,
+            }]
+        })
+    }
+    async fn get(&self, _id: &str) -> teeny_media::Result<Option<teeny_media::giphy::Gif>> {
+        Ok(None)
+    }
+    async fn download(
+        &self,
+        _gif: &teeny_media::giphy::Gif,
+    ) -> teeny_media::Result<(Vec<u8>, teeny_media::types::MimeType)> {
+        Ok((Vec::new(), teeny_media::types::MimeType::Gif))
+    }
+}
+
+fn with_gifs(runner: ScriptedRunner, gifs: Arc<RecordingGifs>, extra: &[(&str, &str)]) -> Subject {
+    subject_using(runner, ProbeMemory::default(), extra, |deps| {
+        deps.gifs = Some(gifs);
+    })
+}
+
+fn waving() -> ScriptedRunner {
+    ScriptedRunner::new()
+        .reply(json!({ "reply": "hi", "gifQuery": "wave", "incomingTone": "friendly" }).to_string())
+}
+
+// telegram-bot: "sends a GIF after the text when the drafter asked for one,
+// and shrugs when it cannot"
+#[tokio::test]
+async fn finds_the_gif_the_drafter_asked_for_own_channel_first_and_shrugs_when_it_cannot() {
+    let gifs = Arc::new(RecordingGifs::default());
+    let it = with_gifs(waving(), gifs.clone(), &[]);
+    let answer = respond(&it.ctx, &dm("10", "hi"), &GifRation::default())
+        .await
+        .unwrap();
+    assert_eq!(answer.text.as_deref(), Some("hi"));
+    assert_eq!(answer.gif_url.as_deref(), Some("https://g/wave.gif"));
+    assert_eq!(
+        *gifs.asked.lock().unwrap(),
+        [("wave".to_owned(), true), ("wave".to_owned(), false)]
+    );
+    assert_eq!(it.memory.captured_kinds(), vec!["message", "reply"]);
+
+    let down = Arc::new(RecordingGifs {
+        down: true,
+        ..RecordingGifs::default()
+    });
+    let it = with_gifs(waving(), down, &[]);
+    let answer = respond(&it.ctx, &dm("10", "hi"), &GifRation::default())
+        .await
+        .unwrap();
+    assert_eq!(answer.text.as_deref(), Some("hi"));
+    assert_eq!(answer.gif_url, None);
+}
+
+// telegram-bot: "rations GIFs to one per chat per cooldown"
+#[tokio::test]
+async fn rations_gifs_to_one_per_chat_per_cooldown() {
+    let hi =
+        || json!({ "reply": "hi", "gifQuery": "wave", "incomingTone": "friendly" }).to_string();
+    let it = with_gifs(
+        ScriptedRunner::new().reply(hi()).reply(hi()).reply(hi()),
+        Arc::new(RecordingGifs::default()),
+        &[("TELEGRAM_GIF_COOLDOWN_S", "60")],
+    );
+    let ration = GifRation::default();
+    let first = respond(&it.ctx, &dm("10", "hi"), &ration).await.unwrap();
+    assert!(first.gif_url.is_some());
+    let second = respond(&it.ctx, &dm("11", "hi again"), &ration)
+        .await
+        .unwrap();
+    assert_eq!(second.gif_url, None, "within the cooldown");
+
+    it.clock.advance(TimeDelta::seconds(61));
+    let third = respond(&it.ctx, &dm("12", "hi once more"), &ration)
+        .await
+        .unwrap();
+    assert!(third.gif_url.is_some(), "after the cooldown");
+}
+
+// chat-model: "A GIF without words to go with it is a GIF sent at somebody."
+#[tokio::test]
+async fn no_gif_without_words() {
+    let gifs = Arc::new(RecordingGifs::default());
+    let it = with_gifs(
+        ScriptedRunner::new().reply(
+            json!({ "reaction": "🔥", "gifQuery": "wave", "incomingTone": "friendly" }).to_string(),
+        ),
+        gifs.clone(),
+        &[],
+    );
+    let answer = respond(&it.ctx, &dm("10", "gm"), &GifRation::default())
+        .await
+        .unwrap();
+    assert_eq!(answer.gif_url, None);
+    assert!(gifs.asked.lock().unwrap().is_empty());
+}
+
+fn generated(it: &Subject, kind: teeny_media::types::MediaKind) -> String {
+    let media = it.ctx.deps.media.as_ref().unwrap();
+    media
+        .store
+        .put(teeny_media::store::NewMedia {
+            kind,
+            data: vec![9],
+            mime_type: match kind {
+                teeny_media::types::MediaKind::Image => teeny_media::types::MimeType::Png,
+                teeny_media::types::MediaKind::Video => teeny_media::types::MimeType::Mp4,
+            },
+            prompt: "a tiny robot".into(),
+        })
+        .id
+}
+
+fn turn_that_made(reply: serde_json::Value, media_id: &str) -> AgentOutcome {
+    AgentOutcome {
+        reply: reply.to_string(),
+        session_id: "s".into(),
+        tool_calls: vec![ToolCallRecord {
+            name: "generate_image".into(),
+            arguments: json!({ "prompt": "a tiny robot" }),
+            result: json!({ "mediaId": media_id }).to_string(),
+            is_error: false,
+        }],
+        usage: None,
+        model: None,
+    }
+}
+
+// telegram-bot: "sends a generated image with the reply as its caption, and
+// remembers what it said"; "a picture alone when there are no words"
+#[tokio::test]
+async fn hands_over_media_the_turn_generated_with_or_without_words() {
+    let it = subject(ScriptedRunner::new());
+    let id = generated(&it, teeny_media::types::MediaKind::Image);
+    let mut ctx = it.ctx;
+    ctx.runner = Arc::new(ScriptedRunner::new().outcome(turn_that_made(
+        json!({ "reply": "here you go", "mediaId": id, "gifQuery": "wave", "incomingTone": "friendly" }),
+        &id,
+    )));
+    let answer = respond(
+        &ctx,
+        &dm("10", "draw me a tiny robot"),
+        &GifRation::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(answer.text.as_deref(), Some("here you go"));
+    assert_eq!(
+        answer.media.as_ref().map(|media| media.id.as_str()),
+        Some(id.as_str())
+    );
+    assert_eq!(
+        answer.gif_url, None,
+        "no GIF next to a picture it just drew"
+    );
+
+    let it = subject(ScriptedRunner::new());
+    let id = generated(&it, teeny_media::types::MediaKind::Video);
+    let (mut ctx, transcript) = (it.ctx, it.transcript);
+    ctx.runner = Arc::new(ScriptedRunner::new().outcome(turn_that_made(
+        json!({ "mediaId": id, "incomingTone": "friendly" }),
+        &id,
+    )));
+    let answer = respond(&ctx, &dm("10", "make it dance"), &GifRation::default())
+        .await
+        .unwrap();
+    assert_eq!(answer.text, None);
+    assert_eq!(answer.media.unwrap().id, id);
+    let turns = transcript.recent("1", 5_000, &[]).await.unwrap();
+    assert_eq!(turns.last().unwrap().text, "(sent a generated video)");
+}
+
+// chat-model: "Only an id a tool actually returned"; telegram-bot: "falls
+// back to the words ... when the id is unknown"
+#[tokio::test]
+async fn ignores_a_media_id_the_turn_did_not_make_and_keeps_the_words() {
+    let it = subject(ScriptedRunner::new());
+    // In the store (made by some other job), but not by this turn.
+    let id = generated(&it, teeny_media::types::MediaKind::Image);
+    let mut ctx = it.ctx;
+    ctx.runner =
+        Arc::new(ScriptedRunner::new().reply(
+            json!({ "reply": "here", "mediaId": id, "incomingTone": "friendly" }).to_string(),
+        ));
+    let answer = respond(&ctx, &dm("10", "draw"), &GifRation::default())
+        .await
+        .unwrap();
+    assert_eq!(answer.text.as_deref(), Some("here"));
+    assert_eq!(answer.media, None);
+
+    // Made this turn but gone from the store: the words alone.
+    let it = subject(ScriptedRunner::new().outcome(turn_that_made(
+        json!({ "reply": "here", "mediaId": "img_notreal_9", "incomingTone": "friendly" }),
+        "img_notreal_9",
+    )));
+    let answer = respond(&it.ctx, &dm("10", "draw"), &GifRation::default())
+        .await
+        .unwrap();
+    assert_eq!(answer.text.as_deref(), Some("here"));
+    assert_eq!(answer.media, None);
 }

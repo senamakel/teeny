@@ -1,6 +1,9 @@
 //! The chat drafter's task and answer: a port of `AgentChatModel` in
 //! `legacy/src/agent/chat-model.ts`. The agent (its system prompt and its
-//! read-only belt) is the runner's; it never generates media on Telegram.
+//! read-only belt) is the runner's. The chat belt has eyes and GIFs but no
+//! generator ("eyes, no sketchbook": a group could ask a bot to draw all
+//! day), so a `mediaId` is honoured only when a tool in this very turn
+//! returned it, exactly as the legacy drafter checked.
 
 use serde::Deserialize;
 use teeny_memory::ChatKind;
@@ -12,8 +15,12 @@ use teeny_store::ChatTurn;
 use teeny_store::journal::Tone;
 use teeny_store::transcript::Speaker;
 
+use teeny_media::store::is_media_id;
+
 use super::ChatMessage;
+use crate::journal_glue::produced_media_id;
 use crate::reply::draft::{json_in, one_line, tone_of};
+use crate::runner::ToolCallRecord;
 
 /// Well under Telegram's 4096 and well over a post.
 pub const MAX_CHAT_REPLY_LENGTH: usize = 1_200;
@@ -50,6 +57,9 @@ pub const REACTIONS: [&str; 28] = [
     "🥱",
 ];
 
+/// The longest GIF query kept, as the legacy schema allowed.
+const MAX_GIF_QUERY: usize = 80;
+
 /// Why a turn produced nothing.
 pub const UNUSABLE: &str = "The chat agent returned neither a reply nor a reaction";
 
@@ -59,6 +69,10 @@ pub struct ChatDraft {
     pub text: Option<String>,
     /// Never on a sour message.
     pub reaction: Option<String>,
+    /// What a GIF should show; only with words, never next to media.
+    pub gif_query: Option<String>,
+    /// A generated picture or clip this turn made.
+    pub media_id: Option<String>,
     pub incoming_tone: Tone,
 }
 
@@ -95,6 +109,8 @@ fn render_history(history: &[ChatTurn]) -> Vec<String> {
 const RESPONSE_FORMAT: &str = r#"RESPONSE FORMAT. Answer with one JSON object and nothing else:
 {
   "reply": "Optional. The message to send, plain text, no markdown, no surrounding quotes. Leave it out when a reaction alone is the right answer: a \"gm\", a thumbs-up, somebody sharing something that wants acknowledging rather than a reply.",
+  "gifQuery": "Optional, at most 80 characters. What a GIF should show, e.g. \"chef kiss\". Rare: only when the GIF *is* the joke or the reaction and words would be worse. Most messages, including most greetings, get none; a reaction emoji does that job now.",
+  "mediaId": "Optional. The mediaId returned by generate_image or generate_video THIS turn, to send it with the reply. Only an id a tool actually returned; leave it out otherwise.",
   "reaction": "Optional. An emoji reaction to put on their message, with or without a reply, one of: 👍 ❤ 🔥 🥰 👏 😁 🤔 🤯 😱 😢 🎉 🤩 🙏 👌 💯 🤣 ⚡ 🏆 👀 🫡 😎 🤝 😭 🤓 💅 🗿 ❤‍🔥 🥱. Use one when you would tap one as a person: warmth, agreement, a laugh, a thing well said. Not on every message, and not on a real question -- answer those.",
   "incomingTone": "How THEIR message read, not your reply: friendly | neutral | negative | hostile. `friendly` covers teasing and banter. `neutral` is a blunt or plain question. `negative` is snark, dismissiveness, FUD, or a cheap shot at the project: roastable. `hostile` is abuse, slurs, threats, targeted harassment, or someone plainly trying to start a fight: not roastable."
 }"#;
@@ -168,6 +184,8 @@ pub(super) fn render_task(input: &TaskInput<'_>) -> String {
 struct Answer {
     reply: Option<String>,
     reaction: Option<String>,
+    gif_query: Option<String>,
+    media_id: Option<String>,
     incoming_tone: Option<String>,
 }
 
@@ -178,7 +196,8 @@ fn none(value: Option<String>) -> Option<String> {
     (!trimmed.is_empty() && lowered != "none" && lowered != "none.").then_some(trimmed)
 }
 
-pub(super) fn parse_answer(text: &str) -> anyhow::Result<ChatDraft> {
+/// The drafter's answer, checked against the turn's own tool calls.
+pub(super) fn parse_answer(text: &str, calls: &[ToolCallRecord]) -> anyhow::Result<ChatDraft> {
     let answer: Answer = json_in(text)
         .and_then(|value| serde_json::from_value(value).ok())
         .ok_or_else(|| anyhow::anyhow!(UNUSABLE))?;
@@ -193,12 +212,23 @@ pub(super) fn parse_answer(text: &str) -> anyhow::Result<ChatDraft> {
     let reaction = answer
         .reaction
         .filter(|reaction| !sour && REACTIONS.contains(&reaction.as_str()));
-    if text.is_none() && reaction.is_none() {
+    // A model that has seen the id format can write one that fits it, and
+    // the store is shared across jobs: only an id this turn made is ours.
+    let media_id =
+        none(answer.media_id).filter(|id| is_media_id(id) && produced_media_id(calls, id));
+    // A GIF next to a picture it just drew is two attachments for one line,
+    // and a GIF without words is a GIF sent at somebody.
+    let gif_query = none(answer.gif_query)
+        .filter(|_| media_id.is_none() && text.is_some())
+        .map(|query| query.chars().take(MAX_GIF_QUERY).collect());
+    if text.is_none() && reaction.is_none() && media_id.is_none() {
         anyhow::bail!(UNUSABLE);
     }
     Ok(ChatDraft {
         text,
         reaction,
+        gif_query,
+        media_id,
         incoming_tone: tone,
     })
 }
