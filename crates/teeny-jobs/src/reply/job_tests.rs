@@ -566,6 +566,25 @@ async fn remembers_the_mention_and_the_reply_of_a_friendly_exchange() {
     assert_eq!(it.memory.captured_kinds(), vec!["mention", "reply"]);
 }
 
+#[tokio::test]
+async fn remembers_the_mention_but_not_a_dry_run_reply_which_published_nothing() {
+    let it = subject(Options {
+        dry_run: true,
+        pending: vec![post("10", "gm", Some("9"))],
+        ..Options::default()
+    })
+    .await;
+    run(&it.ctx).await.unwrap();
+    assert!(it.outlet.replies().is_empty());
+    // Somebody did say it; Teeny said nothing back.
+    assert_eq!(
+        it.memory.captured_kinds(),
+        vec!["mention"],
+        "a rehearsal must not tell memory Teeny replied"
+    );
+    assert_eq!(it.entry().await.outcome, Outcome::DryRun);
+}
+
 // The journal.
 #[tokio::test]
 async fn records_the_whole_turn_once_it_has_been_posted() {

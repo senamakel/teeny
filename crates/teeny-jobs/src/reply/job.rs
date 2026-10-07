@@ -459,14 +459,10 @@ async fn answer(
     };
     let posted_id = posted.as_ref().map(ToString::to_string);
 
-    remember(
-        ctx,
-        post,
-        &text,
-        posted_id.as_deref(),
-        drafted.incoming_tone,
-    )
-    .await;
+    // Memory keeps what was said, and a rehearsal said nothing.
+    if let Some(posted_id) = posted_id.as_deref() {
+        remember(ctx, post, &text, Some(posted_id), drafted.incoming_tone).await;
+    }
     let sour = is_sour(drafted.incoming_tone);
     if sour {
         tracing::info!(post_id = id, tone = ?drafted.incoming_tone, "answered but not remembered: the incoming post read as sour");
