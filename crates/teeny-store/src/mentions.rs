@@ -8,25 +8,35 @@
 
 use std::marker::PhantomData;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use async_trait::async_trait;
+use chrono::{DateTime, TimeDelta, Utc};
 use futures::TryStreamExt;
 use mongodb::bson::{self, Document, doc};
+use mongodb::options::ReturnDocument;
 use mongodb::{Collection, Database};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::Result;
 use crate::mongo::{Indexes, group_counts, index, unique};
-use crate::support::{clip, iso_now};
+use crate::support::{clip, iso, iso_now};
 
 /// The default collection, `MENTIONS_COLLECTION`'s default.
 pub const COLLECTION: &str = "mentions";
+
+/// How long a claim holds before a consumer that went quiet is presumed
+/// dead and its mention, if nothing was posted, is pending again. Longer
+/// than any one draft takes, pacing included.
+pub const DEFAULT_CLAIM_LEASE: Duration = Duration::from_secs(15 * 60);
 
 /// Where a mention is in its life.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MentionStatus {
     Pending,
+    /// Claimed by a consumer drafting an answer; see [`MentionQueue::claim`].
+    Replying,
     Replied,
     Failed,
     Skipped,
@@ -81,6 +91,9 @@ pub struct QueuedMention<P> {
     /// When the account liked the post; every mention gets a like.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub liked_at: Option<String>,
+    /// When a consumer claimed it to answer; the start of the lease.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claimed_at: Option<String>,
 }
 
 /// What went out in answer to a mention.
@@ -110,6 +123,13 @@ pub struct StatusCounts {
     pub replied: u64,
     pub failed: u64,
     pub skipped: u64,
+    /// Left out when there are none, so the counts read as they always did.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub replying: u64,
+}
+
+fn is_zero(count: &u64) -> bool {
+    *count == 0
 }
 
 /// The queue.
@@ -118,7 +138,20 @@ pub trait MentionQueue<P: QueuedPost>: Send + Sync {
     /// Caches posts that are not already known. Returns how many were new.
     async fn cache(&self, posts: &[P]) -> Result<u64>;
     /// Oldest pending posts first, so a backlog drains in the order it arrived.
+    /// A claim whose lease ran out before any reply went out is pending
+    /// again, and is read with them. Reading claims nothing: see
+    /// [`claim`](Self::claim).
     async fn take_pending(&self, limit: usize) -> Result<Vec<QueuedMention<P>>>;
+    /// Takes one mention to answer, atomically: pending (or a stale claim
+    /// with no reply out) becomes `replying` with `claimedAt` now, and the
+    /// row is returned. `None` when another consumer holds a live claim, a
+    /// reply already went out, or the mention is done or unknown. Only the
+    /// consumer that gets the row back drafts an answer.
+    async fn claim(&self, post_id: &str) -> Result<Option<QueuedMention<P>>>;
+    /// Records the posted reply's id the moment the post returns, before
+    /// anything else: a claim carrying a reply id is never offered again,
+    /// so a crash after posting cannot answer the mention twice.
+    async fn record_reply_id(&self, post_id: &str, reply_id: &str) -> Result<()>;
     async fn mark_replied(&self, post_id: &str, reply: &Reply) -> Result<()>;
     async fn mark_failed(&self, post_id: &str, error: &str) -> Result<()>;
     /// Set aside without an answer: over budget, or not worth one. Not a failure.
@@ -141,13 +174,23 @@ pub trait MentionQueue<P: QueuedPost>: Send + Sync {
 /// The queue in process, for tests and dry runs.
 pub struct InMemoryMentionQueue<P> {
     rows: Mutex<Vec<QueuedMention<P>>>,
+    lease: Duration,
 }
 
 impl<P> Default for InMemoryMentionQueue<P> {
     fn default() -> Self {
         Self {
             rows: Mutex::new(Vec::new()),
+            lease: DEFAULT_CLAIM_LEASE,
         }
+    }
+}
+
+impl<P> InMemoryMentionQueue<P> {
+    /// With a claim lease other than [`DEFAULT_CLAIM_LEASE`].
+    pub fn with_claim_lease(mut self, lease: Duration) -> Self {
+        self.lease = lease;
+        self
     }
 }
 
@@ -195,15 +238,40 @@ impl<P: QueuedPost> MentionQueue<P> for InMemoryMentionQueue<P> {
     }
 
     async fn take_pending(&self, limit: usize) -> Result<Vec<QueuedMention<P>>> {
+        let cutoff = stale_before(self.lease);
         let mut pending: Vec<_> = self
             .lock()
             .iter()
-            .filter(|row| row.status == MentionStatus::Pending)
+            .filter(|row| is_open(row, &cutoff))
             .cloned()
             .collect();
         pending.sort_by(|a, b| a.cached_at.cmp(&b.cached_at));
         pending.truncate(limit);
         Ok(pending)
+    }
+
+    async fn claim(&self, post_id: &str) -> Result<Option<QueuedMention<P>>> {
+        let cutoff = stale_before(self.lease);
+        let now = iso_now();
+        let mut rows = self.lock();
+        let Some(row) = rows
+            .iter_mut()
+            .find(|row| row.post_id == post_id && is_open(row, &cutoff))
+        else {
+            return Ok(None);
+        };
+        row.status = MentionStatus::Replying;
+        row.claimed_at = Some(now.clone());
+        row.updated_at = now;
+        Ok(Some(row.clone()))
+    }
+
+    async fn record_reply_id(&self, post_id: &str, reply_id: &str) -> Result<()> {
+        self.update(post_id, |row| {
+            row.reply_id = Some(reply_id.to_owned());
+            row.updated_at = iso_now();
+        });
+        Ok(())
     }
 
     async fn mark_replied(&self, post_id: &str, reply: &Reply) -> Result<()> {
@@ -282,6 +350,7 @@ impl<P: QueuedPost> MentionQueue<P> for InMemoryMentionQueue<P> {
             row.error = None;
             row.reply_id = None;
             row.reply_text = None;
+            row.claimed_at = None;
         }))
     }
 
@@ -301,6 +370,38 @@ impl<P: QueuedPost> MentionQueue<P> for InMemoryMentionQueue<P> {
 /// Errors and skip reasons keep this many characters.
 const MAX_ERROR: usize = 500;
 
+/// A claim made before this, ISO, has outlived its lease.
+fn stale_before(lease: Duration) -> String {
+    let lease = TimeDelta::from_std(lease).unwrap_or(TimeDelta::MAX);
+    iso(Utc::now()
+        .checked_sub_signed(lease)
+        .unwrap_or(DateTime::<Utc>::MIN_UTC))
+}
+
+/// Whether a row is there to be answered: pending, or claimed by a consumer
+/// that went quiet before any reply went out.
+fn is_open<P>(row: &QueuedMention<P>, stale_before: &str) -> bool {
+    match row.status {
+        MentionStatus::Pending => true,
+        MentionStatus::Replying => {
+            row.reply_id.is_none()
+                && row
+                    .claimed_at
+                    .as_deref()
+                    .is_none_or(|claimed| claimed < stale_before)
+        }
+        _ => false,
+    }
+}
+
+/// [`is_open`] as a Mongo filter.
+fn open_query(stale_before: &str) -> Document {
+    doc! { "$or": [
+        { "status": "pending" },
+        { "status": "replying", "replyId": null, "claimedAt": { "$not": { "$gte": stale_before } } },
+    ] }
+}
+
 fn fresh<P: QueuedPost>(post: &P, now: &str) -> QueuedMention<P> {
     QueuedMention {
         post_id: post.post_id().to_owned(),
@@ -316,6 +417,7 @@ fn fresh<P: QueuedPost>(post: &P, now: &str) -> QueuedMention<P> {
         lane: None,
         own_post_id: None,
         liked_at: None,
+        claimed_at: None,
     }
 }
 
@@ -323,6 +425,7 @@ impl StatusCounts {
     fn add(&mut self, status: MentionStatus, total: u64) {
         match status {
             MentionStatus::Pending => self.pending += total,
+            MentionStatus::Replying => self.replying += total,
             MentionStatus::Replied => self.replied += total,
             MentionStatus::Failed => self.failed += total,
             MentionStatus::Skipped => self.skipped += total,
@@ -334,6 +437,7 @@ impl StatusCounts {
 pub struct MongoMentionQueue<P> {
     rows: Collection<Document>,
     indexes: Indexes,
+    lease: Duration,
     post: PhantomData<fn() -> P>,
 }
 
@@ -347,8 +451,15 @@ impl<P: QueuedPost> MongoMentionQueue<P> {
         Self {
             rows: db.collection(name),
             indexes: Indexes::default(),
+            lease: DEFAULT_CLAIM_LEASE,
             post: PhantomData,
         }
+    }
+
+    /// With a claim lease other than [`DEFAULT_CLAIM_LEASE`].
+    pub fn with_claim_lease(mut self, lease: Duration) -> Self {
+        self.lease = lease;
+        self
     }
 
     async fn ready(&self) -> Result<()> {
@@ -399,13 +510,40 @@ impl<P: QueuedPost> MentionQueue<P> for MongoMentionQueue<P> {
         let rows = self
             .rows
             .clone_with_type::<QueuedMention<P>>()
-            .find(doc! { "status": "pending" })
+            .find(open_query(&stale_before(self.lease)))
             .sort(doc! { "cachedAt": 1 })
             .limit(i64::try_from(limit).unwrap_or(i64::MAX))
             .await?
             .try_collect()
             .await?;
         Ok(rows)
+    }
+
+    async fn claim(&self, post_id: &str) -> Result<Option<QueuedMention<P>>> {
+        self.ready().await?;
+        let mut query = open_query(&stale_before(self.lease));
+        query.insert("postId", post_id);
+        let now = iso_now();
+        Ok(self
+            .rows
+            .clone_with_type::<QueuedMention<P>>()
+            .find_one_and_update(
+                query,
+                doc! { "$set": { "status": "replying", "claimedAt": &now, "updatedAt": &now } },
+            )
+            .return_document(ReturnDocument::After)
+            .await?)
+    }
+
+    async fn record_reply_id(&self, post_id: &str, reply_id: &str) -> Result<()> {
+        self.ready().await?;
+        self.rows
+            .update_one(
+                doc! { "postId": post_id },
+                doc! { "$set": { "replyId": reply_id, "updatedAt": iso_now() } },
+            )
+            .await?;
+        Ok(())
     }
 
     async fn mark_replied(&self, post_id: &str, reply: &Reply) -> Result<()> {
@@ -503,7 +641,7 @@ impl<P: QueuedPost> MentionQueue<P> for MongoMentionQueue<P> {
                 doc! { "postId": post_id },
                 doc! {
                     "$set": { "status": "pending", "attempts": 0, "updatedAt": iso_now() },
-                    "$unset": { "error": "", "reply": "", "replyId": "", "replyText": "" },
+                    "$unset": { "error": "", "reply": "", "replyId": "", "replyText": "", "claimedAt": "" },
                 },
             )
             .await?;

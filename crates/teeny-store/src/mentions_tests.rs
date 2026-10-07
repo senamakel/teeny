@@ -68,6 +68,79 @@ async fn requeue_contract(queue: &dyn MentionQueue<Post>) {
     assert_eq!(row.reply_text, None);
 }
 
+/// The claim, on a queue with the default lease: a mention is drafted by
+/// one consumer at a time.
+async fn claim_contract(queue: &dyn MentionQueue<Post>) {
+    queue.cache(&[post("1"), post("2")]).await.unwrap();
+    let (a, b) = tokio::join!(queue.claim("1"), queue.claim("1"));
+    let claimed: Vec<_> = [a.unwrap(), b.unwrap()].into_iter().flatten().collect();
+    assert_eq!(claimed.len(), 1, "two consumers, one claim");
+    assert_eq!(claimed[0].post_id, "1");
+    assert_eq!(claimed[0].status, MentionStatus::Replying);
+    assert!(claimed[0].claimed_at.is_some());
+    assert_eq!(claimed[0].post, post("1"));
+
+    // A live claim is nobody else's work.
+    let pending = queue.take_pending(10).await.unwrap();
+    assert_eq!(
+        pending
+            .iter()
+            .map(|m| m.post_id.as_str())
+            .collect::<Vec<_>>(),
+        ["2"]
+    );
+    assert!(queue.claim("1").await.unwrap().is_none());
+    assert!(queue.claim("404").await.unwrap().is_none());
+    assert_eq!(queue.counts().await.unwrap().replying, 1);
+
+    // Done is done.
+    queue.mark_replied("1", &reply("gm")).await.unwrap();
+    assert!(queue.claim("1").await.unwrap().is_none());
+    queue.mark_skipped("2", "over budget").await.unwrap();
+    assert!(queue.claim("2").await.unwrap().is_none());
+}
+
+/// The claim, on a queue whose lease runs out at once: a consumer that died
+/// mid-draft gives its mention back, one that died after posting does not.
+async fn stale_claim_contract(queue: &dyn MentionQueue<Post>) {
+    queue.cache(&[post("1"), post("2")]).await.unwrap();
+    queue.claim("1").await.unwrap().unwrap();
+    queue.claim("2").await.unwrap().unwrap();
+    // The reply to "2" went out; the process died before the rest.
+    queue.record_reply_id("2", "r2").await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+
+    let pending = queue.take_pending(10).await.unwrap();
+    assert_eq!(
+        pending
+            .iter()
+            .map(|m| m.post_id.as_str())
+            .collect::<Vec<_>>(),
+        ["1"],
+        "an unposted stale claim is work again"
+    );
+    assert!(queue.claim("1").await.unwrap().is_some());
+    assert!(
+        queue.claim("2").await.unwrap().is_none(),
+        "never answered twice"
+    );
+    assert_eq!(
+        queue.status_of("2").await.unwrap(),
+        Some(MentionStatus::Replying)
+    );
+
+    queue.mark_replied("2", &reply("gm")).await.unwrap();
+    assert_eq!(
+        queue.status_of("2").await.unwrap(),
+        Some(MentionStatus::Replied)
+    );
+
+    // Requeued fresh, the claim and the reply are gone with it.
+    assert!(queue.requeue_fresh("2").await.unwrap());
+    let row = queue.claim("2").await.unwrap().unwrap();
+    assert_eq!(row.reply_id, None);
+}
+
 /// The queue's contract, run against every implementation.
 async fn contract(queue: &dyn MentionQueue<Post>) {
     // Caching is upsert-if-absent: a re-read from the overlapping search
@@ -88,7 +161,8 @@ async fn contract(queue: &dyn MentionQueue<Post>) {
             pending: 2,
             replied: 1,
             failed: 0,
-            skipped: 0
+            skipped: 0,
+            replying: 0
         }
     );
 
@@ -123,7 +197,8 @@ async fn contract(queue: &dyn MentionQueue<Post>) {
             pending: 0,
             replied: 1,
             failed: 1,
-            skipped: 1
+            skipped: 1,
+            replying: 0
         }
     );
 
@@ -185,6 +260,16 @@ async fn contract(queue: &dyn MentionQueue<Post>) {
 async fn the_in_memory_queue_keeps_the_contract() {
     contract(&InMemoryMentionQueue::default()).await;
     requeue_contract(&InMemoryMentionQueue::default()).await;
+    claim_contract(&InMemoryMentionQueue::default()).await;
+    stale_claim_contract(
+        &InMemoryMentionQueue::default().with_claim_lease(std::time::Duration::ZERO),
+    )
+    .await;
+}
+
+#[test]
+fn a_claim_lasts_fifteen_minutes_unless_told_otherwise() {
+    assert_eq!(DEFAULT_CLAIM_LEASE, std::time::Duration::from_secs(15 * 60));
 }
 
 #[tokio::test]
@@ -238,6 +323,7 @@ fn a_queued_mention_is_spelled_as_the_typescript_service_stored_it() {
         lane: Some(ReplyLane::Auto),
         own_post_id: Some("own".into()),
         liked_at: None,
+        claimed_at: None,
     };
     assert_eq!(
         serde_json::to_value(&mention).unwrap(),
@@ -267,10 +353,20 @@ async fn the_mongo_queue_keeps_the_contract() {
     contract(&MongoMentionQueue::<Post>::with_collection(&db, &name)).await;
     let fresh = crate::mongo::testing::collection("mentions");
     requeue_contract(&MongoMentionQueue::<Post>::with_collection(&db, &fresh)).await;
-    db.collection::<mongodb::bson::Document>(&fresh)
-        .drop()
-        .await
-        .unwrap();
+    let claims = crate::mongo::testing::collection("mentions");
+    claim_contract(&MongoMentionQueue::<Post>::with_collection(&db, &claims)).await;
+    let stale = crate::mongo::testing::collection("mentions");
+    stale_claim_contract(
+        &MongoMentionQueue::<Post>::with_collection(&db, &stale)
+            .with_claim_lease(std::time::Duration::ZERO),
+    )
+    .await;
+    for name in [&fresh, &claims, &stale] {
+        db.collection::<mongodb::bson::Document>(name)
+            .drop()
+            .await
+            .unwrap();
+    }
     db.collection::<mongodb::bson::Document>(&name)
         .drop()
         .await
