@@ -1,5 +1,5 @@
-node_modules
-dist
+**/node_modules
+**/dist
 .git
 .env
 .env.local
@@ -9,3 +9,6 @@ key.pem
 key.pem.pub
 npm-debug.log
 web
+.cargo
+**/target
+worktrees
