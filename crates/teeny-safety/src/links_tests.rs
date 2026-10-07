@@ -8,7 +8,9 @@ fn allowlist() -> Vec<AllowlistEntry> {
 
 fn verdict(url: &str) -> LinkVerdict {
     let links = find_links(url);
-    let link = links.first().unwrap_or_else(|| panic!("no link found in {url}"));
+    let link = links
+        .first()
+        .unwrap_or_else(|| panic!("no link found in {url}"));
     judge_link(link, &allowlist())
 }
 
@@ -23,7 +25,11 @@ mod find_links {
     fn finds_explicit_www_and_bare_links() {
         assert_eq!(
             raws("see https://tinyhumans.ai/about and www.example.com and tiny.place"),
-            ["https://tinyhumans.ai/about", "www.example.com", "tiny.place"]
+            [
+                "https://tinyhumans.ai/about",
+                "www.example.com",
+                "tiny.place"
+            ]
         );
     }
 
@@ -39,10 +45,16 @@ mod find_links {
 
     #[test]
     fn sees_through_obfuscation() {
-        assert_eq!(raws("claim at tinyhumans[.]ai/claim")[0], "tinyhumans.ai/claim");
+        assert_eq!(
+            raws("claim at tinyhumans[.]ai/claim")[0],
+            "tinyhumans.ai/claim"
+        );
         assert_eq!(raws("claim at evil (dot) xyz")[0], "evil.xyz");
         let found = find_links("hxxps://evil.example/x");
-        assert_eq!(found[0].url.as_ref().and_then(|url| url.host_str()), Some("evil.example"));
+        assert_eq!(
+            found[0].url.as_ref().and_then(|url| url.host_str()),
+            Some("evil.example")
+        );
     }
 
     #[test]
@@ -61,9 +73,18 @@ mod judge_link {
     #[test]
     fn allows_the_accounts_own_sites_and_subdomains() {
         assert_eq!(verdict("https://tinyhumans.ai"), LinkVerdict::Allowed);
-        assert_eq!(verdict("https://docs.tinyhumans.ai/x"), LinkVerdict::Allowed);
-        assert_eq!(verdict("https://github.com/tinyhumansai/openhuman"), LinkVerdict::Allowed);
-        assert_eq!(verdict("https://x.com/TinyMascot/status/1"), LinkVerdict::Allowed);
+        assert_eq!(
+            verdict("https://docs.tinyhumans.ai/x"),
+            LinkVerdict::Allowed
+        );
+        assert_eq!(
+            verdict("https://github.com/tinyhumansai/openhuman"),
+            LinkVerdict::Allowed
+        );
+        assert_eq!(
+            verdict("https://x.com/TinyMascot/status/1"),
+            LinkVerdict::Allowed
+        );
         assert_eq!(verdict("https://t.me/TinyHumanAi"), LinkVerdict::Allowed);
     }
 
@@ -102,7 +123,10 @@ mod judge_link {
     #[test]
     fn accepts_extra_entries_in_the_same_spelling() {
         let extended = parse_allowlist(
-            DEFAULT_LINK_ALLOWLIST.iter().copied().chain(["https://dexscreener.com/solana"]),
+            DEFAULT_LINK_ALLOWLIST
+                .iter()
+                .copied()
+                .chain(["https://dexscreener.com/solana"]),
         );
         let link = &find_links("https://dexscreener.com/solana/abc")[0];
         assert_eq!(judge_link(link, &extended), LinkVerdict::Allowed);
@@ -124,16 +148,24 @@ mod filter_links {
 
     #[test]
     fn leaves_a_clean_draft_untouched() {
-        let result = filter_links("the code is at github.com/tinyhumansai, come look", &allowlist());
-        assert_eq!(result.text, "the code is at github.com/tinyhumansai, come look");
+        let result = filter_links(
+            "the code is at github.com/tinyhumansai, come look",
+            &allowlist(),
+        );
+        assert_eq!(
+            result.text,
+            "the code is at github.com/tinyhumansai, come look"
+        );
         assert!(result.removed.is_empty());
         assert_eq!(result.kept, ["github.com/tinyhumansai"]);
     }
 
     #[test]
     fn cuts_a_disallowed_link_and_tidies_the_sentence() {
-        let result =
-            filter_links("claim your tokens at https://claim-tiny.xyz/go , quick!", &allowlist());
+        let result = filter_links(
+            "claim your tokens at https://claim-tiny.xyz/go , quick!",
+            &allowlist(),
+        );
         assert_eq!(result.text, "claim your tokens at, quick!");
         assert_eq!(result.removed.len(), 1);
         assert_eq!(result.removed[0].link, "https://claim-tiny.xyz/go");
@@ -148,7 +180,10 @@ mod filter_links {
 
     #[test]
     fn keeps_the_allowed_and_cuts_the_rest_in_one_draft() {
-        let result = filter_links("real: tinyhumans.ai fake: tinyhumans.ai.evil.xyz", &allowlist());
+        let result = filter_links(
+            "real: tinyhumans.ai fake: tinyhumans.ai.evil.xyz",
+            &allowlist(),
+        );
         assert_eq!(result.text, "real: tinyhumans.ai fake:");
         assert_eq!(result.kept, ["tinyhumans.ai"]);
     }
