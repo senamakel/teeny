@@ -9,6 +9,7 @@ pub mod format;
 pub mod images;
 pub mod moon;
 pub mod png;
+pub mod store;
 pub mod types;
 pub mod videos;
 pub mod vision;
