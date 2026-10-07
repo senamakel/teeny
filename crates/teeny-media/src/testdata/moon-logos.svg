@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675" font-family="'Noto Sans', 'DejaVu Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif">
+<defs>
+<linearGradient id="sky" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#131722"/><stop offset="1" stop-color="#191d33"/></linearGradient>
+<linearGradient id="track" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#f0b90b"/><stop offset="1" stop-color="#7c6cff"/></linearGradient>
+<clipPath id="disc-fighter"><circle cx="0" cy="0" r="64"/></clipPath>
+<clipPath id="disc-token"><circle cx="0" cy="0" r="14"/></clipPath>
+</defs>
+<rect width="1200" height="675" fill="url(#sky)"/>
+<circle cx="0" cy="0" r="1.6" fill="#ffffff" opacity="0.35"/>
+<circle cx="293" cy="173" r="1" fill="#ffffff" opacity="0.18"/>
+<circle cx="586" cy="346" r="1" fill="#ffffff" opacity="0.18"/>
+<circle cx="879" cy="114" r="1" fill="#ffffff" opacity="0.35"/>
+<circle cx="1172" cy="287" r="1" fill="#ffffff" opacity="0.18"/>
+<circle cx="265" cy="55" r="1.6" fill="#ffffff" opacity="0.18"/>
+<circle cx="558" cy="228" r="1" fill="#ffffff" opacity="0.35"/>
+<circle cx="851" cy="401" r="1" fill="#ffffff" opacity="0.18"/>
+<circle cx="1144" cy="169" r="1" fill="#ffffff" opacity="0.18"/>
+<circle cx="237" cy="342" r="1" fill="#ffffff" opacity="0.35"/>
+<circle cx="530" cy="110" r="1.6" fill="#ffffff" opacity="0.18"/>
+<circle cx="823" cy="283" r="1" fill="#ffffff" opacity="0.18"/>
+<circle cx="1116" cy="51" r="1" fill="#ffffff" opacity="0.35"/>
+<circle cx="209" cy="224" r="1" fill="#ffffff" opacity="0.18"/>
+<circle cx="502" cy="397" r="1" fill="#ffffff" opacity="0.18"/>
+<circle cx="795" cy="165" r="1.6" fill="#ffffff" opacity="0.35"/>
+<circle cx="1088" cy="338" r="1" fill="#ffffff" opacity="0.18"/>
+<circle cx="181" cy="106" r="1" fill="#ffffff" opacity="0.18"/>
+<circle cx="474" cy="279" r="1" fill="#ffffff" opacity="0.35"/>
+<circle cx="767" cy="47" r="1" fill="#ffffff" opacity="0.18"/>
+<circle cx="1060" cy="220" r="1.6" fill="#ffffff" opacity="0.18"/>
+<circle cx="153" cy="393" r="1" fill="#ffffff" opacity="0.35"/>
+<circle cx="446" cy="161" r="1" fill="#ffffff" opacity="0.18"/>
+<circle cx="739" cy="334" r="1" fill="#ffffff" opacity="0.18"/>
+<circle cx="1032" cy="102" r="1" fill="#ffffff" opacity="0.35"/>
+<circle cx="125" cy="275" r="1.6" fill="#ffffff" opacity="0.18"/>
+<circle cx="418" cy="43" r="1" fill="#ffffff" opacity="0.18"/>
+<circle cx="711" cy="216" r="1" fill="#ffffff" opacity="0.35"/>
+<circle cx="1004" cy="389" r="1" fill="#ffffff" opacity="0.18"/>
+<circle cx="97" cy="157" r="1" fill="#ffffff" opacity="0.18"/>
+<circle cx="390" cy="330" r="1.6" fill="#ffffff" opacity="0.35"/>
+<circle cx="683" cy="98" r="1" fill="#ffffff" opacity="0.18"/>
+<circle cx="976" cy="271" r="1" fill="#ffffff" opacity="0.18"/>
+<circle cx="69" cy="39" r="1" fill="#ffffff" opacity="0.35"/>
+<circle cx="362" cy="212" r="1" fill="#ffffff" opacity="0.18"/>
+<circle cx="655" cy="385" r="1.6" fill="#ffffff" opacity="0.18"/>
+<circle cx="948" cy="153" r="1" fill="#ffffff" opacity="0.35"/>
+<circle cx="41" cy="326" r="1" fill="#ffffff" opacity="0.18"/>
+<circle cx="334" cy="94" r="1" fill="#ffffff" opacity="0.18"/>
+<circle cx="627" cy="267" r="1" fill="#ffffff" opacity="0.35"/>
+<circle cx="920" cy="35" r="1.6" fill="#ffffff" opacity="0.18"/>
+<circle cx="13" cy="208" r="1" fill="#ffffff" opacity="0.18"/>
+<circle cx="306" cy="381" r="1" fill="#ffffff" opacity="0.35"/>
+<circle cx="599" cy="149" r="1" fill="#ffffff" opacity="0.18"/>
+<circle cx="892" cy="322" r="1" fill="#ffffff" opacity="0.18"/>
+<circle cx="1185" cy="90" r="1.6" fill="#ffffff" opacity="0.35"/>
+<circle cx="278" cy="263" r="1" fill="#ffffff" opacity="0.18"/>
+<circle cx="571" cy="31" r="1" fill="#ffffff" opacity="0.18"/>
+<text x="600" y="60" fill="#787b86" font-size="20" letter-spacing="4" text-anchor="middle">$TINY WITH THE MARKET CAP OF $X</text>
+<circle cx="300" cy="168" r="70" fill="none" stroke="#f0b90b" stroke-width="4"/>
+<g transform="translate(300 168)" clip-path="url(#disc-fighter)"><circle cx="0" cy="0" r="64" fill="#1b2030"/><image href="data:image/png;base64,iVBORw0KGgoAAAAA" x="-64" y="-64" width="128" height="128" preserveAspectRatio="xMidYMid slice"/></g>
+<text x="300" y="284" fill="#d1d4dc" font-size="40" font-weight="700" text-anchor="middle">$TINY</text>
+<text x="300" y="310" fill="#787b86" font-size="16" text-anchor="middle">TINY · #9 AI meme coins</text>
+<text x="300" y="334" fill="#d1d4dc" font-size="18" text-anchor="middle">$500.0K mcap · <tspan fill="#26a69a">+8.3% 24h</tspan></text>
+<circle cx="900" cy="168" r="70" fill="none" stroke="#7c6cff" stroke-width="4"/>
+<g transform="translate(900 168)" clip-path="url(#disc-fighter)"><circle cx="0" cy="0" r="64" fill="#1b2030"/><image href="data:image/jpeg;base64,iVBORw0KGgoAAAAA" x="-64" y="-64" width="128" height="128" preserveAspectRatio="xMidYMid slice"/></g>
+<text x="900" y="284" fill="#d1d4dc" font-size="40" font-weight="700" text-anchor="middle">$X</text>
+<text x="900" y="310" fill="#787b86" font-size="16" text-anchor="middle">&lt;script&gt;&amp;&quot; · #77 on CoinGecko</text>
+<text x="900" y="334" fill="#d1d4dc" font-size="18" text-anchor="middle">$5.00M mcap · <tspan fill="#ef5350">-12.3% 24h</tspan></text>
+<circle cx="600" cy="168" r="36" fill="#1b2030" stroke="#2a2e39" stroke-width="2"/>
+<text x="600" y="177" fill="#d1d4dc" font-size="26" font-weight="700" text-anchor="middle" letter-spacing="2">VS</text>
+<text x="600" y="250" fill="#26a69a" font-size="48" font-weight="700" text-anchor="middle">10x</text>
+<text x="600" y="276" fill="#787b86" font-size="16" text-anchor="middle">the market cap gap</text>
+<rect x="120" y="366" width="960" height="104" rx="16" fill="#1b2030" stroke="#2a2e39" stroke-width="1"/>
+<text x="148" y="398" fill="#787b86" font-size="15" letter-spacing="2">$TINY AT $X&apos;S MARKET CAP</text>
+<text x="148" y="452" fill="#d1d4dc" font-size="56" font-weight="700">$0.005</text>
+<text x="1052" y="398" fill="#787b86" font-size="15" letter-spacing="2" text-anchor="end">TODAY</text>
+<text x="1052" y="452" fill="#787b86" font-size="40" font-weight="700" text-anchor="end">$0.0005</text>
+<rect x="168" y="560.5" width="864" height="3" rx="1.5" fill="url(#track)"/>
+<g transform="translate(168 562)" clip-path="url(#disc-token)"><circle cx="0" cy="0" r="14" fill="#1b2030"/><image href="data:image/png;base64,iVBORw0KGgoAAAAA" x="-14" y="-14" width="28" height="28" preserveAspectRatio="xMidYMid slice"/></g>
+<text x="144" y="568" fill="#d1d4dc" font-size="16" font-weight="700" text-anchor="end">$TINY</text>
+<text x="144" y="588" fill="#787b86" font-size="13" text-anchor="end">$500.0K</text>
+<circle cx="1056" cy="562" r="18" fill="#f5e6a8"/>
+<circle cx="1050" cy="557" r="4" fill="#d9c98a"/>
+<circle cx="1062" cy="567" r="5" fill="#d9c98a"/>
+<rect x="498.5028772169942" y="510" width="116" height="48" rx="10" fill="#7c6cff33"/>
+<line x1="556.5028772169942" y1="562" x2="556.5028772169942" y2="552" stroke="#7c6cff" stroke-width="2"/>
+<circle cx="556.5028772169942" cy="562" r="8" fill="#7c6cff" stroke="#7c6cff" stroke-width="2"/>
+<text x="556.5028772169942" y="528" fill="#d1d4dc" font-size="16" font-weight="700" text-anchor="middle">$X</text>
+<text x="556.5028772169942" y="546" fill="#d1d4dc" font-size="12" text-anchor="middle">$5.00M · 10x</text>
+<line x1="869.7061166644561" y1="562" x2="869.7061166644561" y2="572" stroke="#787b86" stroke-width="2"/>
+<circle cx="869.7061166644561" cy="562" r="5" fill="#131722" stroke="#787b86" stroke-width="2"/>
+<text x="869.7061166644561" y="602" fill="#787b86" font-size="14" font-weight="700" text-anchor="middle">$AIC</text>
+<text x="869.7061166644561" y="620" fill="#787b86" font-size="12" text-anchor="middle">$32.0M · 64x</text>
+<line x1="984" y1="562" x2="984" y2="552" stroke="#787b86" stroke-width="2"/>
+<circle cx="984" cy="562" r="5" fill="#131722" stroke="#787b86" stroke-width="2"/>
+<text x="984" y="528" fill="#787b86" font-size="14" font-weight="700" text-anchor="middle">$TURBO</text>
+<text x="984" y="546" fill="#787b86" font-size="12" text-anchor="middle">$63.0M · 126x</text>
+<text x="120" y="657" fill="#787b86" font-size="13">$TINY at its supply today, priced at $X&apos;s market cap. Arithmetic, not a forecast. · AI meme coins · CoinGecko · 2026-09-14</text>
+</svg>

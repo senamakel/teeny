@@ -5,6 +5,7 @@ mod candle;
 pub mod chart;
 mod error;
 pub mod format;
+pub mod moon;
 pub mod png;
 
 pub use candle::Candle;
