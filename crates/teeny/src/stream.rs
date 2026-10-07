@@ -26,7 +26,10 @@ pub async fn feed(events: impl Stream<Item = Value>, intake: Arc<ActivityIntake>
         read += 1;
         match intake.deliver(&event, Source::Stream).await {
             Ok(delivered) if delivered.queued > 0 => {
-                tracing::info!(queued = delivered.queued, "activity stream: queued mentions");
+                tracing::info!(
+                    queued = delivered.queued,
+                    "activity stream: queued mentions"
+                );
             }
             Ok(_) => {}
             Err(error) => tracing::warn!(%error, "activity stream: could not take an event"),

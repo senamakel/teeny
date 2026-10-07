@@ -9,7 +9,10 @@ fn config(extra: &[(&'static str, &'static str)]) -> Config {
     Config::from_vars(vars).unwrap()
 }
 
-const TOKEN: (&str, &str) = ("TELEGRAM_BOT_TOKEN", "123456:ABCdefGHIjklMNOpqrSTUvwxYZ012345678");
+const TOKEN: (&str, &str) = (
+    "TELEGRAM_BOT_TOKEN",
+    "123456:ABCdefGHIjklMNOpqrSTUvwxYZ012345678",
+);
 
 #[test]
 fn picks_teenys_own_poller_by_default() {

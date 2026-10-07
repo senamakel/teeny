@@ -38,7 +38,10 @@ async fn the_stream_and_the_webhook_feed_one_intake_into_one_queue() {
         "teenydroid",
     ));
     // The webhook saw 900 first.
-    intake.deliver(&mention("900"), Source::Webhook).await.unwrap();
+    intake
+        .deliver(&mention("900"), Source::Webhook)
+        .await
+        .unwrap();
 
     let read = feed(
         futures::stream::iter(vec![mention("900"), mention("901"), json!({})]),

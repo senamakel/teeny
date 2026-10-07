@@ -7,7 +7,10 @@ fn keeps_the_poll_cursor_where_the_entrypoint_migrates_it() {
     let mut vars = fake_vars();
     vars.push(("TEENY_DATA", "/data"));
     let config = Config::from_vars(vars).unwrap();
-    assert_eq!(cursor_path(&config), PathBuf::from("/data/state/state.json"));
+    assert_eq!(
+        cursor_path(&config),
+        PathBuf::from("/data/state/state.json")
+    );
 }
 
 /// Builds the whole service against the local Mongo (lazily: nothing is
@@ -42,7 +45,11 @@ fn builds_every_part_from_the_configuration() {
             let app = App::build(Config::from_vars(vars).unwrap()).await.unwrap();
             assert!(app.ctx.conversation.is_some());
             assert!(app.ctx.conversation().unwrap().articles.is_some());
-            assert!(app.runtime.agent_ids().contains(&"teeny-operator".to_owned()));
+            assert!(
+                app.runtime
+                    .agent_ids()
+                    .contains(&"teeny-operator".to_owned())
+            );
             let _ = app.intake();
             std::fs::remove_dir_all(data).ok();
         }))
