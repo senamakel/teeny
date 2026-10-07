@@ -51,6 +51,7 @@ image = { version = "0.25.10", default-features = false, features = ["png", "jpe
 mongodb = { version = "3", default-features = false, features = ["compat-3-0-0", "rustls-tls", "dns-resolver"] }
 percent-encoding = "2.3.2"
 proptest = "1.11.0"
+regex = "1.13.1"
 reqwest = { version = "0.12.28", default-features = false, features = ["rustls-tls", "json", "stream", "multipart"] }
 resvg = "0.45"
 serde = { version = "1.0.229", features = ["derive"] }
@@ -63,6 +64,7 @@ tokio = { version = "1.53.1", features = ["full"] }
 tower-http = { version = "0.6.11", features = ["trace", "cors", "limit"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
+unicode-normalization = "0.1.25"
 url = "2.5.8"
 usvg = "0.45"
 wiremock = "0.6.5"
