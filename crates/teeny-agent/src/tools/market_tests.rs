@@ -163,10 +163,11 @@ async fn reads_the_community_without_the_account_s_own_posts() {
     );
     assert!(output.contains("- @fren: fren says hi"));
     assert!(!output.contains("TeenyDroid"));
-    let searches = reads.searches.lock().unwrap();
-    assert_eq!(searches[0].0, "$TINY -is:retweet");
-    assert_eq!(searches[0].1.max_results, Some(10));
-    drop(searches);
+    {
+        let searches = reads.searches.lock().unwrap();
+        assert_eq!(searches[0].0, "$TINY -is:retweet");
+        assert_eq!(searches[0].1.max_results, Some(10));
+    }
     assert!(call(&tool, json!({ "maxResults": 51 })).await.is_error);
 }
 

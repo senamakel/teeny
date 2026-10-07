@@ -45,10 +45,11 @@ async fn holds_a_search_to_the_configured_cap() {
     )
     .await;
     assert_eq!(text_of(&output), "No posts matched.");
-    let searches = x.searches.lock().unwrap();
-    assert_eq!(searches[0].1.max_results, Some(25));
-    assert_eq!(searches[0].1.sort_order, Some(SortOrder::Relevancy));
-    drop(searches);
+    {
+        let searches = x.searches.lock().unwrap();
+        assert_eq!(searches[0].1.max_results, Some(25));
+        assert_eq!(searches[0].1.sort_order, Some(SortOrder::Relevancy));
+    }
     assert!(
         call(&tool, json!({ "query": "q", "maxResults": 5 }))
             .await

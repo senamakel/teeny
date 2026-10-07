@@ -4,5 +4,6 @@ pub mod deps;
 pub mod exa;
 pub mod fakes;
 pub mod llm;
+pub mod posture;
 pub mod prompt;
 pub mod tools;

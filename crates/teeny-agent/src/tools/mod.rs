@@ -16,6 +16,11 @@
 //! A refusal ("Refused: ...", the words the legacy tool returned so the model
 //! rewrites) comes back as a tool error with the same text.
 
+// The validation helpers return `Result<_, ToolResult>`: the error is the
+// tool's answer, built once per call and handed straight back, so boxing it
+// would add an indirection at every call site and save nothing.
+#![allow(clippy::result_large_err)]
+
 pub mod chart;
 pub mod market;
 pub mod media;
