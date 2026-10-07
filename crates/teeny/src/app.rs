@@ -48,7 +48,9 @@ pub struct App {
     pub deps: Arc<Deps>,
     pub settings: RuntimeSettings,
     pub runtime: Arc<Runtime>,
-    /// Holding these keeps every agent registered.
+    /// Holding these keeps every agent registered: the runtime frees an id
+    /// when its last handle drops. The runner holds them too.
+    #[allow(dead_code)]
     pub agents: Arc<TeenyAgents>,
     pub runner: Arc<dyn AgentRunner>,
     pub ctx: Arc<JobCtx>,

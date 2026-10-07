@@ -33,7 +33,10 @@ fn everything_in_a_dm_is_for_the_account() {
 
 #[test]
 fn in_a_group_only_a_mention_a_reply_or_a_command_to_it() {
-    assert!(!is_addressed(&message(json!({ "text": "hello room" })), &bot()));
+    assert!(!is_addressed(
+        &message(json!({ "text": "hello room" })),
+        &bot()
+    ));
     let named = message(json!({
         "text": "hey @TeenyBot what is $TINY?",
         "entities": [{ "type": "mention", "offset": 4, "length": 9 }]
@@ -50,7 +53,10 @@ fn in_a_group_only_a_mention_a_reply_or_a_command_to_it() {
             "from": { "id": 99, "is_bot": true, "first_name": "Teeny" } }
     }));
     assert!(is_addressed(&reply, &bot()));
-    assert!(is_addressed(&message(json!({ "text": "/start@teenybot" })), &bot()));
+    assert!(is_addressed(
+        &message(json!({ "text": "/start@teenybot" })),
+        &bot()
+    ));
     // UTF-16 offsets: an emoji before the mention counts two.
     let emoji = message(json!({
         "text": "🔥 @teenybot",
@@ -92,25 +98,36 @@ fn a_picture_is_written_in_as_unseen() {
 
 #[test]
 fn ignores_bots_channels_service_messages_its_own_lines_and_empty_ones() {
-    let bot_user = message(json!({ "text": "BUY", "from": { "id": 5, "is_bot": true, "first_name": "buybot" } }));
+    let bot_user = message(
+        json!({ "text": "BUY", "from": { "id": 5, "is_bot": true, "first_name": "buybot" } }),
+    );
     assert!(to_chat_message(&bot_user, &bot()).is_none());
-    let channel = message(json!({ "text": "news", "sender_chat": { "id": -5, "type": "channel" } }));
+    let channel =
+        message(json!({ "text": "news", "sender_chat": { "id": -5, "type": "channel" } }));
     assert!(to_chat_message(&channel, &bot()).is_none());
     let forward = message(json!({ "text": "news", "is_automatic_forward": true }));
     assert!(to_chat_message(&forward, &bot()).is_none());
-    let joined = message(json!({ "new_chat_members": [{ "id": 8, "is_bot": false, "first_name": "Bo" }] }));
+    let joined =
+        message(json!({ "new_chat_members": [{ "id": 8, "is_bot": false, "first_name": "Bo" }] }));
     assert!(to_chat_message(&joined, &bot()).is_none());
     let pinned = message(json!({ "text": "x", "pinned_message": {} }));
     assert!(to_chat_message(&pinned, &bot()).is_none());
-    let own = message(json!({ "text": "x", "from": { "id": 99, "is_bot": false, "first_name": "T" } }));
+    let own =
+        message(json!({ "text": "x", "from": { "id": 99, "is_bot": false, "first_name": "T" } }));
     assert!(to_chat_message(&own, &bot()).is_none());
     assert!(to_chat_message(&message(json!({ "text": "@teenybot" })), &bot()).is_none());
 }
 
 #[test]
 fn reads_the_command_without_the_bot_suffix() {
-    assert_eq!(command_of(&message(json!({ "text": "/Start@teenybot hi" }))).as_deref(), Some("start"));
-    assert_eq!(command_of(&message(json!({ "text": "/help" }))).as_deref(), Some("help"));
+    assert_eq!(
+        command_of(&message(json!({ "text": "/Start@teenybot hi" }))).as_deref(),
+        Some("start")
+    );
+    assert_eq!(
+        command_of(&message(json!({ "text": "/help" }))).as_deref(),
+        Some("help")
+    );
     assert_eq!(command_of(&message(json!({ "text": "hi /help" }))), None);
 }
 
@@ -119,11 +136,20 @@ fn splits_a_long_reply_at_paragraphs_then_lines_then_words() {
     assert_eq!(split_for_telegram("  short  ", 4_096), ["short"]);
     assert!(split_for_telegram("   ", 4_096).is_empty());
     let text = format!("{}\n\n{}", "a".repeat(30), "b".repeat(30));
-    assert_eq!(split_for_telegram(&text, 40), ["a".repeat(30), "b".repeat(30)]);
+    assert_eq!(
+        split_for_telegram(&text, 40),
+        ["a".repeat(30), "b".repeat(30)]
+    );
     // The window is the first `limit` characters, so a word that ends the
     // window exactly still breaks at the space before it, as the legacy did.
     let words = "one two three four five six";
-    assert_eq!(split_for_telegram(words, 10), ["one two", "three", "four five", "six"]);
+    assert_eq!(
+        split_for_telegram(words, 10),
+        ["one two", "three", "four five", "six"]
+    );
     // No break past the first quarter: a hard cut.
-    assert_eq!(split_for_telegram(&"x".repeat(25), 10), ["x".repeat(10), "x".repeat(10), "x".repeat(5)]);
+    assert_eq!(
+        split_for_telegram(&"x".repeat(25), 10),
+        ["x".repeat(10), "x".repeat(10), "x".repeat(5)]
+    );
 }

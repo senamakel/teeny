@@ -10,7 +10,12 @@ fn the_command_line_is_well_formed() {
 #[test]
 fn reads_serve() {
     let cli = Cli::try_parse_from(["teeny", "serve"]).unwrap();
-    assert_eq!(cli.command, Command::Serve);
+    assert_eq!(cli.command, Command::Serve(ServeArgs { dry_run: false }));
+    let rehearsal = Cli::try_parse_from(["teeny", "serve", "--dry-run"]).unwrap();
+    assert_eq!(
+        rehearsal.command,
+        Command::Serve(ServeArgs { dry_run: true })
+    );
 }
 
 #[test]

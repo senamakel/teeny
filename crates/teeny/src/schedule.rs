@@ -184,7 +184,11 @@ pub fn job_table(config: &Config, calendar: Option<&Calendar>) -> anyhow::Result
             .or_else(|| tz.clone());
         for item in calendar.items.iter().filter(|item| item.enabled) {
             if config.morning.enabled && item.name == MORNING_CALENDAR_SLOT {
-                tracing::warn!(item = item.name, cron = item.cron, "calendar: skipping the item, the morning job posts the good morning");
+                tracing::warn!(
+                    item = item.name,
+                    cron = item.cron,
+                    "calendar: skipping the item, the morning job posts the good morning"
+                );
                 continue;
             }
             jobs.push(JobDef {
@@ -344,7 +348,10 @@ pub fn install(
     }
     for stale in scheduler.names()? {
         if stale.starts_with(PREFIX) && !jobs.iter().any(|job| job.name == stale) {
-            tracing::info!(job = stale, "cron: removing a job that is no longer configured");
+            tracing::info!(
+                job = stale,
+                "cron: removing a job that is no longer configured"
+            );
             scheduler.remove(&stale)?;
         }
     }

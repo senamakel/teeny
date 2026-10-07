@@ -49,14 +49,12 @@ fn build_runtime() -> std::io::Result<tokio::runtime::Runtime> {
 
 async fn run(command: Command) -> anyhow::Result<()> {
     match command {
-        Command::Serve => {
+        Command::Serve(args) => {
             // Refuse a bad environment the same way legacy did, before
             // anything starts.
             let config = Config::from_env()?;
             init_tracing(&config.server.log_level);
-            // TODO(schedule): the cron jobs, the activity stream and the
-            // reply worker start here in their milestones.
-            serve::serve(&config).await
+            serve::serve(config, args.dry_run).await
         }
         Command::Healthcheck => {
             let port = std::env::var("PORT").ok();

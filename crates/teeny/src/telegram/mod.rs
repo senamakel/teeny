@@ -95,7 +95,9 @@ pub async fn start(app: &App, api: Option<Arc<TelegramApi>>) -> anyhow::Result<O
                 dry_run: config.telegram.dry_run,
             };
             let handler = Arc::new(JobsHandler(Arc::clone(&app.ctx)));
-            Ok(Some(Transport::Teeny(Poller::new(api, handler, options).start())))
+            Ok(Some(Transport::Teeny(
+                Poller::new(api, handler, options).start(),
+            )))
         }
         Selected::OpenHuman => start_openhuman(app).map(Some),
     }
@@ -113,7 +115,9 @@ fn start_openhuman(app: &App) -> anyhow::Result<Transport> {
         .bot_token
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("no TELEGRAM_BOT_TOKEN"))?;
-    tracing::warn!("telegram: OpenHuman's channel on teeny-chat; Teeny's outbound content filter, house style and transcript budget do not run on this transport");
+    tracing::warn!(
+        "telegram: OpenHuman's channel on teeny-chat; Teeny's outbound content filter, house style and transcript budget do not run on this transport"
+    );
     let listener = app.runtime.channels().telegram(
         TelegramChannelSpec::new(token.expose(), agent_id(Belt::Chat))
             .allow_everyone()

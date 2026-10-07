@@ -48,7 +48,9 @@ async fn bot_api(updates: Vec<Value>) -> MockServer {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/botT/getUpdates"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "ok": true, "result": updates })))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "ok": true, "result": updates })),
+        )
         .up_to_n_times(1)
         .mount(&server)
         .await;
@@ -64,9 +66,10 @@ async fn bot_api(updates: Vec<Value>) -> MockServer {
     for call in ["sendMessage", "setMessageReaction", "sendChatAction"] {
         Mock::given(method("POST"))
             .and(path(format!("/botT/{call}")))
-            .respond_with(ResponseTemplate::new(200).set_body_json(
-                json!({ "ok": true, "result": { "message_id": 500 } }),
-            ))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({ "ok": true, "result": { "message_id": 500 } })),
+            )
             .mount(&server)
             .await;
     }
@@ -126,11 +129,17 @@ async fn polls_answers_a_dm_with_the_reaction_first_then_the_text_and_moves_the_
     let reaction = &calls(&server, "setMessageReaction").await[0];
     assert_eq!(reaction["chat_id"], 7);
     assert_eq!(reaction["message_id"], 10);
-    assert_eq!(reaction["reaction"], json!([{ "type": "emoji", "emoji": "🔥" }]));
+    assert_eq!(
+        reaction["reaction"],
+        json!([{ "type": "emoji", "emoji": "🔥" }])
+    );
     let sent = &calls(&server, "sendMessage").await[0];
     assert_eq!(sent["chat_id"], 7);
     assert_eq!(sent["text"], "gm fren");
-    assert!(sent.get("reply_parameters").is_none(), "a DM is not threaded");
+    assert!(
+        sent.get("reply_parameters").is_none(),
+        "a DM is not threaded"
+    );
     let polls = calls(&server, "getUpdates").await;
     assert_eq!(polls[1]["offset"], 42);
     let order: Vec<String> = server
@@ -141,7 +150,10 @@ async fn polls_answers_a_dm_with_the_reaction_first_then_the_text_and_moves_the_
         .map(|request| request.url.path().rsplit('/').next().unwrap().to_owned())
         .filter(|call| call != "getUpdates")
         .collect();
-    assert_eq!(order, ["sendChatAction", "setMessageReaction", "sendMessage"]);
+    assert_eq!(
+        order,
+        ["sendChatAction", "setMessageReaction", "sendMessage"]
+    );
 }
 
 #[tokio::test]
@@ -170,13 +182,16 @@ async fn joins_one_persons_burst_into_one_turn() {
     settle(&server, "sendMessage", 1).await;
     running.stop().await;
 
-    let asked = handler.asked.lock().unwrap();
+    let asked = handler.asked.lock().unwrap().clone();
     assert_eq!(asked.len(), 1);
     assert_eq!(asked[0].text, "hey\nquick q\nwhat is $TINY?");
     assert_eq!(asked[0].id, "12");
     assert_eq!(asked[0].batch_ids, ["10", "11", "12"]);
     let sent = &calls(&server, "sendMessage").await[0];
-    assert_eq!(sent["reply_parameters"]["message_id"], 12, "threaded in a room");
+    assert_eq!(
+        sent["reply_parameters"]["message_id"], 12,
+        "threaded in a room"
+    );
 }
 
 #[tokio::test]

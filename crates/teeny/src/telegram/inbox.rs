@@ -227,7 +227,10 @@ pub fn is_service(message: &Message) -> bool {
 /// How many pictures the message carries: its photo, or an image sent as a
 /// document.
 fn pictures(message: &Message) -> usize {
-    let photo = message.photo.as_ref().is_some_and(|sizes| !sizes.is_empty());
+    let photo = message
+        .photo
+        .as_ref()
+        .is_some_and(|sizes| !sizes.is_empty());
     let document = message
         .document
         .as_ref()

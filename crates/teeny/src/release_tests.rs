@@ -8,8 +8,8 @@ use teeny_cadence::cadence::{Cadence, CadenceRules};
 use teeny_cadence::clock::{SystemClock, iso};
 use teeny_core::Config;
 use teeny_store::holds::{Direction, HoldBy, HoldContext, HoldKind, HoldSurface};
-use teeny_store::{Hold, HoldStatus, InMemoryPostLedger, PostLedger};
 use teeny_store::posts::NewOwnPost;
+use teeny_store::{Hold, HoldStatus, InMemoryPostLedger, PostLedger};
 use teeny_x::XApi;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -39,8 +39,11 @@ fn hold(context: HoldContext) -> Hold {
     }
 }
 
+/// Chat, text, the message replied to, the topic.
+type SentLine = (i64, String, Option<i64>, Option<i64>);
+
 #[derive(Default)]
-struct Sent(Mutex<Vec<(i64, String, Option<i64>, Option<i64>)>>);
+struct Sent(Mutex<Vec<SentLine>>);
 
 #[async_trait]
 impl ChatSend for Sent {
@@ -79,9 +82,10 @@ async fn publishes_an_approved_reply_on_x_as_written() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/2/tweets"))
-        .respond_with(ResponseTemplate::new(201).set_body_json(
-            serde_json::json!({ "data": { "id": "99", "text": "gm fren" } }),
-        ))
+        .respond_with(
+            ResponseTemplate::new(201)
+                .set_body_json(serde_json::json!({ "data": { "id": "99", "text": "gm fren" } })),
+        )
         .mount(&server)
         .await;
     let x = XApi::from_config(&config().x).with_base_url(server.uri());
@@ -174,12 +178,36 @@ async fn records_what_cannot_be_published_after_the_fact() {
         let it = &it;
         async move { it.release(&hold(HoldContext::new(surface))).await.unwrap() }
     };
-    assert_eq!(says(HoldSurface::Morning).await, "recorded; the morning post runs again tomorrow");
-    assert_eq!(says(HoldSurface::Calendar).await, "recorded; the \"calendar\" item posts again on its next run");
-    assert_eq!(says(HoldSurface::Narrative).await, "recorded; the serial writes its next episode on schedule");
-    assert_eq!(says(HoldSurface::Article).await, "recorded; the next article is written on schedule");
-    assert_eq!(says(HoldSurface::Moon).await, "recorded; the moon chart runs again tomorrow");
-    assert_eq!(says(HoldSurface::Quote).await, "recorded; the quote post runs again tomorrow");
-    assert_eq!(says(HoldSurface::Lore).await, "recorded; the lore post runs again on its next day");
-    assert_eq!(says(HoldSurface::Task).await, "recorded; nothing here can publish it");
+    assert_eq!(
+        says(HoldSurface::Morning).await,
+        "recorded; the morning post runs again tomorrow"
+    );
+    assert_eq!(
+        says(HoldSurface::Calendar).await,
+        "recorded; the \"calendar\" item posts again on its next run"
+    );
+    assert_eq!(
+        says(HoldSurface::Narrative).await,
+        "recorded; the serial writes its next episode on schedule"
+    );
+    assert_eq!(
+        says(HoldSurface::Article).await,
+        "recorded; the next article is written on schedule"
+    );
+    assert_eq!(
+        says(HoldSurface::Moon).await,
+        "recorded; the moon chart runs again tomorrow"
+    );
+    assert_eq!(
+        says(HoldSurface::Quote).await,
+        "recorded; the quote post runs again tomorrow"
+    );
+    assert_eq!(
+        says(HoldSurface::Lore).await,
+        "recorded; the lore post runs again on its next day"
+    );
+    assert_eq!(
+        says(HoldSurface::Task).await,
+        "recorded; nothing here can publish it"
+    );
 }

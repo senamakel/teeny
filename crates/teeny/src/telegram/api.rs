@@ -70,6 +70,8 @@ impl TelegramApi {
         }
     }
 
+    /// Points the client at a stand-in Bot API.
+    #[cfg(test)]
     pub fn with_base_url(mut self, base: impl Into<String>) -> Self {
         self.base = base.into().trim_end_matches('/').to_owned();
         self
@@ -101,7 +103,9 @@ impl TelegramApi {
             _ => Err(TelegramError {
                 method,
                 code: answer.error_code,
-                description: answer.description.unwrap_or_else(|| "no reason given".into()),
+                description: answer
+                    .description
+                    .unwrap_or_else(|| "no reason given".into()),
                 retry_after: answer.parameters.and_then(|p| p.retry_after),
             }),
         }
@@ -131,7 +135,10 @@ impl TelegramApi {
         let username = me.username.ok_or_else(|| {
             Self::failed("getMe", "the bot has no username; set one with @BotFather")
         })?;
-        Ok(BotIdentity { id: me.id, username })
+        Ok(BotIdentity {
+            id: me.id,
+            username,
+        })
     }
 
     /// One long poll: what arrived from `offset` on, waiting up to

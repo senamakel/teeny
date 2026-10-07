@@ -115,7 +115,11 @@ impl Inner {
             return;
         }
         if let Some(command) = command_of(&raw).filter(|command| command != "start") {
-            tracing::info!(chat_id = message.chat_id, command, "unknown telegram command, answering as text");
+            tracing::info!(
+                chat_id = message.chat_id,
+                command,
+                "unknown telegram command, answering as text"
+            );
         }
         // Per person per chat: two people addressing the account at once
         // are two conversations.
@@ -274,7 +278,11 @@ impl Poller {
     pub fn start(self) -> Running {
         let (stop, mut stopped) = watch::channel(false);
         let inner = Arc::clone(&self.inner);
-        tracing::info!(bot = inner.options.bot.username, dry_run = inner.options.dry_run, "telegram: polling");
+        tracing::info!(
+            bot = inner.options.bot.username,
+            dry_run = inner.options.dry_run,
+            "telegram: polling"
+        );
         let handle = tokio::spawn(async move {
             let mut offset: Option<i64> = None;
             while !*stopped.borrow() {

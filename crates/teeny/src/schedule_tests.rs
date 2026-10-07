@@ -73,10 +73,16 @@ fn the_publishing_jobs_are_off_until_switched_on_and_the_reply_worker_is_not_a_c
         ["teeny_ingest", "teeny_brain_usage", "teeny_heat"]
     );
     assert_eq!(
-        names(&config(&[("BRAIN_DATA_DIR", ""), ("HEAT_ENABLED", "false")])),
+        names(&config(&[
+            ("BRAIN_DATA_DIR", ""),
+            ("HEAT_ENABLED", "false")
+        ])),
         ["teeny_ingest"]
     );
-    let cron = table(&config(&[("REPLY_MODE", "cron"), ("REPLY_CRON", "*/2 * * * *")]));
+    let cron = table(&config(&[
+        ("REPLY_MODE", "cron"),
+        ("REPLY_CRON", "*/2 * * * *"),
+    ]));
     assert!(cron.contains(&("teeny_reply".into(), "*/2 * * * *".into(), None)));
 }
 
@@ -107,7 +113,10 @@ fn a_single_role_registers_only_its_own_jobs() {
 
     let moon = for_role(&config(&[("SERVICE_ROLE", "moon"), on[1], on[2]]));
     assert!(moon.moon.enabled);
-    assert!(!moon.lore.enabled, "the lore role's job, not this process's");
+    assert!(
+        !moon.lore.enabled,
+        "the lore role's job, not this process's"
+    );
     assert!(!moon.cadence.heat_enabled);
 }
 
@@ -123,7 +132,10 @@ fn the_afternoon_fires_on_the_first_enabled_owners_cron() {
 
 #[test]
 fn reads_every_cron_in_calendar_tz() {
-    let berlin = config(&[("CALENDAR_TZ", "Europe/Berlin"), ("MORNING_ENABLED", "true")]);
+    let berlin = config(&[
+        ("CALENDAR_TZ", "Europe/Berlin"),
+        ("MORNING_ENABLED", "true"),
+    ]);
     assert!(
         table(&berlin)
             .iter()
@@ -137,7 +149,10 @@ fn reads_every_cron_in_calendar_tz() {
 #[test]
 fn one_job_per_enabled_calendar_item_with_named_weekdays_in_the_calendars_zone() {
     let calendar = parse_calendar(CALENDAR).unwrap();
-    let on = for_role(&config(&[("CALENDAR_ENABLED", "true"), ("SERVICE_ROLE", "calendar")]));
+    let on = for_role(&config(&[
+        ("CALENDAR_ENABLED", "true"),
+        ("SERVICE_ROLE", "calendar"),
+    ]));
     let jobs: Vec<_> = job_table(&on, Some(&calendar))
         .unwrap()
         .into_iter()
@@ -157,7 +172,10 @@ fn one_job_per_enabled_calendar_item_with_named_weekdays_in_the_calendars_zone()
     );
 
     // The morning job owns the good morning when this process runs it.
-    let both = for_role(&config(&[("CALENDAR_ENABLED", "true"), ("MORNING_ENABLED", "true")]));
+    let both = for_role(&config(&[
+        ("CALENDAR_ENABLED", "true"),
+        ("MORNING_ENABLED", "true"),
+    ]));
     let names: Vec<_> = job_table(&both, Some(&calendar))
         .unwrap()
         .into_iter()
@@ -217,7 +235,13 @@ async fn installs_each_job_once_and_unretried_and_drops_stale_teeny_jobs() {
         ScriptedRunner::new(),
     )))));
 
-    install(&scheduler, &jobs, dispatch, tokio::runtime::Handle::current()).unwrap();
+    install(
+        &scheduler,
+        &jobs,
+        dispatch,
+        tokio::runtime::Handle::current(),
+    )
+    .unwrap();
 
     let upserts = scheduler.upserts.lock().unwrap();
     assert_eq!(upserts.len(), jobs.len());
@@ -229,14 +253,24 @@ async fn installs_each_job_once_and_unretried_and_drops_stale_teeny_jobs() {
         *scheduler.removed.lock().unwrap(),
         ["teeny_calendar_retired"]
     );
-    assert!(scheduler.stored.lock().unwrap().contains(&"someone_elses".to_owned()));
+    assert!(
+        scheduler
+            .stored
+            .lock()
+            .unwrap()
+            .contains(&"someone_elses".to_owned())
+    );
 }
 
 #[tokio::test]
 async fn a_run_reports_a_failed_job_as_an_error_for_cron_to_record() {
     let wired = Dispatch::new(Arc::new(JobCtx::fake(Arc::new(ScriptedRunner::new()))));
     assert_eq!(wired.run(&Work::Ingest).await, Ok(()));
-    assert_eq!(wired.run(&Work::BrainUsage).await, Ok(()), "no brain declines");
+    assert_eq!(
+        wired.run(&Work::BrainUsage).await,
+        Ok(()),
+        "no brain declines"
+    );
 
     // The conversation side is not wired: the poll cannot run.
     let mut bare = JobCtx::fake(Arc::new(ScriptedRunner::new()));
@@ -273,12 +307,21 @@ fn installs_on_the_real_runtime_and_runs_a_job_now() {
             .expect("the runtime boots");
             let scheduler = RuntimeScheduler(&runtime);
 
-            let jobs = job_table(&for_role(&config(&[("CALENDAR_TZ", "Europe/Berlin")])), None)
-                .unwrap();
+            let jobs = job_table(
+                &for_role(&config(&[("CALENDAR_TZ", "Europe/Berlin")])),
+                None,
+            )
+            .unwrap();
             let dispatch = Arc::new(Dispatch::new(Arc::new(JobCtx::fake(Arc::new(
                 ScriptedRunner::new(),
             )))));
-            install(&scheduler, &jobs, dispatch, tokio::runtime::Handle::current()).unwrap();
+            install(
+                &scheduler,
+                &jobs,
+                dispatch,
+                tokio::runtime::Handle::current(),
+            )
+            .unwrap();
 
             let ran = Arc::new(AtomicUsize::new(0));
             let counter = Arc::clone(&ran);
@@ -334,7 +377,12 @@ fn installs_on_the_real_runtime_and_runs_a_job_now() {
                 tokio::runtime::Handle::current(),
             )
             .unwrap();
-            assert!(!scheduler.names().unwrap().contains(&"teeny_probe".to_owned()));
+            assert!(
+                !scheduler
+                    .names()
+                    .unwrap()
+                    .contains(&"teeny_probe".to_owned())
+            );
             std::fs::remove_dir_all(data_dir).ok();
         }))
         .unwrap();
