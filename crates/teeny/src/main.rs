@@ -11,6 +11,7 @@ mod release;
 mod schedule;
 mod serve;
 mod sinks;
+mod stream;
 
 use std::process::ExitCode;
 
