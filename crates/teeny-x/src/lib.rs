@@ -7,8 +7,10 @@ pub mod cache;
 mod client;
 mod error;
 mod media;
+pub mod mention;
 pub mod model;
 pub mod oauth;
+pub mod webhook;
 mod wire;
 mod writes;
 
