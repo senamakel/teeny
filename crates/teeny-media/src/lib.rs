@@ -1,4 +1,11 @@
-//! Giphy, vision, image and video generation, the media store and the chart renderer (SVG to PNG via resvg).
-//!
-//! Skeleton: filled in by a later milestone of the Rust rewrite (see the
-//! "Rust rewrite (in progress)" section of the README).
+//! Giphy, vision, image and video generation, the media store and the chart
+//! renderer (SVG to PNG via resvg).
+
+mod candle;
+pub mod chart;
+mod error;
+pub mod format;
+pub mod png;
+
+pub use candle::Candle;
+pub use error::{Error, Result};
