@@ -1,29 +1,25 @@
-//! `render_chart` and `post_chart`: the chart agent's renderer and its one
-//! way to publish (`legacy/src/agent/tools/market.ts`). The model never
-//! handles image bytes: it renders, gets a short id, and passes the id to the
-//! post tool. Both tools of one belt share a [`ChartBook`].
+//! `render_chart`: the chart agent's renderer (`legacy/src/agent/tools/market.ts`).
+//! The model never handles image bytes: it renders, gets a short id, and
+//! names the id in its answer. The chart job, which posts, reads the chart
+//! back from the same [`ChartBook`] (`Deps::charts`). The agent has no way
+//! to publish: `post_chart`, the legacy tool, is gone.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
 use teeny_core::config::ChartTimeframe;
-use teeny_core::types::PostId;
 use teeny_market::market::MarketData;
 use teeny_market::reports::validate_bars;
 use teeny_market::ta::analysis::analyse;
 use teeny_market::types::{Timeframe, TokenOverview};
 use teeny_media::chart::{ChartOverview, ChartRead, ChartRequest, RenderedChart};
-use teeny_memory::Memory;
-use teeny_safety::house_style::{asks_the_reader, without_the_ask};
-use teeny_x::model::MediaType;
-use teeny_x::{Draft, XApi, XPublisher};
 
-use super::post::{Pacing, refusal_of, upload};
-use super::{Access, HostTool, Tool, ToolResult, answer, failed, invalid, is_x_id, parse};
+use super::{Access, HostTool, Tool, ToolResult, failed, invalid, parse};
 
-/// The charts rendered in one run, by id (`chart_1`, `chart_2`...).
+/// The charts rendered, by id (`chart_1`, `chart_2`...), shared by the
+/// chart belt's `render_chart` and the chart job that attaches one.
 #[derive(Default)]
 pub struct ChartBook {
     charts: Mutex<Vec<RenderedChart>>,
@@ -36,7 +32,8 @@ impl ChartBook {
         format!("chart_{}", charts.len())
     }
 
-    fn get(&self, id: &str) -> Option<RenderedChart> {
+    /// The chart `render_chart` returned `id` for.
+    pub fn get(&self, id: &str) -> Option<RenderedChart> {
         let index: usize = id.strip_prefix("chart_")?.parse().ok()?;
         let charts = self.charts.lock().unwrap_or_else(|p| p.into_inner());
         charts.get(index.checked_sub(1)?).cloned()
@@ -191,181 +188,8 @@ async fn render(source: &ChartSource, book: &ChartBook, args: serde_json::Value)
     let id = book.keep(chart);
     let mut lines = vec![format!("Rendered {id}: {summary}")];
     lines.extend(saved);
-    lines.push(format!("Pass chartId \"{id}\" to post_chart to attach it."));
+    lines.push(format!("Put chartId \"{id}\" in your answer to attach it."));
     ToolResult::success(lines.join("\n"))
-}
-
-/// Everything `post_chart` needs.
-pub struct PostChartTool {
-    /// Built with a `PostingGuard` for the chart surface and `post_chart`.
-    pub publisher: Arc<XPublisher>,
-    /// For the chart upload.
-    pub x: Arc<XApi>,
-    /// Shared with this belt's `render_chart`.
-    pub book: Arc<ChartBook>,
-    /// Where the post is remembered, so tomorrow can see the actual text.
-    pub memory: Option<Arc<dyn Memory>>,
-    /// `CHART_TOKEN_SYMBOL`, stored with the post.
-    pub symbol: String,
-    pub pacing: Option<Arc<Pacing>>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PostArgs {
-    text: String,
-    chart_id: Option<String>,
-    reply_to_post_id: Option<String>,
-}
-
-#[derive(Serialize)]
-struct ChartSize {
-    bytes: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    path: Option<String>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct WouldHave<'a> {
-    text: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    chart_id: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    reply_to_post_id: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    chart: Option<ChartSize>,
-}
-
-/// `post_chart`.
-pub fn post_chart(tool: PostChartTool) -> Arc<dyn Tool> {
-    let tool = Arc::new(tool);
-    HostTool::build(
-        "post_chart",
-        "Publishes one post, with a rendered chart attached when chartId is given. This is the only way this \
-         agent publishes. Post once per run.",
-        json!({
-            "type": "object",
-            "properties": {
-                "text": { "type": "string", "minLength": 1, "maxLength": teeny_x::MAX_POST_LENGTH },
-                "chartId": { "type": "string", "description": "An id returned by render_chart." },
-                "replyToPostId": { "type": "string", "pattern": "^\\d+$" }
-            },
-            "required": ["text"],
-            "additionalProperties": false
-        }),
-        Access::Write,
-        move |args| {
-            let tool = Arc::clone(&tool);
-            async move { post(&tool, args).await }
-        },
-    )
-}
-
-async fn post(tool: &PostChartTool, args: serde_json::Value) -> ToolResult {
-    let args = match parse::<PostArgs>(args) {
-        Ok(args) => args,
-        Err(refused) => return refused,
-    };
-    if args.text.is_empty() {
-        return invalid("text must not be empty");
-    }
-    if args
-        .reply_to_post_id
-        .as_deref()
-        .is_some_and(|id| !is_x_id(id))
-    {
-        return invalid("replyToPostId must be a numeric X id");
-    }
-    let chart = match &args.chart_id {
-        Some(id) => match tool.book.get(id) {
-            Some(chart) => Some(chart),
-            None => {
-                return answer(format!(
-                    "Refused: no chart with id {id}. Call render_chart and use the id it returns."
-                ));
-            }
-        },
-        None => None,
-    };
-    // The post ends on its read, not on an ask: a closing question is cut
-    // here rather than argued about with the agent.
-    let text = if asks_the_reader(&args.text) {
-        without_the_ask(&args.text)
-    } else {
-        args.text.clone()
-    };
-    let reply_to = args.reply_to_post_id.as_deref().map(PostId::from);
-    let draft = Draft {
-        reply_to: reply_to.clone(),
-        ..Draft::new(text)
-    };
-    let attach = || async {
-        match &chart {
-            Some(chart) => upload(&tool.x, chart.png.clone(), MediaType::Png).await,
-            None => Ok(Vec::new()),
-        }
-    };
-    let published = match tool.publisher.post_with_media(draft, attach).await {
-        Ok(published) => published,
-        Err(error) => return refusal_of(error),
-    };
-    if let Some(pacing) = &tool.pacing {
-        pacing.record(&published, reply_to.as_ref()).await;
-    }
-    remember(tool, &published.text, args.chart_id.as_deref(), &published).await;
-    if published.dry_run {
-        let would = WouldHave {
-            text: &published.text,
-            chart_id: args.chart_id.as_deref(),
-            reply_to_post_id: args.reply_to_post_id.as_deref(),
-            chart: chart.as_ref().map(|chart| ChartSize {
-                bytes: chart.png.len(),
-                path: chart.path.as_ref().map(|path| path.display().to_string()),
-            }),
-        };
-        return ToolResult::success(format!(
-            "DRY RUN, nothing was published. Would have posted: {}",
-            serde_json::to_string(&would).unwrap_or_default()
-        ));
-    }
-    ToolResult::success(format!(
-        "Published post {}{}.",
-        published.id,
-        if chart.is_some() {
-            " with the chart attached"
-        } else {
-            ""
-        }
-    ))
-}
-
-/// The post as memory keeps it, rehearsals included and marked. Memory must
-/// never lose a post that went out: an outage is logged, not returned, which
-/// would read to the agent as a failed publish and invite a second post.
-async fn remember(
-    tool: &PostChartTool,
-    text: &str,
-    chart_id: Option<&str>,
-    published: &teeny_x::Published,
-) {
-    let Some(memory) = &tool.memory else { return };
-    let id = if published.dry_run {
-        format!("dry-run:{}", chrono::Utc::now().timestamp_millis())
-    } else {
-        published.id.to_string()
-    };
-    let mut payload =
-        json!({ "text": text, "symbol": tool.symbol, "published": !published.dry_run });
-    if let Some(chart_id) = chart_id {
-        payload["chart"] = json!(chart_id);
-    }
-    if let Err(error) = memory
-        .capture_activity("chart_post", &id, payload, None)
-        .await
-    {
-        tracing::warn!(%error, "post_chart: published but could not remember the post");
-    }
 }
 
 #[cfg(test)]

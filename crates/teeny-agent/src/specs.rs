@@ -4,7 +4,6 @@
 //! |---|---|---|---|
 //! | `teeny-reply` | `public` | Reply | none |
 //! | `teeny-chat` | `public` | Chat | none |
-//! | `teeny-publisher` | `full` | Publisher | `browser` |
 //! | `teeny-chart` | `full` | Chart | none |
 //! | `teeny-operator` | `full` | Operator | `browser` |
 //! | `teeny-drafter` | `full` | Drafter | none |
@@ -58,7 +57,6 @@ pub fn agent_id(belt: Belt) -> &'static str {
     match belt {
         Belt::Reply => "teeny-reply",
         Belt::Chat => "teeny-chat",
-        Belt::Publisher => "teeny-publisher",
         Belt::Chart => "teeny-chart",
         Belt::Room => "teeny-room",
         Belt::Operator => "teeny-operator",
@@ -83,7 +81,7 @@ pub fn room_id(persona: &str) -> Result<String, SpecError> {
 /// The OpenHuman built-ins `belt` holds beside its own tools.
 pub fn built_ins(belt: Belt) -> &'static [&'static str] {
     match belt {
-        Belt::Publisher | Belt::Operator | Belt::Room => &[BROWSER],
+        Belt::Operator | Belt::Room => &[BROWSER],
         Belt::Reply | Belt::Chat | Belt::Chart | Belt::Drafter => &[],
     }
 }
@@ -183,7 +181,7 @@ pub fn belt_prompt(belt: Belt, inputs: &PromptInputs) -> Option<String> {
     Some(match belt {
         Belt::Reply => prompt::draft_prompt(&options),
         Belt::Chat => prompt::chat_prompt(&options, &inputs.chat_handle),
-        Belt::Publisher | Belt::Operator => prompt::system_prompt(&options),
+        Belt::Operator => prompt::system_prompt(&options),
         Belt::Chart => prompt::chart_prompt(&options, &inputs.token_symbol),
         // The calendar's task names the channels; X is the default.
         Belt::Drafter => prompt::content_prompt(&options, &["x"]),

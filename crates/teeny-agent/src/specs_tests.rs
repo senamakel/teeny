@@ -18,7 +18,6 @@ fn every_belt_has_its_fixed_agent_id() {
         [
             "teeny-reply",
             "teeny-chat",
-            "teeny-publisher",
             "teeny-chart",
             "teeny-room",
             "teeny-operator",
@@ -45,7 +44,7 @@ fn a_room_is_its_own_agent_per_persona() {
 fn only_the_research_belts_add_the_browser_and_nothing_else_is_built_in() {
     for belt in Belt::ALL {
         let expected: &[&str] = match belt {
-            Belt::Publisher | Belt::Operator | Belt::Room => &["browser"],
+            Belt::Operator | Belt::Room => &["browser"],
             _ => &[],
         };
         assert_eq!(built_ins(belt), expected, "{belt:?}");
@@ -104,12 +103,10 @@ fn each_belt_speaks_with_its_legacy_prompt() {
         belt_prompt(Belt::Chat, &inputs).as_deref(),
         Some(prompt::chat_prompt(&options, "teenydroid").as_str())
     );
-    for belt in [Belt::Publisher, Belt::Operator] {
-        assert_eq!(
-            belt_prompt(belt, &inputs).as_deref(),
-            Some(prompt::system_prompt(&options).as_str())
-        );
-    }
+    assert_eq!(
+        belt_prompt(Belt::Operator, &inputs).as_deref(),
+        Some(prompt::system_prompt(&options).as_str())
+    );
     assert_eq!(
         belt_prompt(Belt::Chart, &inputs).as_deref(),
         Some(prompt::chart_prompt(&options, &deps.settings.token_symbol).as_str())

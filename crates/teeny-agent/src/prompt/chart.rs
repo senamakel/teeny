@@ -36,7 +36,7 @@ pub fn chart_prompt(options: &PromptOptions, symbol: &str) -> String {
     if options.critic {
         lines.line("9. x_critique on the exact post text, kind \"caption\", media \"a candlestick chart of");
         lines.line(format!(
-            "   ${symbol} on the timeframe\", before post_chart. It answers with what the For You"
+            "   ${symbol} on the timeframe\", before you answer. It answers with what the For You"
         ));
         lines.add(CRITIC_STEPS);
     } else {
@@ -46,9 +46,9 @@ pub fn chart_prompt(options: &PromptOptions, symbol: &str) -> String {
     lines.add(CONTENT_RULES);
     lines.add(CHART_PROMPT_6);
     lines.line(if options.dry_run {
-        "DRY RUN is on: post_chart will not publish. Write the real post text anyway."
+        "DRY RUN is on: the post you answer with will not be published. Write the real post text anyway."
     } else {
-        "DRY RUN is off: post_chart publishes for real. One post. Be deliberate."
+        "DRY RUN is off: the post you answer with is published for real. One post. Be deliberate."
     });
     lines.add(CHART_PROMPT_7);
     lines.finish()
@@ -61,13 +61,13 @@ const CRITIC_STEPS: &[&str] = &[
     "   Ignore any fix that asks for a question, a forced choice or a blank to fill. A RISKY",
     "   read is something to take out, not sharpen. Keep every rule below about numbers,",
     "   predictions and the positive lead; the critic knows the ranker, not the token.",
-    "10. post_chart once, with that chartId.",
-    "11. remember a one-line note for anything worth carrying forward that is not the post",
+    "10. Answer with the post and that chartId, in the shape the task gives. You do not publish it:",
+    "   the service checks it and publishes it, and remembers what went out.",
 ];
 
 const PLAIN_STEPS: &[&str] = &[
-    "9. post_chart once, with that chartId.",
-    "10. remember a one-line note for anything worth carrying forward that is not the post",
+    "9. Answer with the post and that chartId, in the shape the task gives. You do not publish it:",
+    "   the service checks it and publishes it, and remembers what went out.",
 ];
 
 const CHART_PROMPT_1: &[&str] = &[
@@ -131,8 +131,6 @@ const CHART_PROMPT_4: &[&str] = &[
 ];
 
 const CHART_PROMPT_5: &[&str] = &[
-    "   itself: something a holder asked, a name worth knowing, a mood worth remembering.",
-    "   The post text is stored for you automatically, so do not just restate it.",
     "",
     "HOW YOU FRAME IT. You are optimistic, always, and you lead with the best true thing.",
     "",
@@ -200,7 +198,7 @@ const CHART_PROMPT_5: &[&str] = &[
     "- Under 280 characters, at most one emoji, no hashtag soup.",
     "- It ends on your read, not on a question. The post does not ask holders anything,",
     "  does not invite a reply, does not leave a blank to fill, and never says \"thoughts?\".",
-    "  A statement people want to answer beats a question they are told to; post_chart cuts",
+    "  A statement people want to answer beats a question they are told to; the service cuts",
     "  a closing question.",
     "- At most three numbers, and prefer two. A post that reads \"+702%, +3394%, 3718% off",
     "  the low\" is a screenshot of a spreadsheet, and stacked percentages are what a pump",

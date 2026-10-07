@@ -8,14 +8,18 @@
 //! |---|---|---|
 //! | Reply | X mentions, public | memory recall, X reads, the web, the market, GIFs, eyes |
 //! | Chat | Telegram, public | the same as Reply |
-//! | Publisher | rota pipelines, trusted | Reply's, plus `x_post`, `remember`, `x_critique` and the generators |
-//! | Chart | the chart post, trusted | the legacy chart agent's: market, chart, `post_chart`, community, news |
-//! | Room | backrooms personas, trusted, no posting | `recall_memory`, `web_search`, `x_search_posts` |
-//! | Operator | `/agent/run`, bearer | the same as Publisher |
-//! | Drafter | pipelines that post host-side, trusted, no posting | Publisher's, less `x_post` |
+//! | Chart | the chart post, cron, no posting | market, `render_chart`, `x_critique`, community, X reads, the web, news |
+//! | Room | backrooms personas, cron, no posting | `recall_memory`, `web_search`, `x_search_posts` |
+//! | Operator | `/agent/run` only, bearer | Reply's, plus `x_post`, `remember`, `x_critique` and the generators |
+//! | Drafter | pipelines that post host-side, cron, no posting | the Operator's, less `x_post` and `remember` |
 //!
-//! Untrusted turns (Reply, Chat) hold no write at all: replies and chat
-//! produce text, and host code posts it after the safety gate. A tool whose
+//! Every belt but the Operator reads text a third party wrote (posts, pages,
+//! news, GIF titles, memory of what people said) and can be started by a
+//! cron or the public, so none of them holds a posting tool or `remember`:
+//! an instruction injected into something it read has nothing to write
+//! with. They produce text, and host code checks it and posts it (and
+//! remembers what was said). The Operator alone posts and remembers, and
+//! only the bearer starts it ([`Belt::operator_only`]). A tool whose
 //! provider is not configured is left off rather than offered broken.
 
 use std::sync::Arc;
@@ -24,7 +28,7 @@ use teeny_store::holds::HoldSurface;
 use teeny_x::XPublisher;
 
 use crate::deps::Deps;
-use crate::tools::chart::{ChartBook, ChartSource, PostChartTool, post_chart, render_chart};
+use crate::tools::chart::{ChartBook, ChartSource, render_chart};
 use crate::tools::market::{XPostSearch, community_pulse, crypto_news, market_tools};
 use crate::tools::media::{find_gif, media_tools, x_critique};
 use crate::tools::memory::{recall_memory, remember};
@@ -32,8 +36,28 @@ use crate::tools::post::{BudgetAllowance, Pacing, PostingGuard, XPostTool, x_pos
 use crate::tools::web::{web_search, web_tools};
 use crate::tools::{Tool, x};
 
-/// The tools that publish.
+/// The tools that publish. `post_chart`, the chart agent's old tool, is
+/// gone; it is named here so it cannot come back on a belt unnoticed.
 pub const POSTING_TOOLS: [&str; 2] = ["x_post", "post_chart"];
+
+/// The tools whose results carry text a third party wrote: posts, profiles,
+/// pages, news, GIF titles, what a picture shows, and memory (which keeps
+/// what people said). Text an injected instruction can ride in on.
+pub const UNTRUSTED_READS: &[&str] = &[
+    "recall_memory",
+    "x_search_posts",
+    "x_get_post",
+    "x_get_comments",
+    "x_user",
+    "web_search",
+    "read_web_pages",
+    "find_similar_pages",
+    "web_answer",
+    "community_pulse",
+    "crypto_news",
+    "find_gif",
+    "look_at_image",
+];
 
 /// OpenHuman built-ins no Teeny agent may hold. An entry ending in `*` is a
 /// family: every name starting with what comes before it.
@@ -96,18 +120,19 @@ pub enum Belt {
     Reply,
     /// `teeny-chat`: Telegram. Public.
     Chat,
-    /// `teeny-publisher`: the rota pipelines. Trusted.
-    Publisher,
-    /// `teeny-chart`: the daily chart post. Trusted.
+    /// `teeny-chart`: researches the daily chart post, renders the chart and
+    /// answers with the caption. Trusted, never posts: the job does.
     Chart,
     /// `teeny-room-*`: the backrooms personas. Trusted, never posts.
     Room,
-    /// `teeny-operator`: `/agent/run`, behind the bearer. Trusted.
+    /// `teeny-operator`: `/agent/run`, behind the bearer, and nothing else.
+    /// The one belt that posts and remembers.
     Operator,
     /// `teeny-drafter`: drafts for a pipeline whose host code posts the
     /// result (the calendar, captions, quotes, lore, articles, the serial).
-    /// Trusted, generates and critiques, never posts: a draft that could
-    /// also be posted by the agent would be posted twice.
+    /// Trusted, generates and critiques, never posts and never remembers: a
+    /// draft that could also be posted by the agent would be posted twice,
+    /// and the pipeline remembers what actually went out.
     Drafter,
 }
 
@@ -132,19 +157,25 @@ const WEB: [&str; 4] = [
 ];
 
 impl Belt {
-    pub const ALL: [Belt; 7] = [
+    pub const ALL: [Belt; 6] = [
         Self::Reply,
         Self::Chat,
-        Self::Publisher,
         Self::Chart,
         Self::Room,
         Self::Operator,
         Self::Drafter,
     ];
 
+    /// Whether only the operator, behind the bearer, may start this belt's
+    /// turns: never a cron, never the public. The runner refuses any other
+    /// origin, which is what lets this belt hold a posting tool.
+    pub fn operator_only(self) -> bool {
+        matches!(self, Self::Operator)
+    }
+
     /// Whether this belt holds a posting tool.
     pub fn can_post(self) -> bool {
-        matches!(self, Self::Publisher | Self::Chart | Self::Operator)
+        matches!(self, Self::Operator)
     }
 
     /// The tools this belt holds when everything is configured, in the
@@ -164,16 +195,13 @@ impl Belt {
                 names.extend(["find_gif", "look_at_image"]);
                 names.extend(MARKET);
             }
-            Self::Publisher | Self::Operator | Self::Drafter => {
-                names.extend([
-                    "recall_memory",
-                    "remember",
-                    "x_search_posts",
-                    "x_get_post",
-                    "x_get_comments",
-                    "x_user",
-                ]);
-                if self != Self::Drafter {
+            Self::Operator | Self::Drafter => {
+                names.push("recall_memory");
+                if self == Self::Operator {
+                    names.push("remember");
+                }
+                names.extend(["x_search_posts", "x_get_post", "x_get_comments", "x_user"]);
+                if self == Self::Operator {
                     names.push("x_post");
                 }
                 names.extend(WEB);
@@ -187,11 +215,10 @@ impl Belt {
                 names.extend(MARKET);
             }
             Self::Chart => {
-                names.extend(["recall_memory", "remember", "x_critique"]);
+                names.extend(["recall_memory", "x_critique"]);
                 names.extend(&MARKET[..6]);
                 names.push("render_chart");
                 names.extend(&MARKET[6..]);
-                names.push("post_chart");
                 names.extend([
                     "community_pulse",
                     "x_search_posts",
@@ -225,11 +252,13 @@ impl Belt {
                 }
                 tools.extend(market(deps));
             }
-            Self::Publisher | Self::Operator | Self::Drafter => {
+            Self::Operator | Self::Drafter => {
                 tools.push(recall_memory(Arc::clone(&deps.memory)));
-                tools.push(remember(Arc::clone(&deps.memory)));
+                if self == Self::Operator {
+                    tools.push(remember(Arc::clone(&deps.memory)));
+                }
                 tools.extend(x_reads(deps, true));
-                if self != Self::Drafter {
+                if self == Self::Operator {
                     tools.push(posting_tool(deps));
                 }
                 tools.extend(web(deps));
@@ -246,7 +275,6 @@ impl Belt {
             }
             Self::Chart => {
                 tools.push(recall_memory(Arc::clone(&deps.memory)));
-                tools.push(remember(Arc::clone(&deps.memory)));
                 tools.extend(critique(deps));
                 tools.extend(chart_tools(deps));
                 tools.push(community_pulse(
@@ -366,9 +394,8 @@ fn posting_tool(deps: &Deps) -> Arc<dyn Tool> {
     })
 }
 
-/// The ten market tools with `render_chart` after the first six and
-/// `post_chart` last, as the legacy chart agent listed them. Nothing without
-/// a token to chart.
+/// The ten market tools with `render_chart` after the first six, as the
+/// legacy chart agent listed them. Nothing without a token to chart.
 fn chart_tools(deps: &Deps) -> Vec<Arc<dyn Tool>> {
     let Some(feed) = &deps.market else {
         return Vec::new();
@@ -386,15 +413,6 @@ fn chart_tools(deps: &Deps) -> Vec<Arc<dyn Tool>> {
         Arc::clone(&book),
     );
     tools.insert(6, render);
-    let pacing = pacing(deps, "chart");
-    tools.push(post_chart(PostChartTool {
-        publisher: publisher(deps, HoldSurface::Chart, "post_chart", &pacing),
-        x: Arc::clone(&deps.x),
-        book,
-        memory: Some(Arc::clone(&deps.memory)),
-        symbol: deps.settings.token_symbol.clone(),
-        pacing: Some(pacing),
-    }));
     tools
 }
 

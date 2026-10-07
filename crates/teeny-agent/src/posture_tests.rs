@@ -1,9 +1,11 @@
 //! Port of legacy/test/capabilities.test.ts. A prompt rule asks the model not
 //! to do something; this asserts it cannot. Untrusted turns (Reply, Chat,
-//! Room) hold no posting tool and no write at all; only Publisher, Chart and
-//! Operator can post; no belt holds an OpenHuman built-in from the deny list
-//! or anything shaped like a wallet. A new capability changes the expected
-//! lists below, which is the point: it has to be a conscious change.
+//! Room) hold no posting tool and no write at all; no belt that reads text a
+//! third party wrote and can run from a cron or the public holds a posting
+//! tool or `remember`, so only the Operator posts or remembers; no belt holds
+//! an OpenHuman built-in from the deny list or anything shaped like a wallet.
+//! A new capability changes the expected lists below, which is the point: it
+//! has to be a conscious change.
 
 use std::collections::BTreeSet;
 
@@ -33,13 +35,7 @@ const FORBIDDEN: [&str; 17] = [
 ];
 
 /// The tools that write: they declare Write and an outside effect.
-const WRITES: [&str; 5] = [
-    "x_post",
-    "post_chart",
-    "remember",
-    "generate_image",
-    "generate_video",
-];
+const WRITES: [&str; 4] = ["x_post", "remember", "generate_image", "generate_video"];
 
 fn built(belt: Belt, deps: &Deps) -> Vec<String> {
     belt.build(deps)
@@ -83,7 +79,7 @@ fn reply_set() -> BTreeSet<String> {
     names
 }
 
-fn publisher_set() -> BTreeSet<String> {
+fn operator_set() -> BTreeSet<String> {
     let mut names = reply_set();
     names.extend(set([
         "remember",
@@ -95,11 +91,13 @@ fn publisher_set() -> BTreeSet<String> {
     names
 }
 
-/// The publisher's belt with no posting tool: what a pipeline that posts
-/// host-side drafts with, so a draft can never also be a post.
+/// The operator's belt with no posting tool and no `remember`: what a
+/// pipeline that posts host-side drafts with, so a draft can never also be
+/// a post, and nothing it read can write itself into memory.
 fn drafter_set() -> BTreeSet<String> {
-    let mut names = publisher_set();
+    let mut names = operator_set();
     names.remove("x_post");
+    names.remove("remember");
     names
 }
 
@@ -108,10 +106,8 @@ fn each_belt_is_the_exact_tool_list() {
     let deps = Deps::fake();
     let mut chart = set([
         "recall_memory",
-        "remember",
         "x_critique",
         "render_chart",
-        "post_chart",
         "community_pulse",
         "x_search_posts",
         "x_get_post",
@@ -126,13 +122,12 @@ fn each_belt_is_the_exact_tool_list() {
     let expected = [
         (Belt::Reply, reply_set()),
         (Belt::Chat, reply_set()),
-        (Belt::Publisher, publisher_set()),
         (Belt::Chart, chart),
         (
             Belt::Room,
             set(["recall_memory", "web_search", "x_search_posts"]),
         ),
-        (Belt::Operator, publisher_set()),
+        (Belt::Operator, operator_set()),
         (Belt::Drafter, drafter_set()),
     ];
     for (belt, names) in expected {
@@ -152,17 +147,63 @@ fn each_belt_is_the_exact_tool_list() {
 }
 
 #[test]
-fn only_the_publisher_the_chart_agent_and_the_operator_can_post() {
+fn only_the_operator_can_post_or_remember() {
     let deps = Deps::fake();
     for belt in Belt::ALL {
-        let posting: Vec<String> = built(belt, &deps)
-            .into_iter()
+        let names = built(belt, &deps);
+        let posting: Vec<&String> = names
+            .iter()
             .filter(|name| POSTING_TOOLS.contains(&name.as_str()))
             .collect();
-        let may = matches!(belt, Belt::Publisher | Belt::Chart | Belt::Operator);
-        assert!(belt != Belt::Drafter || !may, "the drafter never posts");
+        let may = belt == Belt::Operator;
         assert_eq!(!posting.is_empty(), may, "{belt:?}: {posting:?}");
         assert_eq!(belt.can_post(), may, "{belt:?}");
+        assert_eq!(names.contains(&"remember".to_owned()), may, "{belt:?}");
+    }
+}
+
+#[test]
+fn only_the_operator_is_run_by_the_operator_alone() {
+    for belt in Belt::ALL {
+        assert_eq!(belt.operator_only(), belt == Belt::Operator, "{belt:?}");
+    }
+}
+
+/// An injected instruction in something a third party wrote must have no
+/// tool that publishes, or that writes it into memory, on any agent a cron
+/// or the public can start.
+#[test]
+fn no_belt_a_cron_or_the_public_runs_reads_third_party_text_and_holds_a_write_to_x_or_memory() {
+    let deps = Deps::fake();
+    for belt in Belt::ALL.into_iter().filter(|belt| !belt.operator_only()) {
+        let names = built(belt, &deps);
+        let reads: Vec<&String> = names
+            .iter()
+            .filter(|name| UNTRUSTED_READS.contains(&name.as_str()))
+            .collect();
+        if reads.is_empty() {
+            continue;
+        }
+        for name in &names {
+            assert!(
+                !POSTING_TOOLS.contains(&name.as_str()) && name != "remember",
+                "{belt:?} reads {reads:?} and holds {name}"
+            );
+        }
+    }
+}
+
+#[test]
+fn every_belt_but_the_operator_reads_third_party_text() {
+    // Which is why the rule above bites on all of them.
+    let deps = Deps::fake();
+    for belt in Belt::ALL {
+        assert!(
+            built(belt, &deps)
+                .iter()
+                .any(|name| UNTRUSTED_READS.contains(&name.as_str())),
+            "{belt:?}"
+        );
     }
 }
 
@@ -301,9 +342,9 @@ fn a_belt_offers_only_what_is_configured() {
     deps.gifs = None;
     deps.critic = None;
     deps.market = None;
-    let publisher = built(Belt::Publisher, &deps);
+    let operator = built(Belt::Operator, &deps);
     assert_eq!(
-        publisher,
+        operator,
         [
             "recall_memory",
             "remember",
@@ -316,21 +357,21 @@ fn a_belt_offers_only_what_is_configured() {
     );
     let chart = built(Belt::Chart, &deps);
     assert!(
-        !chart.contains(&"post_chart".to_owned()),
-        "no market, no chart to post"
+        !chart.contains(&"render_chart".to_owned()),
+        "no market, no chart to render"
     );
     assert!(!chart.contains(&"crypto_news".to_owned()));
 }
 
 #[test]
-fn the_drafter_generates_and_critiques_but_cannot_post() {
+fn the_drafter_generates_and_critiques_but_cannot_post_or_remember() {
     let deps = Deps::fake();
     let names = built(Belt::Drafter, &deps);
-    for tool in ["generate_image", "generate_video", "x_critique", "remember"] {
+    for tool in ["generate_image", "generate_video", "x_critique"] {
         assert!(names.contains(&tool.to_owned()), "{tool}");
     }
-    for tool in POSTING_TOOLS {
-        assert!(!names.contains(&tool.to_owned()), "{tool}");
+    for tool in POSTING_TOOLS.iter().chain(&["remember"]) {
+        assert!(!names.contains(&tool.to_string()), "{tool}");
     }
     assert!(Belt::ALL.contains(&Belt::Drafter));
 }

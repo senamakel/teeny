@@ -8,7 +8,7 @@
 //!
 //! Declarations, which the host enforces:
 //! - a [`Access::Write`] tool declares [`PermissionLevel::Write`] and
-//!   `external_effect = true`: `x_post`, `post_chart`, `remember`,
+//!   `external_effect = true`: `x_post`, `remember`,
 //!   `generate_image`, `generate_video`;
 //! - every other tool is [`PermissionLevel::ReadOnly`] with no external
 //!   effect, and safe to run concurrently.

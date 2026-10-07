@@ -119,10 +119,10 @@ fn the_drafter_carries_the_same_tone_rules_as_the_task_agent() {
 }
 
 #[test]
-fn numbers_the_critic_step_in_before_post_chart_only_when_it_is_on_the_belt() {
+fn numbers_the_critic_step_in_before_the_answer_only_when_it_is_on_the_belt() {
     let without = chart_prompt(&options("TinyMascot", true), "TINY");
     assert!(!without.contains("x_critique"));
-    assert!(without.contains("9. post_chart once"));
+    assert!(without.contains("9. Answer with the post and that chartId"));
     assert!(without.contains("It ends on your read, not on a question."));
     let with = chart_prompt(
         &PromptOptions {
@@ -133,9 +133,27 @@ fn numbers_the_critic_step_in_before_post_chart_only_when_it_is_on_the_belt() {
     );
     assert!(with.contains("9. x_critique on the exact post text"));
     assert!(with.contains("$TINY on the timeframe"));
-    assert!(with.contains("10. post_chart once"));
-    assert!(with.contains("11. remember a one-line note"));
+    assert!(with.contains("10. Answer with the post and that chartId"));
     assert!(with.contains("Ignore any fix that asks for a question"));
+}
+
+#[test]
+fn the_chart_agent_is_never_told_to_post_or_remember_itself() {
+    for critic in [false, true] {
+        for dry_run in [false, true] {
+            let prompt = chart_prompt(
+                &PromptOptions {
+                    critic,
+                    dry_run,
+                    ..options("TinyMascot", true)
+                },
+                "TINY",
+            );
+            assert!(!prompt.contains("post_chart"), "{prompt}");
+            assert!(!prompt.contains("remember a"), "{prompt}");
+            assert!(prompt.contains("You do not publish it"), "{prompt}");
+        }
+    }
 }
 
 #[test]
@@ -251,7 +269,6 @@ fn matches_the_legacy_prompts_byte_for_byte() {
             ("contentX", content_prompt(&options, &["x"])),
             ("contentBoth", content_prompt(&options, &["x", "telegram"])),
             ("contentTelegram", content_prompt(&options, &["telegram"])),
-            ("chart", chart_prompt(&chart_options, "TINY")),
         ];
         for (name, prompt) in built {
             assert_eq!(
@@ -261,5 +278,46 @@ fn matches_the_legacy_prompts_byte_for_byte() {
                 case = (&case["persona"], &case["critic"], &case["dryRun"])
             );
         }
+        let mut chart = case["chart"].as_str().unwrap().to_owned();
+        for (legacy, now) in CHART_CHANGES {
+            chart = chart.replace(legacy, now);
+        }
+        assert!(
+            !chart.contains("post_chart"),
+            "a legacy line was left: {chart}"
+        );
+        assert_eq!(chart_prompt(&chart_options, "TINY"), chart, "chart differs");
     }
 }
+
+/// The legacy chart prompt, less its own posting and remembering: the agent
+/// answers with the post and the host publishes and remembers it.
+const CHART_CHANGES: [(&str, &str); 6] = [
+    (
+        "on the timeframe\", before post_chart.",
+        "on the timeframe\", before you answer.",
+    ),
+    (
+        "DRY RUN is on: post_chart will not publish.",
+        "DRY RUN is on: the post you answer with will not be published.",
+    ),
+    (
+        "DRY RUN is off: post_chart publishes for real.",
+        "DRY RUN is off: the post you answer with is published for real.",
+    ),
+    (
+        "10. post_chart once, with that chartId.\n11. remember a one-line note for anything worth carrying forward that is not the post\n   itself: something a holder asked, a name worth knowing, a mood worth remembering.\n   The post text is stored for you automatically, so do not just restate it.\n",
+        ANSWER_10,
+    ),
+    (
+        "9. post_chart once, with that chartId.\n10. remember a one-line note for anything worth carrying forward that is not the post\n   itself: something a holder asked, a name worth knowing, a mood worth remembering.\n   The post text is stored for you automatically, so do not just restate it.\n",
+        ANSWER_9,
+    ),
+    (
+        "post_chart cuts\n  a closing question.",
+        "the service cuts\n  a closing question.",
+    ),
+];
+
+const ANSWER_10: &str = "10. Answer with the post and that chartId, in the shape the task gives. You do not publish it:\n   the service checks it and publishes it, and remembers what went out.\n";
+const ANSWER_9: &str = "9. Answer with the post and that chartId, in the shape the task gives. You do not publish it:\n   the service checks it and publishes it, and remembers what went out.\n";
