@@ -10,5 +10,6 @@ export default defineConfig({
      * stop meaning this branch is green.
      */
     exclude: ['**/node_modules/**', '**/dist/**', 'worktrees/**'],
+    setupFiles: ['./vitest.setup.ts'],
   },
 })
