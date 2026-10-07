@@ -33,7 +33,7 @@ use crate::ctx::{Conversation, JobCtx};
 use crate::ingest::FixedAccount;
 use crate::reply::outlet::RecordingOutlet;
 use crate::reply::test_support::{
-    FakeX, FixedJudge, ProbeMemory, ScriptedGifs, gif, post, reply_answer,
+    FakeX, FixedJudge, ProbeMemory, ScriptedGifs, YieldingQueue, gif, post, reply_answer,
 };
 use crate::runner::{AgentKey, AgentOutcome, Origin, ScriptedRunner, ToolCallRecord};
 
@@ -924,4 +924,77 @@ async fn does_not_pace_a_dry_run_which_publishes_nothing() {
     let started = Instant::now();
     run(&it.ctx).await.unwrap();
     assert!(started.elapsed() < Duration::from_secs(1));
+}
+
+/// The subject's job over another queue, everything else as built.
+fn over_queue(
+    ctx: JobCtx,
+    queue: Arc<dyn MentionQueue<QueuedXPost>>,
+    outlet: Arc<RecordingOutlet>,
+    people: Arc<InMemoryPeople>,
+) -> JobCtx {
+    ctx.with_conversation(Conversation {
+        queue,
+        people: Some(people),
+        outlet,
+        account: Arc::new(FixedAccount::new(BOT_ID)),
+        ..Conversation::fake()
+    })
+}
+
+#[tokio::test]
+async fn two_batches_at_once_never_both_draft_the_same_mention() {
+    let it = subject(Options {
+        answers: vec![
+            reply_answer("one", json!({})),
+            reply_answer("two", json!({})),
+        ],
+        ..Options::default()
+    })
+    .await;
+    let queue = Arc::new(YieldingQueue(it.queue.clone()));
+    let ctx = over_queue(it.ctx, queue, it.outlet.clone(), it.people.clone());
+
+    let (first, second) = tokio::join!(run(&ctx), run(&ctx));
+    first.unwrap();
+    second.unwrap();
+
+    assert_eq!(it.runner.seen().len(), 1, "drafted once");
+    assert_eq!(it.outlet.replies().len(), 1, "answered once");
+    assert_eq!(it.queue.get("10").unwrap().status, MentionStatus::Replied);
+}
+
+#[tokio::test]
+async fn a_crash_after_posting_does_not_answer_the_mention_again() {
+    let it = subject(Options {
+        answers: vec![
+            reply_answer("one", json!({})),
+            reply_answer("two", json!({})),
+        ],
+        memory: Some(ProbeMemory {
+            stall_reply_capture: true,
+            ..ProbeMemory::default()
+        }),
+        ..Options::default()
+    })
+    .await;
+    // A lease that is over at once: any claim left behind is stale.
+    let queue =
+        Arc::new(InMemoryMentionQueue::<QueuedXPost>::default().with_claim_lease(Duration::ZERO));
+    queue
+        .cache(&[QueuedXPost(post("10", "@bot first", None))])
+        .await
+        .unwrap();
+    let ctx = over_queue(it.ctx, queue.clone(), it.outlet.clone(), it.people.clone());
+
+    // The post goes out, then the process dies while remembering it.
+    let crashed = tokio::time::timeout(Duration::from_millis(200), run(&ctx)).await;
+    assert!(crashed.is_err(), "the run was cut short");
+    assert_eq!(it.outlet.replies().len(), 1);
+    assert_eq!(queue.get("10").unwrap().reply_id.as_deref(), Some("99"));
+
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    let rerun = tokio::time::timeout(Duration::from_millis(200), run(&ctx)).await;
+    assert!(!rerun.unwrap().unwrap().ran, "nothing left to answer");
+    assert_eq!(it.outlet.replies().len(), 1, "answered once");
 }

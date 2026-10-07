@@ -458,6 +458,13 @@ async fn answer(
         )
     };
     let posted_id = posted.as_ref().map(ToString::to_string);
+    // The reply is out: say so before anything else can fail or stop, so a
+    // crash from here on can never answer the mention a second time.
+    if let Some(reply_id) = &posted_id
+        && let Err(error) = conversation.queue.record_reply_id(id, reply_id).await
+    {
+        tracing::error!(%error, post_id = id, reply_id, "could not record the posted reply's id");
+    }
 
     // Memory keeps what was said, and a rehearsal said nothing.
     if let Some(posted_id) = posted_id.as_deref() {
@@ -590,7 +597,19 @@ pub async fn run(ctx: &JobCtx) -> anyhow::Result<JobReport> {
     let mut report = JobReport::ran(JOB, Outcome::Skipped);
     let mut notes = Vec::new();
     for item in &queued {
-        match handle(ctx, conversation, item, &bot_user_id).await {
+        // Claimed before anything is drafted: another consumer reading the
+        // same batch gets nothing, and moves on.
+        let item = match conversation.queue.claim(item.post_id.as_str()).await {
+            Ok(Some(claimed)) => claimed,
+            Ok(None) => continue,
+            Err(error) => {
+                report
+                    .problems
+                    .push(format!("could not claim {}: {error}", item.post_id));
+                continue;
+            }
+        };
+        match handle(ctx, conversation, &item, &bot_user_id).await {
             Handled::Said(text) => report.drafts.push(text),
             Handled::Aside(note) => notes.push(note),
             Handled::Failed(problem) => report.problems.push(problem),

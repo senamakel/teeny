@@ -75,6 +75,9 @@ pub struct ProbeMemory {
     pub answers: Mutex<VecDeque<Result<String, String>>>,
     pub default: String,
     pub broken: bool,
+    /// Capturing a reply never finishes, as a process dying after the post
+    /// would leave it.
+    pub stall_reply_capture: bool,
     /// `recall` and `capture:<kind>` (`mention`, `reply`, `message`), in order.
     pub events: Mutex<Vec<String>>,
     pub queries: Mutex<Vec<(String, Option<Person>)>>,
@@ -122,6 +125,9 @@ impl Memory for ProbeMemory {
             .unwrap_or("")
             .to_owned();
         self.events.lock().unwrap().push(format!("capture:{kind}"));
+        if self.stall_reply_capture && kind == "reply" {
+            std::future::pending::<()>().await;
+        }
         if self.broken {
             return Err(MemoryError::InvalidInput("401 MISSING_TOKEN".into()));
         }
@@ -261,5 +267,70 @@ impl teeny_safety::judge::Judge for FixedJudge {
     ) -> teeny_safety::judge::JudgeVerdict {
         self.seen.lock().unwrap().push((text.to_owned(), direction));
         self.verdict.clone()
+    }
+}
+
+/// A queue that pauses after every read, so two consumers can both read
+/// the same pending mention before either acts on it.
+pub struct YieldingQueue(
+    pub std::sync::Arc<dyn teeny_store::MentionQueue<teeny_agent::deps::QueuedXPost>>,
+);
+
+#[async_trait]
+impl teeny_store::MentionQueue<teeny_agent::deps::QueuedXPost> for YieldingQueue {
+    async fn cache(&self, posts: &[teeny_agent::deps::QueuedXPost]) -> teeny_store::Result<u64> {
+        self.0.cache(posts).await
+    }
+    async fn take_pending(
+        &self,
+        limit: usize,
+    ) -> teeny_store::Result<Vec<teeny_store::QueuedMention<teeny_agent::deps::QueuedXPost>>> {
+        let rows = self.0.take_pending(limit).await;
+        tokio::task::yield_now().await;
+        rows
+    }
+    async fn claim(
+        &self,
+        post_id: &str,
+    ) -> teeny_store::Result<Option<teeny_store::QueuedMention<teeny_agent::deps::QueuedXPost>>>
+    {
+        self.0.claim(post_id).await
+    }
+    async fn record_reply_id(&self, post_id: &str, reply_id: &str) -> teeny_store::Result<()> {
+        self.0.record_reply_id(post_id, reply_id).await
+    }
+    async fn mark_replied(
+        &self,
+        post_id: &str,
+        reply: &teeny_store::Reply,
+    ) -> teeny_store::Result<()> {
+        self.0.mark_replied(post_id, reply).await
+    }
+    async fn mark_failed(&self, post_id: &str, error: &str) -> teeny_store::Result<()> {
+        self.0.mark_failed(post_id, error).await
+    }
+    async fn mark_skipped(&self, post_id: &str, reason: &str) -> teeny_store::Result<()> {
+        self.0.mark_skipped(post_id, reason).await
+    }
+    async fn mark_liked(&self, post_id: &str) -> teeny_store::Result<()> {
+        self.0.mark_liked(post_id).await
+    }
+    async fn count_replied(&self, filter: &teeny_store::RepliedFilter) -> teeny_store::Result<u64> {
+        self.0.count_replied(filter).await
+    }
+    async fn requeue_approved(&self, post_id: &str) -> teeny_store::Result<bool> {
+        self.0.requeue_approved(post_id).await
+    }
+    async fn requeue_fresh(&self, post_id: &str) -> teeny_store::Result<bool> {
+        self.0.requeue_fresh(post_id).await
+    }
+    async fn status_of(
+        &self,
+        post_id: &str,
+    ) -> teeny_store::Result<Option<teeny_store::MentionStatus>> {
+        self.0.status_of(post_id).await
+    }
+    async fn counts(&self) -> teeny_store::Result<teeny_store::StatusCounts> {
+        self.0.counts().await
     }
 }
