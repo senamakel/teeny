@@ -1,4 +1,5 @@
-//! The X API client (OAuth 1.0a, bearer reads, v2 posts, media, Articles, activity stream, webhooks), its typed tools and the Publisher guard.
-//!
-//! Skeleton: filled in by a later milestone of the Rust rewrite (see the
-//! "Rust rewrite (in progress)" section of the README).
+//! The X API, owned: an OAuth 1.0a signer, a typed v2 client, a read-through
+//! cache in front of it, the webhook and the activity stream, and the
+//! `Publisher` seam every write goes through.
+
+pub mod oauth;
