@@ -20,6 +20,7 @@ pub mod oauth;
 mod publisher;
 pub mod stream;
 pub mod webhook;
+pub mod webhook_admin;
 mod wire;
 mod writes;
 

@@ -94,6 +94,11 @@ impl XApi {
 
     // --- transport ------------------------------------------------------
 
+    /// Whether reads go out on the app's bearer.
+    pub(crate) fn has_bearer(&self) -> bool {
+        self.bearer.is_some()
+    }
+
     /// Sends one request and reads its JSON. `path` starts with `/2/`.
     pub(crate) async fn call<T: DeserializeOwned>(
         &self,
