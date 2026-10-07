@@ -11,6 +11,12 @@ publish.workspace = true
 name = "teeny"
 path = "src/main.rs"
 
+[features]
+# TELEGRAM_TRANSPORT=openhuman: OpenHuman's Telegram channel bound to
+# teeny-chat. Off by default: it compiles OpenHuman's channels in, and it
+# bypasses Teeny's outbound content filter (see src/telegram/mod.rs).
+openhuman-telegram = ["openhuman-embed/channels"]
+
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
@@ -22,6 +28,7 @@ clap.workspace = true
 futures.workspace = true
 openhuman-core.workspace = true
 openhuman-embed.workspace = true
+regex.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -29,10 +36,12 @@ teeny-agent.workspace = true
 teeny-cadence.workspace = true
 teeny-core.workspace = true
 teeny-jobs.workspace = true
+teeny-media.workspace = true
 teeny-memory.workspace = true
 teeny-safety.workspace = true
 teeny-store.workspace = true
 teeny-x.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
 toml = "1"
 tracing.workspace = true

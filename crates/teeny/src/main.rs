@@ -12,6 +12,7 @@ mod schedule;
 mod serve;
 mod sinks;
 mod stream;
+mod telegram;
 
 use std::process::ExitCode;
 

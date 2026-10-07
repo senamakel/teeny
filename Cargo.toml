@@ -113,12 +113,13 @@ tinyinference-llm = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinfe
 tinyinference-local = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-local" }
 tinyinference-providers = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-providers" }
 tinyinference-voice = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-voice" }
-# OpenHuman also patches `tinyflows` and `tinychannels` here. Neither is in the
-# trimmed graph (`flows` and `channels` are off), and an unused patch warns on
-# every cargo command, so they are left out until a feature pulls them in. When
-# `channels` is turned on for Telegram, add:
+# `tinychannels` is reachable through teeny's optional `openhuman-telegram`
+# feature (OpenHuman's channels), so it is in the lock and patched here even
+# though the default build leaves it out. OpenHuman also patches `tinyflows`;
+# it is not in the graph (`flows` is off), and an unused patch warns on every
+# cargo command, so it is left out until a feature pulls it in:
 #   tinyflows = { path = "vendor/openhuman/vendor/tinyflows/crates/tinyflows" }
-#   tinychannels = { path = "vendor/openhuman/vendor/tinychannels" }
+tinychannels = { path = "vendor/openhuman/vendor/tinychannels" }
 
 # --- profiles (OpenHuman's, so the vendored graph builds the same way) --------
 [profile.release]
