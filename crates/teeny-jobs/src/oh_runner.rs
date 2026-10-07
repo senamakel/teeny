@@ -13,6 +13,8 @@
 //!   as `TrustedAutomation{Workflow{require_approval: false}}`, the trust
 //!   root `Access::full` itself states. `Cron` would mislabel an ad-hoc
 //!   request, and `Background` promises no outside text reaches the prompt.
+//!   `teeny-operator`, the one agent that posts and remembers, takes only
+//!   operator turns: a scheduled or public turn on it is refused up front.
 //! - **How often** ([`attempts`]): once, except a scheduled turn that is
 //!   allowed to repeat, which gets one retry. A turn that may post
 //!   (`once: true`, the operator) is never retried, whatever failed: a retry
@@ -217,6 +219,12 @@ impl AgentRunner for OhRunner {
                 run.agent
             )));
         }
+        if run.origin != Origin::Operator && operator_only(&run.agent) {
+            return Err(RunError::Failed(format!(
+                "{:?} runs only the operator's turns, behind the bearer, not a {:?} one",
+                run.agent, run.origin
+            )));
+        }
         let agent = self.agent(&run.agent)?;
         let tries = attempts(run.origin);
         let mut last = RunError::Failed("the turn was never attempted".into());
@@ -267,6 +275,12 @@ pub fn turn_origin(origin: Origin, label: &str) -> AgentTurnOrigin {
 /// would park for an approval no one on a public channel can give.
 fn is_public(key: &AgentKey) -> bool {
     matches!(key, AgentKey::Belt(Belt::Reply | Belt::Chat))
+}
+
+/// Whether `key` is a belt only the operator may start: it posts and
+/// remembers, so no cron and no public turn may drive it.
+fn operator_only(key: &AgentKey) -> bool {
+    matches!(key, AgentKey::Belt(belt) if belt.operator_only())
 }
 
 /// How many times a turn from `origin` may be tried.

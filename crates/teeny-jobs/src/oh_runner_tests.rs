@@ -338,12 +338,39 @@ fn a_turn_that_may_repeat_is_tried_again() {
     assert_eq!(tries("may-repeat"), 2);
 }
 
+/// The operator's belt posts and remembers, so only the bearer may start
+/// it: a cron turn on it is refused before it starts.
+#[test]
+fn the_operator_runs_only_operator_turns() {
+    let agents = Arc::clone(&booted().agents);
+    for origin in [
+        Origin::Scheduled { once: true },
+        Origin::Scheduled { once: false },
+    ] {
+        let agents = Arc::clone(&agents);
+        let result = testkit::run(async move {
+            OhRunner::new(agents)
+                .run(turn(
+                    AgentKey::Belt(Belt::Operator),
+                    origin,
+                    "post this (operator-from-cron)",
+                    "probe",
+                ))
+                .await
+        });
+        match result {
+            Err(RunError::Failed(why)) => assert!(why.contains("operator"), "{why}"),
+            other => panic!("{origin:?}: {other:?}"),
+        }
+    }
+}
+
 #[test]
 fn a_public_turn_runs_only_on_a_public_agent() {
     // A trusted agent keeps its writes under a public origin, and a write
     // there would park for an approval nobody gives: refused up front.
     let agents = Arc::clone(&booted().agents);
-    for belt in [Belt::Publisher, Belt::Chart, Belt::Operator, Belt::Drafter] {
+    for belt in [Belt::Chart, Belt::Operator, Belt::Drafter] {
         let agents = Arc::clone(&agents);
         let result = testkit::run(async move {
             OhRunner::new(agents)
