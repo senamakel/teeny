@@ -21,6 +21,7 @@ mod articles;
 pub mod brain;
 mod feeds;
 mod reply;
+pub mod webhooks;
 
 #[cfg(test)]
 mod test_support;
@@ -37,6 +38,7 @@ use crate::mentions::Mentions;
 pub use article_store::ArticleStore;
 pub use brain::BrainSource;
 pub use feeds::{BrowserStatus, Mind, MindStatus};
+pub use webhooks::{Forwarder, HttpForwarder};
 
 /// Everything the routes can reach. Only the consumer secret and the intake
 /// are required; everything else switches its routes on when present.
@@ -45,6 +47,8 @@ pub struct Services {
     pub consumer_secret: String,
     /// Where a verified delivery goes.
     pub intake: Arc<ActivityIntake>,
+    /// Where a copy of every verified delivery is sent.
+    pub forwarder: Option<Arc<dyn Forwarder>>,
     /// The operator's token. Absent, every operator route answers 503.
     pub agent_token: Option<String>,
     pub queue: Option<Arc<Mentions>>,
@@ -62,6 +66,7 @@ impl Services {
         Self {
             consumer_secret: consumer_secret.into(),
             intake,
+            forwarder: None,
             agent_token: None,
             queue: None,
             mind: None,
@@ -87,6 +92,7 @@ pub fn router(services: Services) -> Router {
         .route("/articles", get(articles::list))
         .route("/articles/{slug}", get(articles::one))
         .route("/articles/{slug}/media/{file}", get(articles::media))
+        .route("/webhooks/x", get(webhooks::challenge).post(webhooks::delivery))
         .fallback(reply::not_found)
         .method_not_allowed_fallback(reply::not_found)
         .with_state(Arc::new(services))

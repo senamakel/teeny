@@ -22,7 +22,6 @@ openhuman-embed.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-teeny-agent.workspace = true
 teeny-core.workspace = true
 teeny-memory.workspace = true
 teeny-safety.workspace = true
@@ -33,7 +32,9 @@ toml = "1"
 tracing.workspace = true
 
 [dev-dependencies]
+hmac.workspace = true
 http-body-util = "0.1"
+sha2.workspace = true
 tower = { version = "0.5", features = ["util"] }
 wiremock.workspace = true
 
