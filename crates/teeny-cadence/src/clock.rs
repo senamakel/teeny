@@ -53,6 +53,19 @@ pub fn iso(at: DateTime<Utc>) -> String {
     at.to_rfc3339_opts(SecondsFormat::Millis, true)
 }
 
+/// A stored timestamp read back; `None` when it does not parse, which every
+/// rule treats as JavaScript treated `NaN`: as no answer.
+pub fn parse_iso(text: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(text)
+        .ok()
+        .map(|at| at.to_utc())
+}
+
+/// Fractional hours, as the configuration spells a gap, as a duration.
+pub fn hours(value: f64) -> TimeDelta {
+    TimeDelta::milliseconds((value * 3_600_000.0).round() as i64)
+}
+
 #[cfg(test)]
 pub(crate) fn at(text: &str) -> DateTime<Utc> {
     DateTime::parse_from_rfc3339(text)
