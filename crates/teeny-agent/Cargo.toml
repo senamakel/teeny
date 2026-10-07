@@ -20,6 +20,10 @@ teeny-memory.workspace = true
 teeny-safety.workspace = true
 teeny-store.workspace = true
 teeny-x.workspace = true
+# The vendored tinytools that OpenHuman links (the workspace patch resolves
+# every other spelling of it to this same path), for the `Tool` method types
+# OpenHuman does not re-export: the adapter in `shared_tool` forwards them all.
+tinytools = { path = "../../vendor/openhuman/vendor/tinyagents/vendor/tinytools/crates/tinytools" }
 
 anyhow.workspace = true
 async-trait.workspace = true

@@ -4220,6 +4220,7 @@ dependencies = [
  "teeny-store",
  "teeny-x",
  "thiserror",
+ "tinytools",
  "tokio",
  "tracing",
  "wiremock",

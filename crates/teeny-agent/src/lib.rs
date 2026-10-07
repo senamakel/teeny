@@ -7,4 +7,5 @@ pub mod llm;
 pub mod posture;
 pub mod prompt;
 pub mod runtime;
+pub mod shared_tool;
 pub mod tools;
