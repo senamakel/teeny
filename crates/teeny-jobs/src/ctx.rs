@@ -16,6 +16,17 @@ use teeny_core::Config;
 use teeny_store::journal::Outcome;
 use teeny_store::{InMemoryJournal, Journal};
 
+use teeny_agent::deps::QueuedXPost;
+use teeny_store::{
+    ChatTranscript, InMemoryChatTranscript, InMemoryLedger, InMemoryMentionQueue, InMemoryPeople,
+    InMemoryPostLedger, InMemoryStateStore, InferenceLedger, MentionQueue, People, PostLedger,
+    StateStore,
+};
+use teeny_x::intake::AccountId;
+
+use crate::brain_fold::BrainFold;
+use crate::ingest::{FAKE_ACCOUNT_ID, FixedAccount, MentionSource, ScriptedMentions};
+use crate::reply::{ArticleLookup, Pacing, RecordingOutlet, ReplyOutlet};
 use crate::runner::AgentRunner;
 
 /// Everything a job reaches.
@@ -25,6 +36,9 @@ pub struct JobCtx {
     pub config: Arc<Config>,
     pub journal: Arc<dyn Journal>,
     pub clock: Arc<dyn Clock>,
+    /// The conversation side (mentions, replies, chat, heat, the brain
+    /// fold): absent until [`with_conversation`](Self::with_conversation).
+    pub conversation: Option<Arc<Conversation>>,
     guards: Mutex<HashMap<String, Arc<RerunGuard>>>,
 }
 
@@ -41,6 +55,7 @@ impl JobCtx {
             config,
             journal,
             clock: Arc::new(SystemClock),
+            conversation: None,
             guards: Mutex::new(HashMap::new()),
         }
     }
@@ -55,6 +70,20 @@ impl JobCtx {
             Arc::new(config),
             Arc::new(InMemoryJournal::default()),
         )
+        .with_conversation(Conversation::fake())
+    }
+
+    /// Wires the conversation side.
+    pub fn with_conversation(mut self, conversation: Conversation) -> Self {
+        self.conversation = Some(Arc::new(conversation));
+        self
+    }
+
+    /// The conversation side, or why a conversation job cannot run.
+    pub fn conversation(&self) -> anyhow::Result<&Conversation> {
+        self.conversation
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("the conversation side is not wired"))
     }
 
     pub fn with_clock(mut self, clock: Arc<dyn Clock>) -> Self {
@@ -120,6 +149,56 @@ impl JobReport {
             posted_id: None,
             drafts: Vec::new(),
             problems: Vec::new(),
+        }
+    }
+}
+
+/// The stores and X seams of the conversation side: the mention queue and
+/// its cursor, the people record, the Telegram transcript, the post and
+/// inference ledgers, and the X calls a public turn's host code makes for
+/// it (identity, the mention poll, the reply outlet). Built once at boot;
+/// the pacing and the brain cursor live across runs.
+pub struct Conversation {
+    pub queue: Arc<dyn MentionQueue<QueuedXPost>>,
+    /// Who interacts most, so a batch answers the regulars first.
+    pub people: Option<Arc<dyn People>>,
+    /// The mention poll's `since_id` / `lastPolledAt` cursor.
+    pub cursor: Arc<dyn StateStore>,
+    pub transcript: Arc<dyn ChatTranscript>,
+    /// The account's own posts, for the heat job.
+    pub posts: Arc<dyn PostLedger>,
+    /// Where the brain's spend is folded.
+    pub inferences: Option<Arc<dyn InferenceLedger>>,
+    /// The account's own id: nothing is answered without it.
+    pub account: Arc<dyn AccountId>,
+    pub mentions: Arc<dyn MentionSource>,
+    /// Where host code posts a drafted reply, after the safety gate.
+    pub outlet: Arc<dyn ReplyOutlet>,
+    /// The account's own articles, by the post that carried them.
+    pub articles: Option<Arc<dyn ArticleLookup>>,
+    /// The brain's checkout, when there is one (`BRAIN_DATA_DIR`).
+    pub brain: Option<Arc<BrainFold>>,
+    /// The gap between published replies, kept across runs.
+    pub pacing: Pacing,
+}
+
+impl Conversation {
+    /// Every part in process: in-memory stores, an account of
+    /// [`FAKE_ACCOUNT_ID`], no mentions to poll, and an outlet that records.
+    pub fn fake() -> Self {
+        Self {
+            queue: Arc::new(InMemoryMentionQueue::<QueuedXPost>::default()),
+            people: Some(Arc::new(InMemoryPeople::default())),
+            cursor: Arc::new(InMemoryStateStore::default()),
+            transcript: Arc::new(InMemoryChatTranscript::default()),
+            posts: Arc::new(InMemoryPostLedger::default()),
+            inferences: Some(Arc::new(InMemoryLedger::default())),
+            account: Arc::new(FixedAccount::new(FAKE_ACCOUNT_ID)),
+            mentions: Arc::new(ScriptedMentions::default()),
+            outlet: Arc::new(RecordingOutlet::default()),
+            articles: None,
+            brain: None,
+            pacing: Pacing::default(),
         }
     }
 }
