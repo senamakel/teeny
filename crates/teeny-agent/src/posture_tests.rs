@@ -95,6 +95,14 @@ fn publisher_set() -> BTreeSet<String> {
     names
 }
 
+/// The publisher's belt with no posting tool: what a pipeline that posts
+/// host-side drafts with, so a draft can never also be a post.
+fn drafter_set() -> BTreeSet<String> {
+    let mut names = publisher_set();
+    names.remove("x_post");
+    names
+}
+
 #[test]
 fn each_belt_is_the_exact_tool_list() {
     let deps = Deps::fake();
@@ -125,6 +133,7 @@ fn each_belt_is_the_exact_tool_list() {
             set(["recall_memory", "web_search", "x_search_posts"]),
         ),
         (Belt::Operator, publisher_set()),
+        (Belt::Drafter, drafter_set()),
     ];
     for (belt, names) in expected {
         let built = built(belt, &deps);
@@ -151,6 +160,7 @@ fn only_the_publisher_the_chart_agent_and_the_operator_can_post() {
             .filter(|name| POSTING_TOOLS.contains(&name.as_str()))
             .collect();
         let may = matches!(belt, Belt::Publisher | Belt::Chart | Belt::Operator);
+        assert!(belt != Belt::Drafter || !may, "the drafter never posts");
         assert_eq!(!posting.is_empty(), may, "{belt:?}: {posting:?}");
         assert_eq!(belt.can_post(), may, "{belt:?}");
     }
@@ -310,6 +320,19 @@ fn a_belt_offers_only_what_is_configured() {
         "no market, no chart to post"
     );
     assert!(!chart.contains(&"crypto_news".to_owned()));
+}
+
+#[test]
+fn the_drafter_generates_and_critiques_but_cannot_post() {
+    let deps = Deps::fake();
+    let names = built(Belt::Drafter, &deps);
+    for tool in ["generate_image", "generate_video", "x_critique", "remember"] {
+        assert!(names.contains(&tool.to_owned()), "{tool}");
+    }
+    for tool in POSTING_TOOLS {
+        assert!(!names.contains(&tool.to_owned()), "{tool}");
+    }
+    assert!(Belt::ALL.contains(&Belt::Drafter));
 }
 
 #[test]

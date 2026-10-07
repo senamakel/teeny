@@ -95,8 +95,9 @@ impl Shape for DraftShape {
     }
 }
 
-/// The publisher agent as the drafter: one trusted scheduled turn, told to
-/// return the draft rather than post it.
+/// The `teeny-drafter` agent: one trusted scheduled turn that returns the
+/// draft. Its belt holds no `x_post`, so the host's post is the only one;
+/// the check on the outcome below stays as a second line.
 pub struct RunnerDrafter {
     pub runner: Arc<dyn AgentRunner>,
 }
@@ -171,7 +172,7 @@ impl ContentDrafter for RunnerDrafter {
         let outcome = self
             .runner
             .run(AgentRun {
-                agent: AgentKey::Belt(Belt::Publisher),
+                agent: AgentKey::Belt(Belt::Drafter),
                 origin: Origin::Scheduled { once: true },
                 prompt: draft_task(item, today, memory),
                 session: None,

@@ -12,6 +12,7 @@
 //! | Chart | the chart post, trusted | the legacy chart agent's: market, chart, `post_chart`, community, news |
 //! | Room | backrooms personas, trusted, no posting | `recall_memory`, `web_search`, `x_search_posts` |
 //! | Operator | `/agent/run`, bearer | the same as Publisher |
+//! | Drafter | pipelines that post host-side, trusted, no posting | Publisher's, less `x_post` |
 //!
 //! Untrusted turns (Reply, Chat) hold no write at all: replies and chat
 //! produce text, and host code posts it after the safety gate. A tool whose
@@ -103,6 +104,11 @@ pub enum Belt {
     Room,
     /// `teeny-operator`: `/agent/run`, behind the bearer. Trusted.
     Operator,
+    /// `teeny-drafter`: drafts for a pipeline whose host code posts the
+    /// result (the calendar, captions, quotes, lore, articles, the serial).
+    /// Trusted, generates and critiques, never posts: a draft that could
+    /// also be posted by the agent would be posted twice.
+    Drafter,
 }
 
 const MARKET: [&str; 10] = [
@@ -126,13 +132,14 @@ const WEB: [&str; 4] = [
 ];
 
 impl Belt {
-    pub const ALL: [Belt; 6] = [
+    pub const ALL: [Belt; 7] = [
         Self::Reply,
         Self::Chat,
         Self::Publisher,
         Self::Chart,
         Self::Room,
         Self::Operator,
+        Self::Drafter,
     ];
 
     /// Whether this belt holds a posting tool.
@@ -157,7 +164,7 @@ impl Belt {
                 names.extend(["find_gif", "look_at_image"]);
                 names.extend(MARKET);
             }
-            Self::Publisher | Self::Operator => {
+            Self::Publisher | Self::Operator | Self::Drafter => {
                 names.extend([
                     "recall_memory",
                     "remember",
@@ -165,8 +172,10 @@ impl Belt {
                     "x_get_post",
                     "x_get_comments",
                     "x_user",
-                    "x_post",
                 ]);
+                if self != Self::Drafter {
+                    names.push("x_post");
+                }
                 names.extend(WEB);
                 names.extend([
                     "x_critique",
@@ -216,11 +225,13 @@ impl Belt {
                 }
                 tools.extend(market(deps));
             }
-            Self::Publisher | Self::Operator => {
+            Self::Publisher | Self::Operator | Self::Drafter => {
                 tools.push(recall_memory(Arc::clone(&deps.memory)));
                 tools.push(remember(Arc::clone(&deps.memory)));
                 tools.extend(x_reads(deps, true));
-                tools.push(posting_tool(deps));
+                if self != Self::Drafter {
+                    tools.push(posting_tool(deps));
+                }
                 tools.extend(web(deps));
                 tools.extend(critique(deps));
                 tools.extend(gifs(deps));

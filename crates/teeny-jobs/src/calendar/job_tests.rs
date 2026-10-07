@@ -350,6 +350,11 @@ async fn the_drafter_asks_the_publisher_belt_once_and_keeps_only_a_media_id_it_m
     assert_eq!(drafted.declined, ["a pun"]);
     let seen = runner.seen();
     assert_eq!(
+        seen[0].agent,
+        crate::runner::AgentKey::Belt(teeny_agent::posture::Belt::Drafter),
+        "the host posts the draft, so the agent drafts without x_post"
+    );
+    assert_eq!(
         seen[0].origin,
         crate::runner::Origin::Scheduled { once: true }
     );
