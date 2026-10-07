@@ -36,24 +36,22 @@ pub fn unescape_entities(text: &str) -> String {
         .replace_all(text, |captures: &regex::Captures<'_>| {
             let whole = &captures[0];
             let code = &captures[1];
-            let decoded = if let Some(hex) = code
-                .strip_prefix("#x")
-                .or_else(|| code.strip_prefix("#X"))
-            {
-                u32::from_str_radix(hex, 16).ok().and_then(char::from_u32)
-            } else if let Some(decimal) = code.strip_prefix('#') {
-                decimal.parse::<u32>().ok().and_then(char::from_u32)
-            } else {
-                match code.to_ascii_lowercase().as_str() {
-                    "amp" => Some('&'),
-                    "lt" => Some('<'),
-                    "gt" => Some('>'),
-                    "quot" => Some('"'),
-                    "apos" => Some('\''),
-                    "nbsp" => Some(' '),
-                    _ => None,
-                }
-            };
+            let decoded =
+                if let Some(hex) = code.strip_prefix("#x").or_else(|| code.strip_prefix("#X")) {
+                    u32::from_str_radix(hex, 16).ok().and_then(char::from_u32)
+                } else if let Some(decimal) = code.strip_prefix('#') {
+                    decimal.parse::<u32>().ok().and_then(char::from_u32)
+                } else {
+                    match code.to_ascii_lowercase().as_str() {
+                        "amp" => Some('&'),
+                        "lt" => Some('<'),
+                        "gt" => Some('>'),
+                        "quot" => Some('"'),
+                        "apos" => Some('\''),
+                        "nbsp" => Some(' '),
+                        _ => None,
+                    }
+                };
             decoded.map_or_else(|| whole.to_owned(), String::from)
         })
         .into_owned()
@@ -64,10 +62,7 @@ pub fn clip(text: &str, max_chars: usize) -> String {
     if text.chars().count() <= max_chars {
         return text.to_owned();
     }
-    format!(
-        "{}…",
-        head(text, max_chars.saturating_sub(1)).trim_end()
-    )
+    format!("{}…", head(text, max_chars.saturating_sub(1)).trim_end())
 }
 
 /// The first `max_chars` characters.

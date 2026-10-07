@@ -92,7 +92,11 @@ impl ContextBuilder {
         let drawn = pick_engine(&self.sources.lore, random);
         let engine = engine.map(str::to_owned).or(drawn);
         let seed_words = keywords(
-            &format!("{} {}", seed.title.as_deref().unwrap_or_default(), seed.text),
+            &format!(
+                "{} {}",
+                seed.title.as_deref().unwrap_or_default(),
+                seed.text
+            ),
             4,
         );
         let probes = shuffle(&PROBES, random);
@@ -102,12 +106,24 @@ impl ContextBuilder {
         memory_probes.extend(seed_words.iter().take(2).cloned());
         let memory = self.memory(&memory_probes, &mut problems).await;
         let live = self.live(&seed_words, probes[4], &mut problems).await;
-        let forum = self.forum(&seed_words, probes[5], random, &mut problems).await;
+        let forum = self
+            .forum(&seed_words, probes[5], random, &mut problems)
+            .await;
 
         let budget_f = budget as f64;
         let mut blocks = vec![
-            block(BlockKind::Seed, "what came through the wire", &render_seed(seed), Some(800.0)),
-            block(BlockKind::Tone, "the mood", &format!("mood of the room for you: {tone}"), None),
+            block(
+                BlockKind::Seed,
+                "what came through the wire",
+                &render_seed(seed),
+                Some(800.0),
+            ),
+            block(
+                BlockKind::Tone,
+                "the mood",
+                &format!("mood of the room for you: {tone}"),
+                None,
+            ),
         ];
         if let Some(engine) = &engine {
             blocks.push(block(
@@ -125,7 +141,12 @@ impl ContextBuilder {
                 None,
             ));
         }
-        blocks.push(block(BlockKind::Lore, "LORE.md", &without_terminal_lingo(&self.sources.lore), None));
+        blocks.push(block(
+            BlockKind::Lore,
+            "LORE.md",
+            &without_terminal_lingo(&self.sources.lore),
+            None,
+        ));
         for (kind, label, text) in [
             (BlockKind::Past, "things already said", past),
             (BlockKind::Memory, "pieces of memory", memory),
@@ -155,7 +176,10 @@ impl ContextBuilder {
                 ..SearchOptions::default()
             };
             match x
-                .search_posts(&format!("from:{} -is:retweet", self.sources.bot_username), &options)
+                .search_posts(
+                    &format!("from:{} -is:retweet", self.sources.bot_username),
+                    &options,
+                )
                 .await
             {
                 Ok(posts) => {
@@ -176,7 +200,10 @@ impl ContextBuilder {
         let mut recalled = String::new();
         if let Some(memory) = &self.sources.memory {
             match memory
-                .recall("teeny's own recent posts, captions and episodes, and what it said it wanted", None)
+                .recall(
+                    "teeny's own recent posts, captions and episodes, and what it said it wanted",
+                    None,
+                )
                 .await
             {
                 Ok(text) => recalled = text.trim().to_owned(),
@@ -215,7 +242,9 @@ impl ContextBuilder {
         if found.is_empty() {
             return String::new();
         }
-        let mut out = vec!["pieces of memory, in no order. some of it is old. all of it happened.".to_owned()];
+        let mut out = vec![
+            "pieces of memory, in no order. some of it is old. all of it happened.".to_owned(),
+        ];
         out.extend(found);
         out.join("\n\n")
     }
@@ -259,7 +288,11 @@ impl ContextBuilder {
                             "[{}] {}{}",
                             safe_host(&hit.url),
                             hit.title.as_deref().unwrap_or("(untitled)"),
-                            if body.is_empty() { String::new() } else { format!(" — {body}") }
+                            if body.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" — {body}")
+                            }
                         );
                         if admissible(&line) {
                             lines.push(quote_untrusted(&line));
@@ -273,7 +306,8 @@ impl ContextBuilder {
             return String::new();
         }
         let mut out = vec![
-            "the wire, last few days. real, and not about you, until you make it about you.".to_owned(),
+            "the wire, last few days. real, and not about you, until you make it about you."
+                .to_owned(),
             String::new(),
         ];
         out.extend(lines);
@@ -300,7 +334,8 @@ impl ContextBuilder {
             for query in &queries {
                 match forum.search(query, 12).await {
                     Ok(found) => posts.extend(found.into_iter().filter(admissible_post)),
-                    Err(error) => problems.push(format!("{:?} \"{query}\": {error}", forum.site()).to_lowercase()),
+                    Err(error) => problems
+                        .push(format!("{:?} \"{query}\": {error}", forum.site()).to_lowercase()),
                 }
             }
         }
@@ -313,7 +348,11 @@ impl ContextBuilder {
             "the boards, this week. anonymous people saying things. none of it is true and all of it is material.".to_owned(),
             String::new(),
         ];
-        out.extend(shuffle(&posts, random).iter().map(|post| quote_untrusted(&render_post(post))));
+        out.extend(
+            shuffle(&posts, random)
+                .iter()
+                .map(|post| quote_untrusted(&render_post(post))),
+        );
         out.join("\n")
     }
 }
@@ -367,9 +406,31 @@ pub fn without_terminal_lingo(text: &str) -> String {
 
 static FOUR_LETTERS: LazyLock<Regex> = LazyLock::new(|| Regex::new("[a-z]{4,}").expect("valid"));
 const STOPPED: &[&str] = &[
-    "that", "this", "with", "from", "have", "they", "them", "there", "their", "what", "when",
-    "were", "been", "just", "like", "into", "about", "tiny", "teeny", "agents", "still", "always",
-    "never", "because", "something",
+    "that",
+    "this",
+    "with",
+    "from",
+    "have",
+    "they",
+    "them",
+    "there",
+    "their",
+    "what",
+    "when",
+    "were",
+    "been",
+    "just",
+    "like",
+    "into",
+    "about",
+    "tiny",
+    "teeny",
+    "agents",
+    "still",
+    "always",
+    "never",
+    "because",
+    "something",
 ];
 
 /// At most `per_word` lines that share the same rare word, so a fortnight
@@ -384,7 +445,10 @@ pub fn spread(lines: &[String], per_word: usize) -> Vec<String> {
             .map(|m| m.as_str())
             .filter(|word| !STOPPED.contains(word))
             .collect();
-        if words.iter().any(|word| counts.get(*word).copied().unwrap_or(0) >= per_word) {
+        if words
+            .iter()
+            .any(|word| counts.get(*word).copied().unwrap_or(0) >= per_word)
+        {
             continue;
         }
         for word in words {

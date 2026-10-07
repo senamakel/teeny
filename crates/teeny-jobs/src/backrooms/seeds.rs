@@ -47,7 +47,12 @@ impl SeedFinder for NewsSeeds {
                 .await
                 .unwrap_or_default();
             for hit in hits {
-                let Some(title) = hit.title.as_deref().map(str::trim).filter(|t| !t.is_empty()) else {
+                let Some(title) = hit
+                    .title
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|t| !t.is_empty())
+                else {
                     continue;
                 };
                 let excerpt = if hit.highlights.is_empty() {
@@ -56,7 +61,9 @@ impl SeedFinder for NewsSeeds {
                     hit.highlights.join(" … ")
                 };
                 let excerpt = head(&flatten(&excerpt), 400);
-                if is_political(&format!("{title} {excerpt}")) || !admissible(&format!("{title} {excerpt}")) {
+                if is_political(&format!("{title} {excerpt}"))
+                    || !admissible(&format!("{title} {excerpt}"))
+                {
                     continue;
                 }
                 return Ok(Some(Seed {
@@ -72,13 +79,23 @@ impl SeedFinder for NewsSeeds {
             .search(topic)
             .await?
             .into_iter()
-            .filter(|item| admissible(&format!("{} {}", item.title, item.description.as_deref().unwrap_or_default())))
+            .filter(|item| {
+                admissible(&format!(
+                    "{} {}",
+                    item.title,
+                    item.description.as_deref().unwrap_or_default()
+                ))
+            })
             .take(10)
             .collect();
         if items.is_empty() {
             return Ok(None);
         }
-        let at = self.random.lock().unwrap_or_else(|p| p.into_inner()).index(items.len());
+        let at = self
+            .random
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .index(items.len());
         let item = items[at].clone();
         let text = item
             .description
@@ -112,7 +129,11 @@ impl SeedFinder for ForumSeeds {
         if posts.is_empty() {
             return Ok(None);
         }
-        let at = self.random.lock().unwrap_or_else(|p| p.into_inner()).index(posts.len());
+        let at = self
+            .random
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .index(posts.len());
         let post = posts.swap_remove(at);
         Ok(Some(Seed {
             kind: SeedKind::Forum,
@@ -125,7 +146,8 @@ impl SeedFinder for ForumSeeds {
 
 static BRACKETS: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\[[^\]]*\]\s*(\[[^\]]*\]\s*)?").expect("valid"));
-static HEADER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(GENERAL CONTEXT|ABOUT\b)").expect("valid"));
+static HEADER: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(GENERAL CONTEXT|ABOUT\b)").expect("valid"));
 static RULE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^-{3,}$").expect("valid"));
 
 /// A recall, read as prose: raw captures and headers are left out.
@@ -140,7 +162,12 @@ impl SeedFinder for MemorySeeds {
         let text = recalled
             .split('\n')
             .map(str::trim)
-            .filter(|line| !line.is_empty() && !line.starts_with('{') && !HEADER.is_match(line) && !RULE.is_match(line))
+            .filter(|line| {
+                !line.is_empty()
+                    && !line.starts_with('{')
+                    && !HEADER.is_match(line)
+                    && !RULE.is_match(line)
+            })
             .map(|line| BRACKETS.replace(line, "").into_owned())
             .filter(|line| line.chars().count() > 8)
             .collect::<Vec<_>>()
@@ -170,12 +197,18 @@ pub async fn seed_from_mention(x: &dyn XReads, bot_username: &str) -> anyhow::Re
             &options,
         )
         .await?;
-    Ok(posts.into_iter().find(|post| admissible(&post.text)).map(|post| Seed {
-        kind: SeedKind::Mention,
-        text: post.text,
-        title: None,
-        source: Some(post.author_username.map_or_else(|| "x".to_owned(), |u| format!("@{u}"))),
-    }))
+    Ok(posts
+        .into_iter()
+        .find(|post| admissible(&post.text))
+        .map(|post| Seed {
+            kind: SeedKind::Mention,
+            text: post.text,
+            title: None,
+            source: Some(
+                post.author_username
+                    .map_or_else(|| "x".to_owned(), |u| format!("@{u}")),
+            ),
+        }))
 }
 
 #[cfg(test)]

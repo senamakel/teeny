@@ -29,11 +29,15 @@ use teeny_x::model::{Media, MediaType};
 use super::likeness::{Likeness, LikenessSource, swap_visitor, with_likeness};
 use super::picture::{MAX_GENERATION_PROMPT, check_picture, sheet_and_seed};
 use super::room::run_writers_room;
-use super::stages::{CutInput, Episode, Previous, RoomContext, Score, Turn, cut_prompt, score_prompt, total_score};
+use super::stages::{
+    CutInput, Episode, Previous, RoomContext, Score, Turn, cut_prompt, score_prompt, total_score,
+};
 use super::state::{NarrativeState, NarrativeStateStore};
 use super::telegram::EpisodeChannel;
 use super::voice::{NarrativeVoice, live_latent, render_lore_for_producer, render_lore_for_teeny};
-use super::world_state::{WorldSources, WorldState, build_world_state, render_world_state, trigger_fields};
+use super::world_state::{
+    WorldSources, WorldState, build_world_state, render_world_state, trigger_fields,
+};
 use crate::backrooms::ask::ask_json;
 use crate::backrooms::post::publish_own;
 use crate::backrooms::tokens::{Random, Rng};
@@ -139,7 +143,10 @@ pub struct NarrativePipeline {
 
 impl NarrativePipeline {
     fn roll(&self) -> f64 {
-        self.random.lock().unwrap_or_else(|p| p.into_inner()).next_f64()
+        self.random
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .next_f64()
     }
 
     /// One episode. `rehearsal` posts nothing and moves nothing, whatever
@@ -160,15 +167,28 @@ impl NarrativePipeline {
             )
         });
         let world_state = build_world_state(self.world.as_ref(), episode_number, last, now).await;
-        problems.extend(world_state.problems.iter().map(|line| format!("world state: {line}")));
+        problems.extend(
+            world_state
+                .problems
+                .iter()
+                .map(|line| format!("world state: {line}")),
+        );
         let briefing = render_world_state(&world_state, &self.bot_username);
-        let live = live_latent(&self.voice.lore, &previous.surfaced_lore, &trigger_fields(&world_state));
+        let live = live_latent(
+            &self.voice.lore,
+            &previous.surfaced_lore,
+            &trigger_fields(&world_state),
+        );
         tracing::info!(episode = episode_number, ?live, "narrative: world state");
         let context = RoomContext {
             voice: self.voice.voice.clone(),
             world_state: briefing.clone(),
             lore_for_teeny: render_lore_for_teeny(&self.voice.lore, &previous.surfaced_lore),
-            lore_for_producer: render_lore_for_producer(&self.voice.lore, &previous.surfaced_lore, &live),
+            lore_for_producer: render_lore_for_producer(
+                &self.voice.lore,
+                &previous.surfaced_lore,
+                &live,
+            ),
             bot_username: self.bot_username.clone(),
             followers: world_state.followers,
             episode_number,
@@ -202,7 +222,17 @@ impl NarrativePipeline {
             });
         } else {
             for index in 0..self.branches.max(1) as usize {
-                let branch = self.branch(index, &context, &briefing, &live_lore, &previous, episode_number, &mut problems).await;
+                let branch = self
+                    .branch(
+                        index,
+                        &context,
+                        &briefing,
+                        &live_lore,
+                        &previous,
+                        episode_number,
+                        &mut problems,
+                    )
+                    .await;
                 branches.push(branch);
             }
         }
@@ -214,12 +244,19 @@ impl NarrativePipeline {
             .filter(|&i| branches[i].episode.is_some() && branches[i].rejected.is_none())
             .collect();
         ranked.sort_by(|&a, &b| {
-            let (ca, cb) = (branches[a].composite.unwrap_or(0.0), branches[b].composite.unwrap_or(0.0));
+            let (ca, cb) = (
+                branches[a].composite.unwrap_or(0.0),
+                branches[b].composite.unwrap_or(0.0),
+            );
             cb.total_cmp(&ca).then(a.cmp(&b))
         });
         let mut chosen = None;
         for index in ranked {
-            let still = branches[index].episode.as_ref().map(|e| e.still.clone()).unwrap_or_default();
+            let still = branches[index]
+                .episode
+                .as_ref()
+                .map(|e| e.still.clone())
+                .unwrap_or_default();
             if let Some(category) = self.refused(&still, "generate_image").await {
                 let why = format!("the content filter refused the still ({category})");
                 problems.push(format!("branch {}: {why}", index + 1));
@@ -255,7 +292,10 @@ impl NarrativePipeline {
             return Ok(result);
         };
         let branch = branches[chosen].clone();
-        let episode = branch.episode.clone().unwrap_or_else(|| unreachable!("ranked branches have an episode"));
+        let episode = branch
+            .episode
+            .clone()
+            .unwrap_or_else(|| unreachable!("ranked branches have an episode"));
         result.chosen = Some(branch);
         tracing::info!(branch = chosen + 1, title = %episode.title, "narrative: episode chosen");
         if self.room_only {
@@ -266,7 +306,13 @@ impl NarrativePipeline {
         }
 
         // 4. The seed picture and the sheet.
-        let (sheet, seed) = sheet_and_seed(self.media.reference.as_ref(), self.text.as_ref(), self.roll(), &mut problems).await;
+        let (sheet, seed) = sheet_and_seed(
+            self.media.reference.as_ref(),
+            self.text.as_ref(),
+            self.roll(),
+            &mut problems,
+        )
+        .await;
         result.seed = seed.clone();
 
         // 5. Drawn and checked. With a visitor, the first attempt names them
@@ -276,8 +322,14 @@ impl NarrativePipeline {
         if let (Some(visitor), Some(source)) = (&episode.visitor, &self.likeness) {
             match source.find(&visitor.name).await {
                 Ok(Some(found)) => likeness = Some(found),
-                Ok(None) => problems.push(format!("no photograph of {} could be found; drawing from the description", visitor.name)),
-                Err(error) => problems.push(format!("could not write a likeness of {}: {error}", visitor.name)),
+                Ok(None) => problems.push(format!(
+                    "no photograph of {} could be found; drawing from the description",
+                    visitor.name
+                )),
+                Err(error) => problems.push(format!(
+                    "could not write a likeness of {}: {error}",
+                    visitor.name
+                )),
             }
         }
         let named = |text: &str| match (&episode.visitor, &likeness) {
@@ -287,7 +339,10 @@ impl NarrativePipeline {
         let forms: Vec<(Option<VisitorAs>, String)> = match &episode.visitor {
             Some(visitor) => vec![
                 (Some(VisitorAs::Likeness), named(&episode.still)),
-                (Some(VisitorAs::StandIn), swap_visitor(&episode.still, &visitor.name, &visitor.stand_in)),
+                (
+                    Some(VisitorAs::StandIn),
+                    swap_visitor(&episode.still, &visitor.name, &visitor.stand_in),
+                ),
             ],
             None => vec![(None, episode.still.clone())],
         };
@@ -299,7 +354,12 @@ impl NarrativePipeline {
                     break;
                 }
                 let (form_as, form) = &forms[(attempt as usize - 1).min(forms.len() - 1)];
-                let prompt = with_seed(sheet.as_deref(), seed.as_ref(), form, Some(MAX_GENERATION_PROMPT));
+                let prompt = with_seed(
+                    sheet.as_deref(),
+                    seed.as_ref(),
+                    form,
+                    Some(MAX_GENERATION_PROMPT),
+                );
                 if !self.deps.media_budget.take(MediaKind::Image).await {
                     problems.push("the daily image allowance was already spent".into());
                     break;
@@ -314,13 +374,21 @@ impl NarrativePipeline {
                     Err(error) => {
                         problems.push(format!(
                             "image generation failed (attempt {attempt}{}): {error}",
-                            form_as.map(|a| format!(", {}", visitor_as_str(a))).unwrap_or_default()
+                            form_as
+                                .map(|a| format!(", {}", visitor_as_str(a)))
+                                .unwrap_or_default()
                         ));
                         continue;
                     }
                 };
                 let visitor = episode.visitor.as_ref().map(|v| v.name.as_str());
-                let (ok, reason) = check_picture(self.media.reader.as_ref(), &candidate, sheet.as_deref(), visitor).await;
+                let (ok, reason) = check_picture(
+                    self.media.reader.as_ref(),
+                    &candidate,
+                    sheet.as_deref(),
+                    visitor,
+                )
+                .await;
                 if ok || attempt == IMAGE_ATTEMPTS {
                     if !ok {
                         problems.push(format!("kept a picture the check did not like: {reason}"));
@@ -340,15 +408,25 @@ impl NarrativePipeline {
                 None => problems.push("video generation is off; posting the picture".into()),
                 Some(videos) => {
                     let shot_list = match (&episode.visitor, visitor_as) {
-                        (Some(visitor), Some(VisitorAs::StandIn)) => swap_visitor(&episode.shot_list, &visitor.name, &visitor.stand_in),
+                        (Some(visitor), Some(VisitorAs::StandIn)) => {
+                            swap_visitor(&episode.shot_list, &visitor.name, &visitor.stand_in)
+                        }
                         _ => named(&episode.shot_list),
                     };
                     if let Some(category) = self.refused(&shot_list, "generate_video").await {
                         problems.push(format!("the content filter refused the shot list ({category}); posting the picture"));
                     } else if !self.deps.media_budget.take(MediaKind::Video).await {
-                        problems.push("the daily video allowance was already spent; posting the picture".into());
+                        problems.push(
+                            "the daily video allowance was already spent; posting the picture"
+                                .into(),
+                        );
                     } else {
-                        let prompt = with_seed(sheet.as_deref(), seed.as_ref(), &shot_list, Some(MAX_GENERATION_PROMPT - 12));
+                        let prompt = with_seed(
+                            sheet.as_deref(),
+                            seed.as_ref(),
+                            &shot_list,
+                            Some(MAX_GENERATION_PROMPT - 12),
+                        );
                         for attempt in 1..=VIDEO_ATTEMPTS {
                             if video.is_some() {
                                 break;
@@ -357,7 +435,11 @@ impl NarrativePipeline {
                                 tokio::time::sleep(self.retry_delay).await;
                             }
                             let request = VideoRequest {
-                                prompt: if attempt == 1 { prompt.clone() } else { format!("{prompt}\n\n(take {attempt})") },
+                                prompt: if attempt == 1 {
+                                    prompt.clone()
+                                } else {
+                                    format!("{prompt}\n\n(take {attempt})")
+                                },
                                 orientation: Some(VideoOrientation::Square),
                                 seconds: Some(self.video_seconds),
                             };
@@ -372,7 +454,11 @@ impl NarrativePipeline {
                                 }
                                 Err(error) => problems.push(format!(
                                     "video generation failed (attempt {attempt}): {error}{}",
-                                    if attempt == VIDEO_ATTEMPTS { "; posting the picture" } else { "" }
+                                    if attempt == VIDEO_ATTEMPTS {
+                                        "; posting the picture"
+                                    } else {
+                                        ""
+                                    }
                                 )),
                             }
                         }
@@ -402,13 +488,19 @@ impl NarrativePipeline {
             };
             let outgoing = self.deps.safety.outbound(&caption, Some(&context)).await;
             if !outgoing.fixes.is_empty() {
-                problems.push(format!("the content filter edited the caption: {}", outgoing.fixes.join("; ")));
+                problems.push(format!(
+                    "the content filter edited the caption: {}",
+                    outgoing.fixes.join("; ")
+                ));
             }
             match outgoing.decision {
                 SafetyDecision::Clean => caption = outgoing.text,
                 SafetyDecision::Held(hold) => {
                     tracing::info!(category = %hold.category, by = ?hold.by, "narrative: caption held");
-                    problems.push(format!("content filter withheld the caption: {}", hold.category));
+                    problems.push(format!(
+                        "content filter withheld the caption: {}",
+                        hold.category
+                    ));
                     held = Some(hold.category);
                 }
             }
@@ -431,18 +523,35 @@ impl NarrativePipeline {
         if rehearsal || self.deps.settings.dry_run {
             result.outcome = Outcome::DryRun;
             result.problems = problems;
-            self.capture(now.timestamp_millis(), &previous, &episode, &mut result).await;
+            self.capture(now.timestamp_millis(), &previous, &episode, &mut result)
+                .await;
             return Ok(result);
         }
-        let upload = Media { data: media.data.clone(), mime: media_type(media.mime_type) };
-        let posted = publish_own(&self.deps, "narrative", Direction::Narrative, &caption, Some(upload)).await?;
+        let upload = Media {
+            data: media.data.clone(),
+            mime: media_type(media.mime_type),
+        };
+        let posted = publish_own(
+            &self.deps,
+            "narrative",
+            Direction::Narrative,
+            &caption,
+            Some(upload),
+        )
+        .await?;
         tracing::info!(id = %posted.id, attached = result.attached.as_str(), "narrative: posted");
         let posted_id = posted.id.to_string();
         if let Some(telegram) = &self.telegram {
             for chat_id in &telegram.chat_ids {
                 match telegram
                     .channel
-                    .send(*chat_id, &media.data, media.mime_type.as_str(), result.attached == Attached::Video, &caption)
+                    .send(
+                        *chat_id,
+                        &media.data,
+                        media.mime_type.as_str(),
+                        result.attached == Attached::Video,
+                        &caption,
+                    )
                     .await
                 {
                     Ok(id) => result.telegram_ids.push(id),
@@ -471,7 +580,8 @@ impl NarrativePipeline {
         result.posted_id = Some(posted_id);
         result.state_after = Some(next);
         result.problems = problems;
-        self.capture(now.timestamp_millis(), &previous, &episode, &mut result).await;
+        self.capture(now.timestamp_millis(), &previous, &episode, &mut result)
+            .await;
         Ok(result)
     }
 
@@ -550,15 +660,30 @@ impl NarrativePipeline {
             tool: Some(tool.to_owned()),
             ..HoldContext::new(HoldSurface::Narrative)
         };
-        match self.deps.safety.outbound(prompt, Some(&context)).await.decision {
+        match self
+            .deps
+            .safety
+            .outbound(prompt, Some(&context))
+            .await
+            .decision
+        {
             SafetyDecision::Clean => None,
             SafetyDecision::Held(held) => Some(held.category),
         }
     }
 
     /// The episode, written back so the next one can read it for texture.
-    async fn capture(&self, now_ms: i64, previous: &NarrativeState, episode: &Episode, result: &mut NarrativeResult) {
-        let id = result.posted_id.clone().unwrap_or_else(|| format!("dry-run:{now_ms}"));
+    async fn capture(
+        &self,
+        now_ms: i64,
+        previous: &NarrativeState,
+        episode: &Episode,
+        result: &mut NarrativeResult,
+    ) {
+        let id = result
+            .posted_id
+            .clone()
+            .unwrap_or_else(|| format!("dry-run:{now_ms}"));
         let mut payload = json!({
             "season": previous.season,
             "episode": result.episode_number,
@@ -585,8 +710,15 @@ impl NarrativePipeline {
             payload["visitor"] = json!(visitor.name);
             payload["visitorAs"] = json!(result.visitor_as.map_or("unrendered", visitor_as_str));
         }
-        if let Err(error) = self.deps.memory.capture_activity("narrative_episode", &id, payload, None).await {
-            result.problems.push(format!("could not remember the episode: {error}"));
+        if let Err(error) = self
+            .deps
+            .memory
+            .capture_activity("narrative_episode", &id, payload, None)
+            .await
+        {
+            result
+                .problems
+                .push(format!("could not remember the episode: {error}"));
         }
     }
 }
@@ -619,7 +751,8 @@ pub fn narrative_style(text: &str, max_length: usize) -> String {
     static URL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)https?://\S+").expect("valid"));
     static HANDLE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(^|\s)@\w+").expect("valid"));
     static TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"#\w+").expect("valid"));
-    static SPACE_BEFORE_BREAK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[ \t]+\n").expect("valid"));
+    static SPACE_BEFORE_BREAK: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"[ \t]+\n").expect("valid"));
     static GAPS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\n{3,}").expect("valid"));
     let out = text.replace('\r', "");
     let out = URL.replace_all(out.trim(), "");
@@ -644,4 +777,4 @@ pub fn narrative_style(text: &str, max_length: usize) -> String {
 
 #[cfg(test)]
 #[path = "pipeline_tests.rs"]
-mod tests;
+pub(crate) mod tests;

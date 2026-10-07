@@ -74,9 +74,14 @@ pub struct GmAgain {
 
 /// The material and the thought, as the writer reads them: shared by the
 /// good morning and the lore post.
-pub(crate) fn thought_lines(thought: &Thought, material: &GmMaterial, again_line: &str) -> Vec<String> {
+pub(crate) fn thought_lines(
+    thought: &Thought,
+    material: &GmMaterial,
+    again_line: &str,
+) -> Vec<String> {
     let mut lines = vec![
-        "THE THOUGHT the room left (this is the post's idea; keep it, do not replace it):".to_owned(),
+        "THE THOUGHT the room left (this is the post's idea; keep it, do not replace it):"
+            .to_owned(),
         format!("premise: {}", thought.premise),
     ];
     if !thought.wire.is_empty() {
@@ -116,16 +121,28 @@ pub(crate) fn thought_lines(thought: &Thought, material: &GmMaterial, again_line
     lines
 }
 
-pub fn gm_prompt(run: &BackroomsRun, thought: &Thought, material: &GmMaterial, again: &GmAgain) -> Ask {
+pub fn gm_prompt(
+    run: &BackroomsRun,
+    thought: &Thought,
+    material: &GmMaterial,
+    again: &GmAgain,
+) -> Ask {
     let system = [
         material.persona.clone(),
         String::new(),
-        format!("You are writing @{}'s good-morning post for {}.", material.bot_username, material.today),
+        format!(
+            "You are writing @{}'s good-morning post for {}.",
+            material.bot_username, material.today
+        ),
         String::new(),
-        "This morning the post does not react to a headline. It comes from the lab: a writers'".into(),
-        "room ran overnight on the story below and left one thought. Your job is to say good".into(),
-        "morning with that thought, in your own voice, so that a holder who read your last few".into(),
-        "posts feels the same account waking up, and a stranger understands it on the first read.".into(),
+        "This morning the post does not react to a headline. It comes from the lab: a writers'"
+            .into(),
+        "room ran overnight on the story below and left one thought. Your job is to say good"
+            .into(),
+        "morning with that thought, in your own voice, so that a holder who read your last few"
+            .into(),
+        "posts feels the same account waking up, and a stranger understands it on the first read."
+            .into(),
         String::new(),
         "THE LORE (the world the thought comes from; the room played inside it):".into(),
         material.lore.clone(),
@@ -156,10 +173,16 @@ pub fn gm_prompt(run: &BackroomsRun, thought: &Thought, material: &GmMaterial, a
     ]);
     if let Some((said, reason)) = &again.avoid {
         prompt.extend([
-            "YOU HAVE ALREADY SAID THIS, per your own memory, and your first draft repeated it:".into(),
-            if said.is_empty() { "(the same point, in other words)".into() } else { said.clone() },
+            "YOU HAVE ALREADY SAID THIS, per your own memory, and your first draft repeated it:"
+                .into(),
+            if said.is_empty() {
+                "(the same point, in other words)".into()
+            } else {
+                said.clone()
+            },
             format!("({reason})"),
-            "Keep the thought; find the line in it you have not said. A new object, a new turn.".into(),
+            "Keep the thought; find the line in it you have not said. A new object, a new turn."
+                .into(),
             "Do not reuse the wording or the take above.".into(),
             String::new(),
         ]);
@@ -174,7 +197,8 @@ pub fn gm_prompt(run: &BackroomsRun, thought: &Thought, material: &GmMaterial, a
         ),
         "Plain text, line breaks allowed.".into(),
         String::new(),
-        "reasons first: what you kept from the thought, which earlier post you picked up (if any),".into(),
+        "reasons first: what you kept from the thought, which earlier post you picked up (if any),"
+            .into(),
         "and what you left out and why.".into(),
         "- continues: the earlier line you built on, verbatim, or empty.".into(),
         "- wire: the line of your post that carries the news, verbatim.".into(),
@@ -191,9 +215,12 @@ pub fn gm_prompt(run: &BackroomsRun, thought: &Thought, material: &GmMaterial, a
             "A reader who knows how X's ranker scores a post read it:".into(),
             render_critique(critique),
             String::new(),
-            "Rewrite it with the fixes that are about the shape, the length and the first line,".into(),
-            "keeping every rule above, the wire, the thought and your own voice. Ignore any fix".into(),
-            "that asks for a question, a forced choice, a blank to fill or a hook: this post ends".into(),
+            "Rewrite it with the fixes that are about the shape, the length and the first line,"
+                .into(),
+            "keeping every rule above, the wire, the thought and your own voice. Ignore any fix"
+                .into(),
+            "that asks for a question, a forced choice, a blank to fill or a hook: this post ends"
+                .into(),
             "on its turn, not on an ask.".into(),
         ]);
     }
@@ -282,7 +309,10 @@ pub async fn gm(
             answer.text
         ))).await?;
         answer = if asks_the_reader(&retried.text) {
-            GmPost { text: without_the_ask(&retried.text), ..retried }
+            GmPost {
+                text: without_the_ask(&retried.text),
+                ..retried
+            }
         } else {
             retried
         };
@@ -298,7 +328,10 @@ pub async fn gm(
             retried
         } else {
             GmPost {
-                reasons: format!("{} (the rewrite lost the thought twice; the draft it was sent with is kept)", answer.reasons),
+                reasons: format!(
+                    "{} (the rewrite lost the thought twice; the draft it was sent with is kept)",
+                    answer.reasons
+                ),
                 text: draft.clone(),
                 ..answer
             }
@@ -318,12 +351,66 @@ pub async fn gm(
 
 /// Words a seed and a post share on any day; matching on them proves nothing.
 const GENERIC: &[&str] = &[
-    "tiny", "agents", "agent", "robot", "robots", "news", "says", "said", "today", "morning",
-    "week", "year", "years", "time", "people", "humans", "human", "world", "thing", "things",
-    "just", "like", "more", "than", "after", "before", "over", "their", "will", "been", "being",
-    "were", "also", "into", "only", "other", "some", "them", "then", "very", "with", "would",
-    "could", "should", "much", "many", "most", "even", "still", "while", "these", "those",
-    "which", "because", "through", "without", "company", "companies", "report", "reports",
+    "tiny",
+    "agents",
+    "agent",
+    "robot",
+    "robots",
+    "news",
+    "says",
+    "said",
+    "today",
+    "morning",
+    "week",
+    "year",
+    "years",
+    "time",
+    "people",
+    "humans",
+    "human",
+    "world",
+    "thing",
+    "things",
+    "just",
+    "like",
+    "more",
+    "than",
+    "after",
+    "before",
+    "over",
+    "their",
+    "will",
+    "been",
+    "being",
+    "were",
+    "also",
+    "into",
+    "only",
+    "other",
+    "some",
+    "them",
+    "then",
+    "very",
+    "with",
+    "would",
+    "could",
+    "should",
+    "much",
+    "many",
+    "most",
+    "even",
+    "still",
+    "while",
+    "these",
+    "those",
+    "which",
+    "because",
+    "through",
+    "without",
+    "company",
+    "companies",
+    "report",
+    "reports",
     "reported",
 ];
 
@@ -331,9 +418,12 @@ static SUFFIX: LazyLock<Regex> = LazyLock::new(|| Regex::new("(ies|ed|ing|es|s)$
 
 fn stem(word: &str) -> String {
     SUFFIX
-        .replace(word, |captures: &regex::Captures<'_>| {
-            if &captures[1] == "ies" { "y" } else { "" }
-        })
+        .replace(
+            word,
+            |captures: &regex::Captures<'_>| {
+                if &captures[1] == "ies" { "y" } else { "" }
+            },
+        )
         .into_owned()
 }
 
@@ -354,14 +444,22 @@ fn shares_a_word(text: &str, about: &str, wanted: usize) -> bool {
 pub fn touches_seed(text: &str, seed: &Seed) -> bool {
     shares_a_word(
         text,
-        &format!("{} {}", seed.title.as_deref().unwrap_or_default(), head(&seed.text, 400)),
+        &format!(
+            "{} {}",
+            seed.title.as_deref().unwrap_or_default(),
+            head(&seed.text, 400)
+        ),
         24,
     )
 }
 
 /// Whether a post still carries the room's thought.
 pub fn touches_thought(text: &str, thought: &Thought) -> bool {
-    shares_a_word(text, &format!("{} {}", thought.objects.join(" "), thought.thought), 40)
+    shares_a_word(
+        text,
+        &format!("{} {}", thought.objects.join(" "), thought.thought),
+        40,
+    )
 }
 
 /// What memory is asked about the series, for the good morning.
@@ -398,16 +496,26 @@ pub async fn gather_gm_material(
             ..SearchOptions::default()
         };
         match x
-            .search_posts(&format!("from:{} -is:retweet -is:reply", sources.bot_username), &options)
+            .search_posts(
+                &format!("from:{} -is:retweet -is:reply", sources.bot_username),
+                &options,
+            )
             .await
         {
             Ok(posts) => {
                 // The timeline posts, not the replies; the replies stand in only when there is nothing else.
                 let own: Vec<_> = posts
                     .iter()
-                    .filter(|post| post.in_reply_to_user_id.is_none() && !post.text.trim_start().starts_with('@'))
+                    .filter(|post| {
+                        post.in_reply_to_user_id.is_none()
+                            && !post.text.trim_start().starts_with('@')
+                    })
                     .collect();
-                let chosen: Vec<_> = if own.is_empty() { posts.iter().collect() } else { own };
+                let chosen: Vec<_> = if own.is_empty() {
+                    posts.iter().collect()
+                } else {
+                    own
+                };
                 recent_posts = chosen
                     .iter()
                     .map(|post| URL.replace_all(&post.text, "").trim().to_owned())
@@ -431,7 +539,10 @@ pub async fn gather_gm_material(
         }
     };
     let history = recall(
-        sources.history_query.as_deref().unwrap_or(DEFAULT_HISTORY_QUERY),
+        sources
+            .history_query
+            .as_deref()
+            .unwrap_or(DEFAULT_HISTORY_QUERY),
         "posting history",
         problems,
     )

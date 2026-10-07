@@ -37,15 +37,22 @@ pub static PRICE: LazyLock<Regex> = LazyLock::new(|| {
 static WINK: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)\b(?:lol|lmao|haha|jk|obviously|just kidding)\b|😂|🤣").expect("valid")
 });
-static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[a-z0-9$][a-z0-9'-]*").expect("valid"));
+static WORD: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"[a-z0-9$][a-z0-9'-]*").expect("valid"));
 
 fn words(text: &str) -> Vec<String> {
     let lower = text.to_lowercase();
-    WORD.find_iter(&lower).map(|m| m.as_str().to_owned()).collect()
+    WORD.find_iter(&lower)
+        .map(|m| m.as_str().to_owned())
+        .collect()
 }
 
 pub fn stats(run: &BackroomsRun) -> RunStats {
-    let counts: Vec<usize> = run.turns.iter().map(|turn| words(&turn.text).len()).collect();
+    let counts: Vec<usize> = run
+        .turns
+        .iter()
+        .map(|turn| words(&turn.text).len())
+        .collect();
     let mut sorted = counts.clone();
     sorted.sort_unstable();
     let mut seen: HashMap<String, usize> = HashMap::new();
@@ -91,9 +98,21 @@ pub fn stats(run: &BackroomsRun) -> RunStats {
             (bigrams.len() as f64 / total as f64 * 100.0).round() / 100.0
         },
         tool_calls,
-        turns_using_tools: run.turns.iter().filter(|turn| uses_tool_material(turn)).count(),
-        price_mentions: run.turns.iter().filter(|turn| PRICE.is_match(&turn.text)).count(),
-        winks: run.turns.iter().filter(|turn| WINK.is_match(&turn.text)).count(),
+        turns_using_tools: run
+            .turns
+            .iter()
+            .filter(|turn| uses_tool_material(turn))
+            .count(),
+        price_mentions: run
+            .turns
+            .iter()
+            .filter(|turn| PRICE.is_match(&turn.text))
+            .count(),
+        winks: run
+            .turns
+            .iter()
+            .filter(|turn| WINK.is_match(&turn.text))
+            .count(),
     }
 }
 
@@ -192,7 +211,12 @@ pub fn judge_prompt(run: &BackroomsRun) -> Ask {
         "the transcript, turns numbered from 0; [looked up: …] marks what that speaker fetched mid-turn:".into(),
         String::new(),
     ];
-    prompt.extend(run.turns.iter().enumerate().map(|(i, turn)| render_turn_for_judge(turn, i)));
+    prompt.extend(
+        run.turns
+            .iter()
+            .enumerate()
+            .map(|(i, turn)| render_turn_for_judge(turn, i)),
+    );
     prompt.extend([
         String::new(),
         "reasons first, then scores 0-3 each:".into(),

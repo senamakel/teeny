@@ -90,7 +90,11 @@ pub fn render_markdown(run: &BackroomsRun, extras: &SavedExtras) -> String {
     let mut lines = vec![
         format!("# backrooms {}", run.id),
         String::new(),
-        format!("seed ({}): {seed_title}{}", run.seed.provenance(), run.seed.text),
+        format!(
+            "seed ({}): {seed_title}{}",
+            run.seed.provenance(),
+            run.seed.text
+        ),
         String::new(),
         format!("agents: {agents}"),
         format!(
@@ -109,11 +113,21 @@ pub fn render_markdown(run: &BackroomsRun, extras: &SavedExtras) -> String {
     }
     lines.push(String::new());
     if let Some(thought) = &extras.thought {
-        lines.extend(["## the thought".into(), String::new(), format!("*{}*", thought.premise), String::new()]);
+        lines.extend([
+            "## the thought".into(),
+            String::new(),
+            format!("*{}*", thought.premise),
+            String::new(),
+        ]);
         if !thought.wire.is_empty() {
             lines.extend([format!("the wire: {}", thought.wire), String::new()]);
         }
-        lines.extend([thought.thought.clone(), String::new(), "**as a post**".into(), String::new()]);
+        lines.extend([
+            thought.thought.clone(),
+            String::new(),
+            "**as a post**".into(),
+            String::new(),
+        ]);
         lines.extend(thought.post.split('\n').map(|line| format!("> {line}")));
         lines.push(String::new());
         lines.push(if thought.objects.is_empty() {
@@ -143,7 +157,12 @@ pub fn render_markdown(run: &BackroomsRun, extras: &SavedExtras) -> String {
         ]);
     }
     lines.extend(["## transcript".into(), String::new()]);
-    lines.extend(run.turns.iter().enumerate().map(|(i, turn)| render_turn(turn, i)));
+    lines.extend(
+        run.turns
+            .iter()
+            .enumerate()
+            .map(|(i, turn)| render_turn(turn, i)),
+    );
     if let Some(stats) = &extras.stats {
         lines.extend([
             "## stats".into(),
@@ -171,7 +190,12 @@ pub fn render_markdown(run: &BackroomsRun, extras: &SavedExtras) -> String {
             } else {
                 format!(
                     "dead spots: {}",
-                    judge.dead_spots.iter().map(u32::to_string).collect::<Vec<_>>().join(", ")
+                    judge
+                        .dead_spots
+                        .iter()
+                        .map(u32::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 )
             },
             String::new(),

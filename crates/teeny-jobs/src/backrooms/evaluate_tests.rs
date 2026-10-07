@@ -33,9 +33,9 @@ async fn asks_a_cold_model_for_the_craziness_and_reads_its_answer() {
     assert_eq!(read.dead_spots, [2]);
     assert_eq!(craziness_total(&read), 9.0);
     let prompt = &model.calls()[0].1;
-    assert!(prompt.contains(
-        "1. swarm [looked up: x_search_posts {\"query\":\"inch\"}]: we counted"
-    ));
+    assert!(
+        prompt.contains("1. swarm [looked up: x_search_posts {\"query\":\"inch\"}]: we counted")
+    );
     assert!(prompt.contains("2. teeny (mood → giddy)"));
 
     let mut over = answer.clone();

@@ -39,7 +39,10 @@ pub struct NarrativeVoice {
     pub lore_text: String,
 }
 
-pub fn load_narrative_voice(voice_path: &Path, lore_path: &Path) -> std::io::Result<NarrativeVoice> {
+pub fn load_narrative_voice(
+    voice_path: &Path,
+    lore_path: &Path,
+) -> std::io::Result<NarrativeVoice> {
     let lore_text = std::fs::read_to_string(lore_path)?;
     Ok(NarrativeVoice {
         voice: std::fs::read_to_string(voice_path)?.trim().to_owned(),
@@ -54,7 +57,10 @@ pub fn parse_lore(text: &str) -> Lore {
     let mut premise = Vec::new();
     for raw in text.split('\n') {
         let line = raw.trim_end();
-        if let Some(heading) = line.strip_prefix("## ").or_else(|| line.strip_prefix("##\t")) {
+        if let Some(heading) = line
+            .strip_prefix("## ")
+            .or_else(|| line.strip_prefix("##\t"))
+        {
             current = heading.trim().to_lowercase();
             sections.insert(current.clone(), Vec::new());
             continue;
@@ -66,7 +72,10 @@ pub fn parse_lore(text: &str) -> Lore {
             continue;
         }
         if let Some(item) = line.strip_prefix("- ") {
-            sections.entry(current.clone()).or_default().push(item.trim().to_owned());
+            sections
+                .entry(current.clone())
+                .or_default()
+                .push(item.trim().to_owned());
         }
     }
     let latent = sections
@@ -102,7 +111,8 @@ pub fn parse_lore(text: &str) -> Lore {
     }
 }
 
-static TRIGGER_PREFIX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^trigger:\s*").expect("valid"));
+static TRIGGER_PREFIX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)^trigger:\s*").expect("valid"));
 
 /// What teeny is told: the goals, the world, the bits, and only the lore that has already come out.
 pub fn render_lore_for_teeny(lore: &Lore, surfaced: &[String]) -> String {
@@ -112,7 +122,11 @@ pub fn render_lore_for_teeny(lore: &Lore, surfaced: &[String]) -> String {
     lines.extend(lore.cast.iter().map(|line| format!("- {line}")));
     lines.extend([String::new(), "the bits:".into()]);
     lines.extend(lore.running_bits.iter().map(|line| format!("- {line}")));
-    let known: Vec<&LatentItem> = lore.latent.iter().filter(|item| surfaced.contains(&item.id)).collect();
+    let known: Vec<&LatentItem> = lore
+        .latent
+        .iter()
+        .filter(|item| surfaced.contains(&item.id))
+        .collect();
     if !known.is_empty() {
         lines.extend([String::new(), "what has come out so far:".into()]);
         lines.extend(known.iter().map(|item| format!("- {}", item.reveal)));
@@ -124,8 +138,14 @@ pub fn render_lore_for_teeny(lore: &Lore, surfaced: &[String]) -> String {
 /// them the world state has tripped today. The producer never evaluates a
 /// trigger itself.
 pub fn render_lore_for_producer(lore: &Lore, surfaced: &[String], live: &[String]) -> String {
-    let mut lines = vec!["the premise:".to_owned(), lore.premise.clone(), String::new()];
-    lines.push("the goals (teeny restates them every episode; you keep the story pointed at them):".into());
+    let mut lines = vec![
+        "the premise:".to_owned(),
+        lore.premise.clone(),
+        String::new(),
+    ];
+    lines.push(
+        "the goals (teeny restates them every episode; you keep the story pointed at them):".into(),
+    );
     lines.extend(lore.goals.iter().map(|goal| format!("- {goal}")));
     lines.extend([String::new(), "the cast:".into()]);
     lines.extend(lore.cast.iter().map(|line| format!("- {line}")));
@@ -144,8 +164,19 @@ pub fn render_lore_for_producer(lore: &Lore, surfaced: &[String], live: &[String
         } else {
             "dark"
         };
-        let reveal = if status == "dark" { "" } else { item.reveal.as_str() };
-        lines.push(format!("- {} [{status}] (trigger: {}) {reveal}", item.id, item.trigger).trim_end().to_owned());
+        let reveal = if status == "dark" {
+            ""
+        } else {
+            item.reveal.as_str()
+        };
+        lines.push(
+            format!(
+                "- {} [{status}] (trigger: {}) {reveal}",
+                item.id, item.trigger
+            )
+            .trim_end()
+            .to_owned(),
+        );
     }
     lines.join("\n")
 }
@@ -162,8 +193,9 @@ pub type Fields = BTreeMap<&'static str, Field>;
 static BETWEEN_AND: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)between\s+(-?[\d.]+)\s+and\s+(-?[\d.]+)").expect("valid"));
 static AND: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\s+and\s+").expect("valid"));
-static BETWEEN: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)^(\w+)\s+between\s+(-?[\d.]+)\.\.(-?[\d.]+)$").expect("valid"));
+static BETWEEN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)^(\w+)\s+between\s+(-?[\d.]+)\.\.(-?[\d.]+)$").expect("valid")
+});
 static COMPARE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(\w+)\s*(<=|>=|<|>|==|=)\s*(-?[\d.]+)$").expect("valid"));
 static BARE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(\w+)$").expect("valid"));
@@ -173,7 +205,9 @@ static BARE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(\w+)$").expect("v
 /// `and`. Anything else is false, so a typo keeps an item dark.
 pub fn evaluate_trigger(trigger: &str, fields: &Fields) -> bool {
     let joined = BETWEEN_AND.replace_all(trigger, "between $1..$2");
-    AND.split(&joined).map(str::trim).all(|clause| evaluate_clause(clause, fields))
+    AND.split(&joined)
+        .map(str::trim)
+        .all(|clause| evaluate_clause(clause, fields))
 }
 
 fn number(fields: &Fields, name: &str) -> Option<f64> {
@@ -185,7 +219,11 @@ fn number(fields: &Fields, name: &str) -> Option<f64> {
 
 fn evaluate_clause(clause: &str, fields: &Fields) -> bool {
     if let Some(c) = BETWEEN.captures(clause) {
-        let (Some(value), Ok(low), Ok(high)) = (number(fields, &c[1]), c[2].parse::<f64>(), c[3].parse::<f64>()) else {
+        let (Some(value), Ok(low), Ok(high)) = (
+            number(fields, &c[1]),
+            c[2].parse::<f64>(),
+            c[3].parse::<f64>(),
+        ) else {
             return false;
         };
         return value >= low && value <= high;

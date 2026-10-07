@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::Context as _;
 use teeny_core::config::LoreSeed;
 use teeny_memory::Memory;
-use teeny_store::journal::{Outcome, ReflectionInput, ToolCall, Tone, Trigger};
+use teeny_store::journal::{Outcome, ReflectionInput, Tone, ToolCall, Trigger};
 
 use super::pipeline::{LorePipeline, LoreResult, SeedSource};
 use crate::backrooms::Backrooms;
@@ -46,7 +46,17 @@ pub async fn dry_run(ctx: &JobCtx) -> anyhow::Result<JobReport> {
 }
 
 async fn run_named(ctx: &JobCtx, name: &'static str) -> anyhow::Result<JobReport> {
-    if let Err(why) = admit(ctx, Gates { job: name, kind: Some(name), rota: None, force: false }).await {
+    if let Err(why) = admit(
+        ctx,
+        Gates {
+            job: name,
+            kind: Some(name),
+            rota: None,
+            force: false,
+        },
+    )
+    .await
+    {
         tracing::info!("{why}");
         return Ok(JobReport::declined(name, why));
     }
@@ -72,15 +82,24 @@ pub fn build(ctx: &JobCtx, name: &str) -> LorePipeline {
             match seed {
                 LoreSeed::News => (
                     SeedSource::News,
-                    Arc::new(NewsSeeds { web: web.clone(), feed: NewsFeed::new(), random: draws }),
+                    Arc::new(NewsSeeds {
+                        web: web.clone(),
+                        feed: NewsFeed::new(),
+                        random: draws,
+                    }),
                 ),
                 LoreSeed::Forum => (
                     SeedSource::Forum,
-                    Arc::new(ForumSeeds { forums: backrooms.forums().to_vec(), random: draws }),
+                    Arc::new(ForumSeeds {
+                        forums: backrooms.forums().to_vec(),
+                        random: draws,
+                    }),
                 ),
                 LoreSeed::Memory => (
                     SeedSource::Memory,
-                    Arc::new(MemorySeeds { memory: Arc::clone(&ctx.deps.memory) as Arc<dyn Memory> }),
+                    Arc::new(MemorySeeds {
+                        memory: Arc::clone(&ctx.deps.memory) as Arc<dyn Memory>,
+                    }),
                 ),
             }
         })
@@ -156,8 +175,13 @@ async fn journal(ctx: &JobCtx, id: String, result: &LoreResult) {
         Some(seed) => format!(
             "{}{}: {}",
             seed.kind.as_str(),
-            seed.source.as_deref().map(|s| format!(" ({s})")).unwrap_or_default(),
-            seed.title.clone().unwrap_or_else(|| crate::backrooms::text::head(&seed.text, 200))
+            seed.source
+                .as_deref()
+                .map(|s| format!(" ({s})"))
+                .unwrap_or_default(),
+            seed.title
+                .clone()
+                .unwrap_or_else(|| crate::backrooms::text::head(&seed.text, 200))
         ),
         None => "nothing came through the wire".into(),
     };
@@ -188,8 +212,16 @@ async fn journal(ctx: &JobCtx, id: String, result: &LoreResult) {
                     result: format!("{}: {}", room.id, room.thought.premise),
                 })
                 .collect(),
-            thinking: thinking.into_iter().filter(|line| !line.is_empty()).collect::<Vec<_>>().join("\n"),
-            said: if result.outcome == Outcome::Held { String::new() } else { result.text.clone() },
+            thinking: thinking
+                .into_iter()
+                .filter(|line| !line.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n"),
+            said: if result.outcome == Outcome::Held {
+                String::new()
+            } else {
+                result.text.clone()
+            },
             declined: result.problems.clone(),
             outcome: result.outcome,
             outcome_note: note(result),

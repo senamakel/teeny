@@ -15,8 +15,9 @@ fn thought() -> Thought {
         premise: "a robot trades a chair for a nap and the agents accept it.".into(),
         wire: "the car outside is the broom agent's ride".into(),
         objects: vec!["the chair".into(), "the broom".into()],
-        thought: "the chair went for a nap overnight. one chair, one nap. the agents did not argue."
-            .into(),
+        thought:
+            "the chair went for a nap overnight. one chair, one nap. the agents did not argue."
+                .into(),
         post: "one chair, one nap.".into(),
         kept: Vec::new(),
     }
@@ -48,9 +49,15 @@ fn puts_the_soul_the_lore_the_thought_and_the_last_posts_in_front_of_the_writer(
     let ask = gm_prompt(&run(), &thought(), &material(), &GmAgain::default());
     assert!(ask.system.contains("smol yellow robot"));
     assert!(ask.system.contains("the currency: one trade, one object"));
-    assert!(ask.system.contains("@teenydroid's good-morning post for 2026-09-21"));
+    assert!(
+        ask.system
+            .contains("@teenydroid's good-morning post for 2026-09-21")
+    );
     assert!(ask.prompt.contains("one chair, one nap"));
-    assert!(ask.prompt.contains("1. gm. the kettle is watching me again."));
+    assert!(
+        ask.prompt
+            .contains("1. gm. the kettle is watching me again.")
+    );
     assert!(ask.prompt.contains("2. the ledger balanced."));
     assert!(ask.prompt.contains("posted about the kettle yesterday"));
     assert!(ask.prompt.contains("holders who like the kettle bit"));
@@ -67,9 +74,14 @@ async fn ends_on_the_turn_not_on_a_question_one_rewrite_then_the_ask_is_cut() {
         json!({"reasons":"r","continues":"","wire":"a car pulled up","text":"gm. a car pulled up. the kettle is five naps now.\nwhat is yours?"}),
         json!({"reasons":"r","continues":"","wire":"a car pulled up","text":"gm. a car pulled up. the kettle is five naps now.\nwhat do you rate it?"}),
     ]);
-    let post = gm(&run(), &thought(), &material(), &model, &GmAgain::default()).await.unwrap();
+    let post = gm(&run(), &thought(), &material(), &model, &GmAgain::default())
+        .await
+        .unwrap();
     assert_eq!(model.calls().len(), 2);
-    assert_eq!(post.text, "gm. a car pulled up. the kettle is five naps now.");
+    assert_eq!(
+        post.text,
+        "gm. a car pulled up. the kettle is five naps now."
+    );
 }
 
 #[tokio::test]
@@ -78,7 +90,9 @@ async fn writes_the_post_once_sends_it_back_when_over_the_cap_and_applies_the_ho
         json!({"reasons":"first","continues":"gm. the kettle is watching me again.","wire":"a car pulled up","text":"gm 🔥🔥 a car pulled up. the kettle is five naps now"}),
         json!({"reasons":"shorter","continues":"gm. the kettle is watching me again.","wire":"a car pulled up","text":"gm $TINY fam 🔥 a car pulled up. the kettle is five naps now — the agents accepted it"}),
     ]);
-    let post = gm(&run(), &thought(), &material(), &model, &GmAgain::default()).await.unwrap();
+    let post = gm(&run(), &thought(), &material(), &model, &GmAgain::default())
+        .await
+        .unwrap();
     let calls = model.calls();
     assert_eq!(calls.len(), 2);
     assert!(calls[1].1.contains("Your draft was"));
@@ -86,12 +100,19 @@ async fn writes_the_post_once_sends_it_back_when_over_the_cap_and_applies_the_ho
     assert!(post.text.contains("gm $TINY fam"));
     assert!(!post.text.contains('—'));
     assert!(calls[0].1.contains("WHAT CAME THROUGH THE WIRE"));
-    assert!(calls[0].1.contains("the wire in it: the car outside is the broom agent's ride"));
+    assert!(
+        calls[0]
+            .1
+            .contains("the wire in it: the car outside is the broom agent's ride")
+    );
 }
 
 #[tokio::test]
 async fn keeps_the_draft_when_the_rankers_rewrite_loses_the_lab_twice() {
-    assert!(touches_thought("gm. the chair is gone. one chair, one nap.", &thought()));
+    assert!(touches_thought(
+        "gm. the chair is gone. one chair, one nap.",
+        &thought()
+    ));
     assert!(!touches_thought(
         "gm. a human replaced codex with local models. what is on your machine?",
         &thought()
@@ -119,7 +140,9 @@ async fn keeps_the_draft_when_the_rankers_rewrite_loses_the_lab_twice() {
         avoid: None,
         rewrite: Some((draft.into(), critique)),
     };
-    let post = gm(&run(), &thought(), &material(), &model, &again).await.unwrap();
+    let post = gm(&run(), &thought(), &material(), &model, &again)
+        .await
+        .unwrap();
     assert_eq!(model.calls().len(), 2);
     assert_eq!(post.text, draft);
     assert!(post.reasons.contains("the draft it was sent with is kept"));
@@ -133,7 +156,10 @@ async fn sends_a_post_back_once_when_nothing_in_it_is_recognisably_about_the_wir
         text: "experts warned that current firewalls are unravelling after agents breached a platform.".into(),
         source: None,
     };
-    assert!(!touches_seed("gm. the kettle is five naps now. what is yours?", &seed));
+    assert!(!touches_seed(
+        "gm. the kettle is five naps now. what is yours?",
+        &seed
+    ));
     assert!(touches_seed(
         "gm. they say the firewalls are unravelling out there. in here the kettle is five naps.",
         &seed
@@ -146,7 +172,9 @@ async fn sends_a_post_back_once_when_nothing_in_it_is_recognisably_about_the_wir
     ]);
     let mut run = run();
     run.seed = seed;
-    let post = gm(&run, &thought(), &material(), &model, &GmAgain::default()).await.unwrap();
+    let post = gm(&run, &thought(), &material(), &model, &GmAgain::default())
+        .await
+        .unwrap();
     let calls = model.calls();
     assert_eq!(calls.len(), 2);
     assert!(calls[1].1.contains("It never touches the wire"));
@@ -169,8 +197,12 @@ async fn gathers_the_last_posts_and_the_recalls_and_notes_a_source_that_fails() 
     let config = teeny_core::Config::from_vars(teeny_agent::deps::fake_vars()).unwrap();
     let x = Arc::new(XApi::from_config(&config.x).with_base_url(server.uri()));
     let mut memory = FixedMemory::default();
-    memory.answers.insert(DEFAULT_HISTORY_QUERY.into(), "yesterday: the kettle".into());
-    memory.answers.insert(COMMUNITY_QUERY.into(), "holders".into());
+    memory
+        .answers
+        .insert(DEFAULT_HISTORY_QUERY.into(), "yesterday: the kettle".into());
+    memory
+        .answers
+        .insert(COMMUNITY_QUERY.into(), "holders".into());
     let sources = GmSources {
         memory: Some(Arc::new(memory)),
         x: Some(x),
@@ -191,7 +223,9 @@ async fn gathers_the_last_posts_and_the_recalls_and_notes_a_source_that_fails() 
 
     let broken = GmSources {
         memory: None,
-        x: Some(Arc::new(XApi::from_config(&config.x).with_base_url("http://127.0.0.1:9"))),
+        x: Some(Arc::new(
+            XApi::from_config(&config.x).with_base_url("http://127.0.0.1:9"),
+        )),
         ..sources
     };
     let without = gather_gm_material(&broken, today, &mut problems).await;
@@ -230,9 +264,15 @@ fn the_lore_writer_gets_the_soul_the_lore_and_the_thought_with_no_good_morning()
     material.today = "2026-09-22".into();
     let ask = lore_prompt(&lore_run(), &lore_thought(), &material);
     assert!(ask.system.contains("smol yellow robot"));
-    assert!(ask.system.contains("@teenydroid's afternoon post for 2026-09-22"));
+    assert!(
+        ask.system
+            .contains("@teenydroid's afternoon post for 2026-09-22")
+    );
     assert!(ask.prompt.contains("the kettle on the ledger tonight"));
-    assert!(ask.prompt.contains("1. gm. the kettle is watching me again."));
+    assert!(
+        ask.prompt
+            .contains("1. gm. the kettle is watching me again.")
+    );
     assert!(ask.prompt.contains("AI agents now file taxes"));
     assert!(ask.prompt.contains("Not on a question."));
     assert!(!ask.prompt.to_lowercase().contains("good morning"));
@@ -245,7 +285,9 @@ async fn the_lore_writer_sends_an_over_long_draft_back_cuts_a_closing_ask_and_ke
         json!({"reasons":"r","continues":"","text":"the kettle is on the ledger now. in crayon.\nwhat is yours worth?"}),
         json!({"reasons":"r","continues":"","text":"the kettle is on the ledger now. in crayon.\nrate it?"}),
     ]);
-    let post = write_lore(&lore_run(), &lore_thought(), &material(), &model).await.unwrap();
+    let post = write_lore(&lore_run(), &lore_thought(), &material(), &model)
+        .await
+        .unwrap();
     assert_eq!(model.calls().len(), 3);
     assert_eq!(post.text, "the kettle is on the ledger now. in crayon.");
 }
@@ -256,7 +298,9 @@ async fn the_lore_writer_keeps_the_draft_when_the_rewrite_lost_the_thought_too()
         json!({"reasons":"r","continues":"","text":"a startup says its agents filed a return. fine."}),
         json!({"reasons":"r","continues":"","text":"the return was filed. fine."}),
     ]);
-    let post = write_lore(&lore_run(), &lore_thought(), &material(), &model).await.unwrap();
+    let post = write_lore(&lore_run(), &lore_thought(), &material(), &model)
+        .await
+        .unwrap();
     assert_eq!(model.calls().len(), 2);
     assert_eq!(post.text, "a startup says its agents filed a return. fine.");
 }

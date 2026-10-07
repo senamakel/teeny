@@ -7,10 +7,10 @@ use serde::{Deserialize, Serialize};
 use teeny_media::reference::TextModel;
 use teeny_safety::house_style::{asks_the_reader, count_emoji, post_length, without_the_ask};
 
+use super::BackroomsRun;
 use super::ask::{Ask, Shape, ask_json, required};
 use super::distill::Thought;
 use super::gm::{GmMaterial, house_style, over, target, thought_lines, touches_thought};
-use super::BackroomsRun;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LorePost {
@@ -65,9 +65,12 @@ pub fn lore_prompt(run: &BackroomsRun, thought: &Thought, material: &GmMaterial)
         ),
         String::new(),
         "This post is not about a chart, a number or a headline. It comes from the lab: a".into(),
-        "writers' room ran on something that came through the wire and left one thought. Your".into(),
-        "job is to tell that thought as a thing that happened in the lab today, in your own voice,".into(),
-        "so that a holder who read your last few posts feels the same account, and a stranger".into(),
+        "writers' room ran on something that came through the wire and left one thought. Your"
+            .into(),
+        "job is to tell that thought as a thing that happened in the lab today, in your own voice,"
+            .into(),
+        "so that a holder who read your last few posts feels the same account, and a stranger"
+            .into(),
         "understands it on the first read and wants to know what the lab is.".into(),
         String::new(),
         "THE LORE (the world the thought comes from; the room played inside it):".into(),
@@ -106,7 +109,8 @@ pub fn lore_prompt(run: &BackroomsRun, thought: &Thought, material: &GmMaterial)
         ),
         "Plain text, line breaks allowed.".into(),
         String::new(),
-        "reasons first: what you kept from the thought, which earlier post you picked up (if any),".into(),
+        "reasons first: what you kept from the thought, which earlier post you picked up (if any),"
+            .into(),
         "and what you left out and why.".into(),
         "- continues: the earlier line you built on, verbatim, or empty.".into(),
         "- text: the post.".into(),
@@ -142,7 +146,10 @@ pub async fn write_lore(
             answer.text
         ))).await?;
         answer = if asks_the_reader(&retried.text) {
-            LorePost { text: without_the_ask(&retried.text), ..retried }
+            LorePost {
+                text: without_the_ask(&retried.text),
+                ..retried
+            }
         } else {
             retried
         };

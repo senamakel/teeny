@@ -31,7 +31,9 @@ fn writes_the_run_as_json_and_as_a_transcript() {
     assert_eq!(json["startedAt"], run.started_at);
     let markdown = std::fs::read_to_string(&saved.markdown).unwrap();
     assert!(markdown.contains("# backrooms 20260921-1200-a-car"));
-    assert!(markdown.contains("### 2. swarm\n\n> looked up · x_search_posts · \"inch\"\n\nwe counted"));
+    assert!(
+        markdown.contains("### 2. swarm\n\n> looked up · x_search_posts · \"inch\"\n\nwe counted")
+    );
     assert!(markdown.contains("### 3. teeny · mood → giddy"));
     assert!(markdown.contains(
         "## the thought\n\n*a robot and a door.*\n\nthe door is open.\n\n**as a post**\n\n> the door is open."
@@ -45,6 +47,9 @@ fn writes_the_run_as_json_and_as_a_transcript() {
 #[test]
 fn names_a_run_by_the_minute_and_the_slug() {
     let at = Utc.with_ymd_and_hms(2026, 9, 21, 13, 35, 12).unwrap();
-    assert_eq!(run_id(at, "A car pulled up!! outside"), "20260921-1335-a-car-pulled-up-outside");
+    assert_eq!(
+        run_id(at, "A car pulled up!! outside"),
+        "20260921-1335-a-car-pulled-up-outside"
+    );
     assert_eq!(run_id(at, "!!"), "20260921-1335");
 }

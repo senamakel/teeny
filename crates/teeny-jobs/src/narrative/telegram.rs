@@ -89,7 +89,9 @@ impl EpisodeChannel for BotApi {
             (true, Some(message)) => Ok(message.message_id),
             _ => anyhow::bail!(
                 "telegram refused the episode: {}",
-                answer.description.unwrap_or_else(|| "no reason given".into())
+                answer
+                    .description
+                    .unwrap_or_else(|| "no reason given".into())
             ),
         }
     }
@@ -107,12 +109,22 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/botT/sendVideo"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "ok": true, "result": { "message_id": 77 } })))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(
+                    serde_json::json!({ "ok": true, "result": { "message_id": 77 } }),
+                ),
+            )
             .mount(&server)
             .await;
         let api = BotApi::new(Secret::new("T")).with_base_url(server.uri());
-        assert_eq!(api.send(-100, &[1], "video/mp4", true, "the door moved").await.unwrap(), 77);
-        let body = String::from_utf8_lossy(&server.received_requests().await.unwrap()[0].body).into_owned();
+        assert_eq!(
+            api.send(-100, &[1], "video/mp4", true, "the door moved")
+                .await
+                .unwrap(),
+            77
+        );
+        let body = String::from_utf8_lossy(&server.received_requests().await.unwrap()[0].body)
+            .into_owned();
         assert!(body.contains("the door moved"));
         assert!(body.contains("-100"));
     }

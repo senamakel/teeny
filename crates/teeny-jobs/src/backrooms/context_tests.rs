@@ -91,13 +91,25 @@ async fn assembles_every_kind_of_block_voice_only_for_teeny_within_the_budget() 
     let (_server, x) = own_posts(false).await;
     let builder = ContextBuilder::new(sources(x, FixedMemory::default()));
     let teeny = builder
-        .build(&spec("teeny"), &seed(), &mut Rng::new(1), 4_000, &["web_search".into()], None)
+        .build(
+            &spec("teeny"),
+            &seed(),
+            &mut Rng::new(1),
+            4_000,
+            &["web_search".into()],
+            None,
+        )
         .await;
     let swarm = builder
         .build(&spec("swarm"), &seed(), &mut Rng::new(2), 4_000, &[], None)
         .await;
     use BlockKind::*;
-    assert_eq!(kinds(&teeny), [Seed, Tone, Engine, Voice, Lore, Past, Memory, Live, Forum, Tools]);
+    assert_eq!(
+        kinds(&teeny),
+        [
+            Seed, Tone, Engine, Voice, Lore, Past, Memory, Live, Forum, Tools
+        ]
+    );
     assert!(!kinds(&swarm).contains(&Voice));
     assert!(teeny.tokens <= 4_000);
     assert!(teeny.problems.is_empty(), "{:?}", teeny.problems);
@@ -121,9 +133,19 @@ async fn takes_the_engine_it_is_given_instead_of_drawing_one() {
     let (_server, x) = own_posts(false).await;
     let builder = ContextBuilder::new(sources(x, FixedMemory::default()));
     let context = builder
-        .build(&spec("teeny"), &seed(), &mut Rng::new(1), 4_000, &[], Some("the ledger: crayon."))
+        .build(
+            &spec("teeny"),
+            &seed(),
+            &mut Rng::new(1),
+            4_000,
+            &[],
+            Some("the ledger: crayon."),
+        )
         .await;
-    assert!(text(&context, BlockKind::Engine).starts_with("tonight the story is about the ledger: crayon."));
+    assert!(
+        text(&context, BlockKind::Engine)
+            .starts_with("tonight the story is about the ledger: crayon.")
+    );
 }
 
 #[tokio::test]
@@ -133,7 +155,10 @@ async fn records_a_failing_source_as_a_problem_and_adds_nothing_for_it() {
         .build(&spec("teeny"), &seed(), &mut Rng::new(1), 4_000, &[], None)
         .await;
     use BlockKind::*;
-    assert_eq!(kinds(&built), [Seed, Tone, Engine, Voice, Lore, Live, Forum, Tools]);
+    assert_eq!(
+        kinds(&built),
+        [Seed, Tone, Engine, Voice, Lore, Live, Forum, Tools]
+    );
     assert!(built.problems.iter().any(|p| p.starts_with("own posts: ")));
     assert!(built.problems.iter().any(|p| p.starts_with("memory \"")));
 }
@@ -142,19 +167,41 @@ async fn records_a_failing_source_as_a_problem_and_adds_nothing_for_it() {
 async fn draws_the_same_context_from_the_same_seed() {
     let (_server, x) = own_posts(false).await;
     let builder = ContextBuilder::new(sources(x, FixedMemory::default()));
-    let a = builder.build(&spec("teeny"), &seed(), &mut Rng::new(9), 4_000, &[], None).await;
-    let b = builder.build(&spec("teeny"), &seed(), &mut Rng::new(9), 4_000, &[], None).await;
+    let a = builder
+        .build(&spec("teeny"), &seed(), &mut Rng::new(9), 4_000, &[], None)
+        .await;
+    let b = builder
+        .build(&spec("teeny"), &seed(), &mut Rng::new(9), 4_000, &[], None)
+        .await;
     assert_eq!(a.blocks, b.blocks);
     assert_eq!(a.tone, b.tone);
 }
 
 #[test]
 fn reads_the_engines_out_of_the_lore_and_keeps_one_image_from_dominating_the_past() {
-    assert_eq!(engines("# lore\n\n## engines\n\n- a: x\n- b: y\n\n## cast\n\n- c"), ["a: x", "b: y"]);
+    assert_eq!(
+        engines("# lore\n\n## engines\n\n- a: x\n- b: y\n\n## cast\n\n- c"),
+        ["a: x", "b: y"]
+    );
     assert!(engines("# lore\n\n## cast\n\n- c").is_empty());
-    let lines: Vec<String> = ["the door is open", "the door is wood", "the door again", "the door once more", "the kettle boils", "the door at night"]
-        .iter()
-        .map(|l| (*l).to_owned())
-        .collect();
-    assert_eq!(spread(&lines, 3), ["the door is open", "the door is wood", "the door again", "the kettle boils"]);
+    let lines: Vec<String> = [
+        "the door is open",
+        "the door is wood",
+        "the door again",
+        "the door once more",
+        "the kettle boils",
+        "the door at night",
+    ]
+    .iter()
+    .map(|l| (*l).to_owned())
+    .collect();
+    assert_eq!(
+        spread(&lines, 3),
+        [
+            "the door is open",
+            "the door is wood",
+            "the door again",
+            "the kettle boils"
+        ]
+    );
 }

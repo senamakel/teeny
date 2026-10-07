@@ -31,7 +31,11 @@ impl ScriptedText {
 
     /// Answers in order from a list, then fails.
     pub fn queue(answers: impl IntoIterator<Item = String>) -> Self {
-        let answers = Mutex::new(answers.into_iter().collect::<std::collections::VecDeque<_>>());
+        let answers = Mutex::new(
+            answers
+                .into_iter()
+                .collect::<std::collections::VecDeque<_>>(),
+        );
         Self {
             answer: Box::new(move |_, _| {
                 answers
@@ -176,13 +180,18 @@ pub fn run() -> BackroomsRun {
     }
 }
 
-/// A fresh directory under the system temp dir.
+/// A fresh directory under the system temp dir, unique per call.
 pub fn scratch(name: &str) -> PathBuf {
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_nanos())
         .unwrap_or(0);
-    std::env::temp_dir().join(format!("teeny-jobs-{name}-{}-{nanos}", std::process::id()))
+    std::env::temp_dir().join(format!(
+        "teeny-jobs-{name}-{}-{nanos}-{n}",
+        std::process::id()
+    ))
 }
 
 /// A runner that answers every turn with a closure over the request, and
@@ -193,8 +202,13 @@ pub struct FnRunner {
 }
 
 impl FnRunner {
-    pub fn new(answer: impl Fn(&crate::runner::AgentRun) -> String + Send + Sync + 'static) -> Self {
-        Self { answer: Box::new(answer), seen: Mutex::new(Vec::new()) }
+    pub fn new(
+        answer: impl Fn(&crate::runner::AgentRun) -> String + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            answer: Box::new(answer),
+            seen: Mutex::new(Vec::new()),
+        }
     }
 
     pub fn seen(&self) -> Vec<crate::runner::AgentRun> {

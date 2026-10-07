@@ -17,7 +17,12 @@ fn keeps_whole_blocks_until_the_budget_is_spent_and_cuts_the_last_one_at_a_line(
         block(
             BlockKind::Lore,
             "b",
-            format!("{}\n{}\n{}", "y".repeat(200), "z".repeat(200), "w".repeat(200)),
+            format!(
+                "{}\n{}\n{}",
+                "y".repeat(200),
+                "z".repeat(200),
+                "w".repeat(200)
+            ),
             151,
         ),
         block(BlockKind::Past, "c", "never".into(), 2),

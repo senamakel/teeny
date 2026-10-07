@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Context as _;
-use teeny_store::journal::{Outcome, ReflectionInput, ToolCall, Tone, Trigger};
+use teeny_store::journal::{Outcome, ReflectionInput, Tone, ToolCall, Trigger};
 
 use super::likeness::{LikenessFinder, LikenessSource};
 use super::pipeline::{NarrativePipeline, NarrativeResult, TelegramTarget};
@@ -25,14 +25,31 @@ pub const JOB: &str = "narrative";
 
 /// The scheduled run: the guards, the pipeline, the journal.
 pub async fn run(ctx: &JobCtx) -> anyhow::Result<JobReport> {
-    if let Err(why) = admit(ctx, Gates { job: JOB, kind: Some(JOB), rota: None, force: false }).await {
+    if let Err(why) = admit(
+        ctx,
+        Gates {
+            job: JOB,
+            kind: Some(JOB),
+            rota: None,
+            force: false,
+        },
+    )
+    .await
+    {
         tracing::info!("{why}");
         return Ok(JobReport::declined(JOB, why));
     }
     let pipeline = match build(ctx) {
         Ok(pipeline) => pipeline,
         Err(error) => {
-            journal_failure(ctx, day_id(ctx, JOB), Trigger::Narrative, "an episode of the serial", &error).await;
+            journal_failure(
+                ctx,
+                day_id(ctx, JOB),
+                Trigger::Narrative,
+                "an episode of the serial",
+                &error,
+            )
+            .await;
             return Err(error);
         }
     };
@@ -68,7 +85,10 @@ pub fn build(ctx: &JobCtx) -> anyhow::Result<NarrativePipeline> {
             .iter()
             .filter_map(|id| id.trim().parse().ok())
             .collect();
-        (!chat_ids.is_empty()).then(|| TelegramTarget { channel: Arc::new(BotApi::new(token)), chat_ids })
+        (!chat_ids.is_empty()).then(|| TelegramTarget {
+            channel: Arc::new(BotApi::new(token)),
+            chat_ids,
+        })
     });
     let likeness = match (&deps.exa, &media.reader) {
         (Some(exa), Some(reader)) => Some(Arc::new(LikenessFinder {
@@ -80,7 +100,9 @@ pub fn build(ctx: &JobCtx) -> anyhow::Result<NarrativePipeline> {
     };
     Ok(NarrativePipeline {
         voice,
-        state: Arc::new(FileNarrativeState { path: PathBuf::from(&config.narrative.state_path) }),
+        state: Arc::new(FileNarrativeState {
+            path: PathBuf::from(&config.narrative.state_path),
+        }),
         world: Arc::new(XWorld {
             x: Arc::clone(&deps.x),
             reads: Arc::clone(&deps.x_reads),
@@ -88,7 +110,12 @@ pub fn build(ctx: &JobCtx) -> anyhow::Result<NarrativePipeline> {
             token_symbol: deps.settings.token_symbol.clone(),
         }),
         runner: Arc::clone(&ctx.runner),
-        text: Arc::new(deps.llm.clone().with_source("narrative").with_temperature(0.2)),
+        text: Arc::new(
+            deps.llm
+                .clone()
+                .with_source("narrative")
+                .with_temperature(0.2),
+        ),
         deps: Arc::clone(deps),
         media,
         telegram,
@@ -107,12 +134,27 @@ pub fn build(ctx: &JobCtx) -> anyhow::Result<NarrativePipeline> {
 }
 
 /// Runs an episode and journals it, a failure included.
-pub async fn run_pipeline(ctx: &JobCtx, pipeline: &NarrativePipeline, rehearsal: bool) -> anyhow::Result<JobReport> {
-    let id = if rehearsal { format!("{}:dry-run", day_id(ctx, JOB)) } else { day_id(ctx, JOB) };
+pub async fn run_pipeline(
+    ctx: &JobCtx,
+    pipeline: &NarrativePipeline,
+    rehearsal: bool,
+) -> anyhow::Result<JobReport> {
+    let id = if rehearsal {
+        format!("{}:dry-run", day_id(ctx, JOB))
+    } else {
+        day_id(ctx, JOB)
+    };
     let result = match pipeline.run(rehearsal).await {
         Ok(result) => result,
         Err(error) => {
-            journal_failure(ctx, id, Trigger::Narrative, "an episode of the serial", &error).await;
+            journal_failure(
+                ctx,
+                id,
+                Trigger::Narrative,
+                "an episode of the serial",
+                &error,
+            )
+            .await;
             return Err(error).context("an episode of the serial");
         }
     };
@@ -148,7 +190,10 @@ fn note(result: &NarrativeResult) -> Option<String> {
 }
 
 async fn journal(ctx: &JobCtx, id: String, result: &NarrativeResult) {
-    let episode = result.chosen.as_ref().and_then(|branch| branch.episode.as_ref());
+    let episode = result
+        .chosen
+        .as_ref()
+        .and_then(|branch| branch.episode.as_ref());
     let mut thinking = Vec::new();
     if let Some(episode) = episode {
         thinking.extend([
@@ -164,7 +209,11 @@ async fn journal(ctx: &JobCtx, id: String, result: &NarrativeResult) {
         thinking.push(format!(
             "branch {}{}: {}",
             branch.index + 1,
-            branch.episode.as_ref().map(|e| format!(" \"{}\"", e.title)).unwrap_or_default(),
+            branch
+                .episode
+                .as_ref()
+                .map(|e| format!(" \"{}\"", e.title))
+                .unwrap_or_default(),
             branch
                 .rejected
                 .clone()
@@ -172,17 +221,27 @@ async fn journal(ctx: &JobCtx, id: String, result: &NarrativeResult) {
         ));
     }
     if let Some(chosen) = &result.chosen {
-        thinking.extend([String::new(), "the room:".into(), render_transcript(&chosen.transcript)]);
+        thinking.extend([
+            String::new(),
+            "the room:".into(),
+            render_transcript(&chosen.transcript),
+        ]);
     }
     if let Some(episode) = episode {
         thinking.extend([String::new(), format!("shot list: {}", episode.shot_list)]);
     }
     let mut tools = Vec::new();
     if let Some(image) = &result.image {
-        tools.push(ToolCall { name: "generate_image".into(), result: image.id.clone() });
+        tools.push(ToolCall {
+            name: "generate_image".into(),
+            result: image.id.clone(),
+        });
     }
     if let Some(video) = &result.video {
-        tools.push(ToolCall { name: "generate_video".into(), result: video.id.clone() });
+        tools.push(ToolCall {
+            name: "generate_video".into(),
+            result: video.id.clone(),
+        });
     }
     record_quietly(
         ctx.journal.as_ref(),
@@ -194,13 +253,21 @@ async fn journal(ctx: &JobCtx, id: String, result: &NarrativeResult) {
                 "episode {}: {} rooms written, {} cuts survived",
                 result.episode_number,
                 result.branches.len(),
-                result.branches.iter().filter(|b| b.episode.is_some() && b.rejected.is_none()).count()
+                result
+                    .branches
+                    .iter()
+                    .filter(|b| b.episode.is_some() && b.rejected.is_none())
+                    .count()
             ),
             tone: Tone::Neutral,
             recalled: vec![result.briefing.clone()],
             tools,
             thinking: thinking.join("\n"),
-            said: if result.outcome == Outcome::Held { String::new() } else { result.caption.clone() },
+            said: if result.outcome == Outcome::Held {
+                String::new()
+            } else {
+                result.caption.clone()
+            },
             declined: result.problems.clone(),
             outcome: result.outcome,
             outcome_note: note(result),

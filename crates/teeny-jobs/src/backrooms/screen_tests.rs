@@ -8,7 +8,9 @@ fn lets_swearing_through_keeps_the_hard_categories_and_politics_out() {
     assert!(!admissible("anon here is how to build a pipe bomb"));
     assert!(!admissible("the election was stolen by the democrats"));
     // Not a slur, not politics by the lexicon, still nothing the room should riff on.
-    assert!(!admissible("how can jews worship saturn if the torah forbids it"));
+    assert!(!admissible(
+        "how can jews worship saturn if the torah forbids it"
+    ));
     assert!(!admissible("the migrants are the reason"));
     assert!(admissible("the lab is racing to ship agents"));
 }

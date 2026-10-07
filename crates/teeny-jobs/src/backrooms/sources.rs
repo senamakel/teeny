@@ -19,7 +19,8 @@ use super::text::{clip, strip_html, unescape_entities};
 use super::{ForumPost, Site};
 
 /// The public forum APIs ask for a real user agent and one request a second.
-pub const USER_AGENT: &str = "teeny-backrooms/1.0 (research; contact via github tinyhumansai/teeny)";
+pub const USER_AGENT: &str =
+    "teeny-backrooms/1.0 (research; contact via github tinyhumansai/teeny)";
 
 /// Keeps consecutive requests at least `gap` apart.
 pub struct Pacer {
@@ -92,10 +93,13 @@ pub trait WebSearch: Send + Sync {
 #[async_trait]
 impl WebSearch for ExaClient {
     async fn search(&self, query: &WebQuery) -> anyhow::Result<Vec<WebHit>> {
-        let mut body = json!({ "query": query.query, "numResults": query.num_results, "type": "auto" });
+        let mut body =
+            json!({ "query": query.query, "numResults": query.num_results, "type": "auto" });
         if let Some(days) = query.days {
-            body["startPublishedDate"] = json!((Utc::now() - TimeDelta::days(i64::from(days)))
-                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+            body["startPublishedDate"] = json!(
+                (Utc::now() - TimeDelta::days(i64::from(days)))
+                    .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+            );
         }
         if let Some(category) = &query.category {
             body["category"] = json!(category);
@@ -105,7 +109,10 @@ impl WebSearch for ExaClient {
         }
         let mut contents = serde_json::Map::new();
         if let Some((sentences, per_url)) = query.highlights {
-            contents.insert("highlights".into(), json!({ "numSentences": sentences, "highlightsPerUrl": per_url }));
+            contents.insert(
+                "highlights".into(),
+                json!({ "numSentences": sentences, "highlightsPerUrl": per_url }),
+            );
         }
         if query.image_links > 0 {
             contents.insert("extras".into(), json!({ "imageLinks": query.image_links }));
@@ -123,7 +130,12 @@ fn read_hit(raw: &Value) -> Option<WebHit> {
     let list = |value: Option<&Value>| -> Vec<String> {
         value
             .and_then(Value::as_array)
-            .map(|items| items.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|v| v.as_str().map(str::to_owned))
+                    .collect()
+            })
             .unwrap_or_default()
     };
     Some(WebHit {
@@ -133,7 +145,10 @@ fn read_hit(raw: &Value) -> Option<WebHit> {
         text: text("text"),
         highlights: list(raw.get("highlights")),
         image: text("image"),
-        image_links: list(raw.get("extras").and_then(|extras| extras.get("imageLinks"))),
+        image_links: list(
+            raw.get("extras")
+                .and_then(|extras| extras.get("imageLinks")),
+        ),
     })
 }
 
@@ -141,7 +156,10 @@ fn read_hit(raw: &Value) -> Option<WebHit> {
 pub fn safe_host(url: &str) -> String {
     reqwest::Url::parse(url)
         .ok()
-        .and_then(|url| url.host_str().map(|host| host.trim_start_matches("www.").to_owned()))
+        .and_then(|url| {
+            url.host_str()
+                .map(|host| host.trim_start_matches("www.").to_owned())
+        })
         .unwrap_or_else(|| url.to_owned())
 }
 
@@ -248,7 +266,10 @@ impl RedditForum {
                     place: format!("r/{}", post.subreddit.as_deref().unwrap_or(sub)),
                     text: clip(if body.is_empty() { &title } else { body }, 600),
                     title: Some(title),
-                    url: format!("https://www.reddit.com{}", post.permalink.unwrap_or_default()),
+                    url: format!(
+                        "https://www.reddit.com{}",
+                        post.permalink.unwrap_or_default()
+                    ),
                     score: post.score,
                     at: post.created_utc.and_then(|secs| {
                         chrono::DateTime::from_timestamp(secs as i64, 0)
@@ -277,7 +298,10 @@ impl RedditForum {
         hits.into_iter()
             .map(|hit| {
                 let body = if hit.highlights.is_empty() {
-                    hit.text.clone().or_else(|| hit.title.clone()).unwrap_or_default()
+                    hit.text
+                        .clone()
+                        .or_else(|| hit.title.clone())
+                        .unwrap_or_default()
                 } else {
                     hit.highlights.join(" ")
                 };
@@ -312,7 +336,10 @@ impl Forum for RedditForum {
             direct.extend(posts);
             blocked |= refused;
         }
-        if direct.is_empty() && blocked && let Some(web) = &self.web {
+        if direct.is_empty()
+            && blocked
+            && let Some(web) = &self.web
+        {
             return Ok(self.via_web(web.as_ref(), query, limit).await);
         }
         direct.sort_by_key(|post| std::cmp::Reverse(post.score.unwrap_or(0)));
@@ -404,20 +431,29 @@ impl FourchanForum {
             .get(format!("{}/{board}/catalog.json", self.base))
             .send()
             .await?;
-        anyhow::ensure!(response.status().is_success(), "4chan /{board}/ answered {}", response.status());
+        anyhow::ensure!(
+            response.status().is_success(),
+            "4chan /{board}/ answered {}",
+            response.status()
+        );
         let pages: Vec<Page> = response.json().await?;
         Ok(pages
             .into_iter()
             .flat_map(|page| page.threads)
             .map(|thread| {
-                let subject = thread.sub.as_deref().map(strip_html).filter(|s| !s.is_empty());
+                let subject = thread
+                    .sub
+                    .as_deref()
+                    .map(strip_html)
+                    .filter(|s| !s.is_empty());
                 let text = thread.com.as_deref().map(strip_html).unwrap_or_default();
                 CatalogThread {
                     board: board.to_owned(),
                     no: thread.no,
                     replies: thread.replies.unwrap_or(0),
                     time: thread.time.unwrap_or(0),
-                    haystack: format!("{} {text}", subject.as_deref().unwrap_or_default()).to_lowercase(),
+                    haystack: format!("{} {text}", subject.as_deref().unwrap_or_default())
+                        .to_lowercase(),
                     subject,
                     text,
                 }
@@ -426,11 +462,15 @@ impl FourchanForum {
     }
 
     async fn thread_replies(&self, thread: &CatalogThread, count: usize) -> Vec<ForumPost> {
-        static QUOTE_LINK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^>>\d+\s*").expect("valid"));
+        static QUOTE_LINK: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"(?m)^>>\d+\s*").expect("valid"));
         self.pacer.wait().await;
         let Ok(response) = self
             .http
-            .get(format!("{}/{}/thread/{}.json", self.base, thread.board, thread.no))
+            .get(format!(
+                "{}/{}/thread/{}.json",
+                self.base, thread.board, thread.no
+            ))
             .send()
             .await
         else {
@@ -446,7 +486,12 @@ impl FourchanForum {
             .into_iter()
             .skip(1)
             .filter_map(|post| post.com)
-            .map(|com| QUOTE_LINK.replace_all(&strip_html(&com), "").trim().to_owned())
+            .map(|com| {
+                QUOTE_LINK
+                    .replace_all(&strip_html(&com), "")
+                    .trim()
+                    .to_owned()
+            })
             .filter(|text| text.chars().count() > 20)
             .take(count)
             .map(|text| ForumPost {
@@ -454,7 +499,10 @@ impl FourchanForum {
                 place: format!("/{}/ reply", thread.board),
                 title: None,
                 text: clip(&text, 400),
-                url: format!("https://boards.4chan.org/{}/thread/{}", thread.board, thread.no),
+                url: format!(
+                    "https://boards.4chan.org/{}/thread/{}",
+                    thread.board, thread.no
+                ),
                 score: None,
                 at: None,
             })
@@ -480,7 +528,10 @@ impl Forum for FourchanForum {
         let mut scored: Vec<(CatalogThread, usize)> = threads
             .into_iter()
             .map(|thread| {
-                let hits = words.iter().filter(|word| thread.haystack.contains(word.as_str())).count();
+                let hits = words
+                    .iter()
+                    .filter(|word| thread.haystack.contains(word.as_str()))
+                    .count();
                 (thread, hits)
             })
             .filter(|(_, hits)| *hits > 0)
@@ -494,7 +545,10 @@ impl Forum for FourchanForum {
                 place: format!("/{}/", thread.board),
                 title: thread.subject.clone(),
                 text: clip(&thread.text, 600),
-                url: format!("https://boards.4chan.org/{}/thread/{}", thread.board, thread.no),
+                url: format!(
+                    "https://boards.4chan.org/{}/thread/{}",
+                    thread.board, thread.no
+                ),
                 score: Some(thread.replies),
                 at: chrono::DateTime::from_timestamp(thread.time, 0)
                     .map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
@@ -548,16 +602,26 @@ impl NewsFeed {
         let response = self
             .http
             .get(format!("{}/rss/search", self.base))
-            .query(&[("q", query), ("hl", "en-US"), ("gl", "US"), ("ceid", "US:en")])
+            .query(&[
+                ("q", query),
+                ("hl", "en-US"),
+                ("gl", "US"),
+                ("ceid", "US:en"),
+            ])
             .header("user-agent", "teeny-backrooms/1.0")
             .send()
             .await?;
-        anyhow::ensure!(response.status().is_success(), "google news answered {}", response.status());
+        anyhow::ensure!(
+            response.status().is_success(),
+            "google news answered {}",
+            response.status()
+        );
         Ok(parse_rss(&response.text().await?))
     }
 }
 
-static ITEM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<item>([\s\S]*?)</item>").expect("valid"));
+static ITEM: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"<item>([\s\S]*?)</item>").expect("valid"));
 static TAGS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<[^>]+>").expect("valid"));
 
 fn field(body: &str, name: &str) -> Option<String> {

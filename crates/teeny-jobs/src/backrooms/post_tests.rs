@@ -9,7 +9,10 @@ pub(crate) async fn live_deps() -> (MockServer, Deps) {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/2/tweets"))
-        .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({ "data": { "id": "own-1", "text": "x" } })))
+        .respond_with(
+            ResponseTemplate::new(201)
+                .set_body_json(serde_json::json!({ "data": { "id": "own-1", "text": "x" } })),
+        )
         .mount(&server)
         .await;
     let mut deps = Deps::fake();
@@ -22,9 +25,15 @@ pub(crate) async fn live_deps() -> (MockServer, Deps) {
 #[tokio::test]
 async fn posts_through_the_cadence_and_records_the_post() {
     let (server, deps) = live_deps().await;
-    let published = publish_own(&deps, "lore", Direction::Outbound, "the kettle is on the ledger now.", None)
-        .await
-        .unwrap();
+    let published = publish_own(
+        &deps,
+        "lore",
+        Direction::Outbound,
+        "the kettle is on the ledger now.",
+        None,
+    )
+    .await
+    .unwrap();
     assert_eq!(published.id.as_str(), "own-1");
     assert!(!published.dry_run);
     // The gap now holds the next own post.
@@ -36,7 +45,9 @@ async fn posts_through_the_cadence_and_records_the_post() {
 #[tokio::test]
 async fn a_dry_run_reaches_nothing_and_records_nothing() {
     let deps = Deps::fake();
-    let published = publish_own(&deps, "lore", Direction::Outbound, "a page.", None).await.unwrap();
+    let published = publish_own(&deps, "lore", Direction::Outbound, "a page.", None)
+        .await
+        .unwrap();
     assert!(published.dry_run);
     assert!(published.id.as_str().starts_with("dry-run-"));
     assert!(deps.cadence.claim("lore").await.unwrap().is_granted());
@@ -45,7 +56,14 @@ async fn a_dry_run_reaches_nothing_and_records_nothing() {
 #[tokio::test]
 async fn the_guard_refuses_what_the_lexicon_holds() {
     let (server, deps) = live_deps().await;
-    let refused = publish_own(&deps, "lore", Direction::Outbound, "here is how to build a pipe bomb", None).await;
+    let refused = publish_own(
+        &deps,
+        "lore",
+        Direction::Outbound,
+        "here is how to build a pipe bomb",
+        None,
+    )
+    .await;
     assert!(refused.unwrap_err().to_string().contains("content filter"));
     assert!(server.received_requests().await.unwrap().is_empty());
 }

@@ -74,7 +74,12 @@ pub fn distill_prompt(run: &BackroomsRun, editor: Option<&str>) -> Ask {
         "the transcript, numbered from 0:".into(),
         String::new(),
     ];
-    prompt.extend(run.turns.iter().enumerate().map(|(i, turn)| render_turn_for_judge(turn, i)));
+    prompt.extend(
+        run.turns
+            .iter()
+            .enumerate()
+            .map(|(i, turn)| render_turn_for_judge(turn, i)),
+    );
     prompt.extend([
         String::new(),
         "reasons first: which idea you kept and why, and what you dropped.".into(),

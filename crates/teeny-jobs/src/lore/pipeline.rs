@@ -113,17 +113,24 @@ impl LorePipeline {
         let topic = {
             let mut random = self.random.lock().unwrap_or_else(|p| p.into_inner());
             let at = random.index(self.topics.len());
-            self.topics.get(at).cloned().unwrap_or_else(|| "ai agents".into())
+            self.topics
+                .get(at)
+                .cloned()
+                .unwrap_or_else(|| "ai agents".into())
         };
         let mut found = None;
         for (source, finder) in &self.seeds {
             match finder.find(&topic).await {
-                Err(error) => problems.push(format!("{} could not be read: {error}", source.as_str())),
+                Err(error) => {
+                    problems.push(format!("{} could not be read: {error}", source.as_str()))
+                }
                 Ok(Some(seed)) => {
                     found = Some((seed, *source));
                     break;
                 }
-                Ok(None) => problems.push(format!("{} had nothing on \"{topic}\"", source.as_str())),
+                Ok(None) => {
+                    problems.push(format!("{} had nothing on \"{topic}\"", source.as_str()))
+                }
             }
         }
         let Some((seed, source)) = found else {
@@ -150,7 +157,11 @@ impl LorePipeline {
                 return Ok(result);
             }
         };
-        problems.extend(room.problems.iter().map(|problem| format!("the room: {problem}")));
+        problems.extend(
+            room.problems
+                .iter()
+                .map(|problem| format!("the room: {problem}")),
+        );
         let Some(thought) = room.thought.clone() else {
             problems.push("the room ran but left no thought".into());
             result.problems = problems;
@@ -164,7 +175,11 @@ impl LorePipeline {
         });
 
         // 3. The post, from the thought.
-        let post = match self.rooms.write_lore(&room.run, &thought, &mut problems).await {
+        let post = match self
+            .rooms
+            .write_lore(&room.run, &thought, &mut problems)
+            .await
+        {
             Ok(post) => post,
             Err(error) => {
                 problems.push(format!("the thought could not be written up: {error}"));
@@ -180,11 +195,17 @@ impl LorePipeline {
         };
         let outgoing = self.safety().outbound(&post.text, Some(&context)).await;
         if !outgoing.fixes.is_empty() {
-            problems.push(format!("the content filter edited the post: {}", outgoing.fixes.join("; ")));
+            problems.push(format!(
+                "the content filter edited the post: {}",
+                outgoing.fixes.join("; ")
+            ));
         }
         if let SafetyDecision::Held(held) = &outgoing.decision {
             tracing::info!(category = %held.category, by = ?held.by, "lore: post held");
-            problems.push(format!("content filter withheld the post: {}", held.category));
+            problems.push(format!(
+                "content filter withheld the post: {}",
+                held.category
+            ));
             result.outcome = Outcome::Held;
             result.problems = problems;
             return Ok(result);
@@ -198,7 +219,14 @@ impl LorePipeline {
             self.capture(now.timestamp_millis(), &mut result).await;
             return Ok(result);
         }
-        let published = publish_own(&self.deps, &self.kind, Direction::Outbound, &result.text, None).await?;
+        let published = publish_own(
+            &self.deps,
+            &self.kind,
+            Direction::Outbound,
+            &result.text,
+            None,
+        )
+        .await?;
         tracing::info!(id = %published.id, room = %room.run.id, "lore: posted");
         result.posted_id = Some(published.id.to_string());
         result.outcome = Outcome::Posted;
@@ -222,8 +250,14 @@ impl LorePipeline {
             "room": result.room.as_ref().map(|room| room.id.clone()),
             "published": result.outcome == Outcome::Posted,
         });
-        if let Err(error) = self.memory().capture_activity("lore_post", &id, payload, None).await {
-            result.problems.push(format!("could not remember the post: {error}"));
+        if let Err(error) = self
+            .memory()
+            .capture_activity("lore_post", &id, payload, None)
+            .await
+        {
+            result
+                .problems
+                .push(format!("could not remember the post: {error}"));
         }
     }
 }

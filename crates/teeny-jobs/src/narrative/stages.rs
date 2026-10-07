@@ -67,11 +67,21 @@ pub fn teeny_turn_prompt(context: &RoomContext, turns: &[Turn]) -> Ask {
             let mut lines = vec![format!(
                 "previously, on episode {}{}: {}.",
                 context.episode_number.saturating_sub(1),
-                previous.title.as_deref().map(|t| format!(" \"{t}\"")).unwrap_or_default(),
-                previous.logline.as_deref().unwrap_or("nothing was written down")
+                previous
+                    .title
+                    .as_deref()
+                    .map(|t| format!(" \"{t}\""))
+                    .unwrap_or_default(),
+                previous
+                    .logline
+                    .as_deref()
+                    .unwrap_or("nothing was written down")
             )];
             if !previous.open_threads.is_empty() {
-                lines.push(format!("open threads: {}.", previous.open_threads.join("; ")));
+                lines.push(format!(
+                    "open threads: {}.",
+                    previous.open_threads.join("; ")
+                ));
             }
             lines
         }
@@ -164,7 +174,14 @@ pub fn producer_turn_prompt(context: &RoomContext, turns: &[Turn], last: bool) -
     } else {
         "reply in the shell."
     };
-    let prompt = [render_transcript(turns), String::new(), close.into(), String::new(), PRODUCER_PROMPT.into()].join("\n");
+    let prompt = [
+        render_transcript(turns),
+        String::new(),
+        close.into(),
+        String::new(),
+        PRODUCER_PROMPT.into(),
+    ]
+    .join("\n");
     Ask::new(system.join("\n"), prompt)
 }
 
@@ -252,7 +269,12 @@ pub fn cut_prompt(input: &CutInput<'_>) -> Ask {
     } else {
         prompt.push("latent lore the producer was allowed to surface today (list an id in loreSurfaced only if the".into());
         prompt.push("episode actually reveals it):".into());
-        prompt.extend(input.live_lore.iter().map(|(id, reveal)| format!("- {id}: {reveal}")));
+        prompt.extend(
+            input
+                .live_lore
+                .iter()
+                .map(|(id, reveal)| format!("- {id}: {reveal}")),
+        );
     }
     let seconds = input.seconds;
     prompt.extend([
@@ -320,9 +342,16 @@ impl Shape for Score {
     fn check(&self) -> Result<(), String> {
         at_most("reasons", &self.reasons, 1_200)?;
         let s = &self.scores;
-        if [s.sincerity, s.absurdity, s.continuity, s.novelty, s.renderability, s.terseness]
-            .iter()
-            .any(|value| *value > 3)
+        if [
+            s.sincerity,
+            s.absurdity,
+            s.continuity,
+            s.novelty,
+            s.renderability,
+            s.terseness,
+        ]
+        .iter()
+        .any(|value| *value > 3)
         {
             return Err("scores: each between 0 and 3".into());
         }
@@ -332,13 +361,24 @@ impl Shape for Score {
 
 pub fn total_score(score: &Score) -> u32 {
     let s = &score.scores;
-    [s.sincerity, s.absurdity, s.continuity, s.novelty, s.renderability, s.terseness]
-        .iter()
-        .map(|value| u32::from(*value))
-        .sum()
+    [
+        s.sincerity,
+        s.absurdity,
+        s.continuity,
+        s.novelty,
+        s.renderability,
+        s.terseness,
+    ]
+    .iter()
+    .map(|value| u32::from(*value))
+    .sum()
 }
 
-pub fn score_prompt(episode: &Episode, world_state: &str, previous: Option<(Option<&str>, &[String])>) -> Ask {
+pub fn score_prompt(
+    episode: &Episode,
+    world_state: &str,
+    previous: Option<(Option<&str>, &[String])>,
+) -> Ask {
     let e = episode;
     let mut prompt = vec![
         "THE EPISODE:".to_owned(),
@@ -360,7 +400,11 @@ pub fn score_prompt(episode: &Episode, world_state: &str, previous: Option<(Opti
             Some((state_after, threads)) => format!(
                 "THE PREVIOUS EPISODE ended here: {}. open threads: {}.",
                 state_after.unwrap_or("(unknown)"),
-                if threads.is_empty() { "none".to_owned() } else { threads.join("; ") }
+                if threads.is_empty() {
+                    "none".to_owned()
+                } else {
+                    threads.join("; ")
+                }
             ),
             None => "THERE IS NO PREVIOUS EPISODE.".into(),
         },

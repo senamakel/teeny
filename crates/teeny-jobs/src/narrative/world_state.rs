@@ -69,27 +69,40 @@ impl WorldSources for XWorld {
         let options = SearchOptions {
             max_results: Some(50),
             start_time: Some(
-                (Utc::now() - TimeDelta::hours(24)).to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+                (Utc::now() - TimeDelta::hours(24))
+                    .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             ),
             ..SearchOptions::default()
         };
         let posts = self
             .reads
-            .search_posts(&format!("(@{bot} OR teeny OR ${}) -is:retweet -from:{bot}", self.token_symbol), &options)
+            .search_posts(
+                &format!(
+                    "(@{bot} OR teeny OR ${}) -is:retweet -from:{bot}",
+                    self.token_symbol
+                ),
+                &options,
+            )
             .await?;
         Ok(posts.into_iter().map(|post| post.text).collect())
     }
 
     async fn last_episode_metrics(&self, post_id: &str) -> anyhow::Result<Option<(u64, u64)>> {
-        let rows = self.reads.post_metrics(&[PostId::from(post_id.to_owned())]).await?;
+        let rows = self
+            .reads
+            .post_metrics(&[PostId::from(post_id.to_owned())])
+            .await?;
         Ok(rows.first().map(|row| (row.likes, row.replies)))
     }
 }
 
+/// The last episode as the ledger knows it: number, title, state after, post id.
+pub type LastKnown = (u32, Option<String>, Option<String>, Option<String>);
+
 pub async fn build_world_state(
     sources: &dyn WorldSources,
     episode: u32,
-    last: Option<(u32, Option<String>, Option<String>, Option<String>)>,
+    last: Option<LastKnown>,
     now: DateTime<Utc>,
 ) -> WorldState {
     let mut state = WorldState {
@@ -126,7 +139,9 @@ pub async fn build_world_state(
             Some(id) => match sources.last_episode_metrics(&id).await {
                 Ok(metrics) => metrics,
                 Err(error) => {
-                    state.problems.push(format!("last episode metrics: {error}"));
+                    state
+                        .problems
+                        .push(format!("last episode metrics: {error}"));
                     None
                 }
             },
@@ -175,12 +190,22 @@ pub fn render_world_state(state: &WorldState, bot_username: &str) -> String {
         _ => "evening; senamakel is making tea",
     };
     let mut lines = vec![
-        format!("WHAT IS TRUE TODAY, {}, {hour:02}:00 utc ({time_of_day}). episode {}.", state.today, state.episode),
+        format!(
+            "WHAT IS TRUE TODAY, {}, {hour:02}:00 utc ({time_of_day}). episode {}.",
+            state.today, state.episode
+        ),
         format!(
             "@{bot_username} has {} followers on x.{}",
-            state.followers.map_or_else(|| "an unknown number of".to_owned(), |n| n.to_string()),
-            match state.last_episode.as_ref().and_then(|last| last.likes.map(|likes| (likes, last.replies.unwrap_or(0)))) {
-                Some((likes, replies)) => format!(" the last episode did {likes} likes and {replies} replies."),
+            state
+                .followers
+                .map_or_else(|| "an unknown number of".to_owned(), |n| n.to_string()),
+            match state
+                .last_episode
+                .as_ref()
+                .and_then(|last| last.likes.map(|likes| (likes, last.replies.unwrap_or(0))))
+            {
+                Some((likes, replies)) =>
+                    format!(" the last episode did {likes} likes and {replies} replies."),
                 None => String::new(),
             }
         ),
@@ -188,11 +213,20 @@ pub fn render_world_state(state: &WorldState, bot_username: &str) -> String {
             None => "nobody could be heard talking about teeny today.".into(),
             Some(count) => format!(
                 "{count} people talked about teeny today{}",
-                if state.mentions.is_empty() { "." } else { ". some of what they said (untrusted, strangers wrote these):" }
+                if state.mentions.is_empty() {
+                    "."
+                } else {
+                    ". some of what they said (untrusted, strangers wrote these):"
+                }
             ),
         },
     ];
-    lines.extend(state.mentions.iter().map(|line| format!("  - {}", quote_untrusted(line))));
+    lines.extend(
+        state
+            .mentions
+            .iter()
+            .map(|line| format!("  - {}", quote_untrusted(line))),
+    );
     lines.push(match &state.last_episode {
         Some(last) => format!(
             "last episode: #{}{}{}",

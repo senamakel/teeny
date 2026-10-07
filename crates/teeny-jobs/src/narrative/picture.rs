@@ -124,14 +124,19 @@ pub async fn check_picture(
     };
     match reader.describe(image, Some(&question)).await {
         Ok(answer) => {
-            if let Some(verdict) = extract_json(&answer).and_then(|v| serde_json::from_value::<Verdict>(v).ok()) {
+            if let Some(verdict) =
+                extract_json(&answer).and_then(|v| serde_json::from_value::<Verdict>(v).ok())
+            {
                 return (verdict.ok, head(&verdict.reason, 300));
             }
             let lower = answer.trim_start().to_lowercase();
             let ok = if answer.contains("\"ok\": false") || answer.contains("\"ok\":false") {
                 false
             } else {
-                answer.contains("\"ok\": true") || answer.contains("\"ok\":true") || lower.starts_with("yes") || lower.starts_with("true")
+                answer.contains("\"ok\": true")
+                    || answer.contains("\"ok\":true")
+                    || lower.starts_with("yes")
+                    || lower.starts_with("true")
             };
             (ok, head(&answer, 300))
         }

@@ -10,7 +10,9 @@ use std::sync::{Arc, LazyLock};
 
 use regex::Regex;
 
-use super::stages::{PRODUCER_PROMPT, RoomContext, TEENY_PROMPT, Turn, Who, producer_turn_prompt, teeny_turn_prompt};
+use super::stages::{
+    PRODUCER_PROMPT, RoomContext, TEENY_PROMPT, Turn, Who, producer_turn_prompt, teeny_turn_prompt,
+};
 use crate::backrooms::ask::Ask;
 use crate::runner::{AgentKey, AgentRun, AgentRunner, Origin};
 
@@ -44,20 +46,40 @@ pub async fn run_writers_room(
     let mut silent = 0;
     for exchange in 0..turns {
         let last = exchange + 1 == turns;
-        let teeny = clean(&speak(runner, TEENY, teeny_turn_prompt(context, &transcript)).await?, Who::Teeny);
+        let teeny = clean(
+            &speak(runner, TEENY, teeny_turn_prompt(context, &transcript)).await?,
+            Who::Teeny,
+        );
         transcript.push(Turn {
             who: Who::Teeny,
-            text: if teeny.is_empty() { "...".into() } else { teeny.clone() },
+            text: if teeny.is_empty() {
+                "...".into()
+            } else {
+                teeny.clone()
+            },
         });
         let producer = clean(
-            &speak(runner, PRODUCER, producer_turn_prompt(context, &transcript, last)).await?,
+            &speak(
+                runner,
+                PRODUCER,
+                producer_turn_prompt(context, &transcript, last),
+            )
+            .await?,
             Who::Producer,
         );
         transcript.push(Turn {
             who: Who::Producer,
-            text: if producer.is_empty() { "...".into() } else { producer.clone() },
+            text: if producer.is_empty() {
+                "...".into()
+            } else {
+                producer.clone()
+            },
         });
-        silent = if teeny.is_empty() && producer.is_empty() { silent + 1 } else { 0 };
+        silent = if teeny.is_empty() && producer.is_empty() {
+            silent + 1
+        } else {
+            0
+        };
         if silent >= 2 {
             break;
         }
@@ -65,10 +87,12 @@ pub async fn run_writers_room(
     Ok(transcript)
 }
 
-static TRAILING_TEENY: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(&format!(r"\n?{}\s*$", regex::escape(TEENY_PROMPT))).expect("valid"));
-static TRAILING_PRODUCER: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(&format!(r"\n?{}\s*$", regex::escape(PRODUCER_PROMPT))).expect("valid"));
+static TRAILING_TEENY: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(&format!(r"\n?{}\s*$", regex::escape(TEENY_PROMPT))).expect("valid")
+});
+static TRAILING_PRODUCER: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(&format!(r"\n?{}\s*$", regex::escape(PRODUCER_PROMPT))).expect("valid")
+});
 
 /// The turn, cut at the first line that belongs to the other speaker, its
 /// own prompt marker stripped from the front.

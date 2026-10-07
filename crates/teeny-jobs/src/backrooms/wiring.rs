@@ -168,14 +168,25 @@ impl Backrooms {
         let web: Option<Arc<dyn WebSearch>> = deps.exa.clone().map(|exa| exa as Arc<dyn WebSearch>);
         let pacer = Arc::new(Pacer::new(Duration::from_millis(1_100)));
         let forums: Vec<Arc<dyn Forum>> = vec![
-            Arc::new(RedditForum::new(config.backrooms.reddit_subs.clone(), web.clone(), Arc::clone(&pacer))),
-            Arc::new(FourchanForum::new(config.backrooms.fourchan_boards.clone(), pacer)),
+            Arc::new(RedditForum::new(
+                config.backrooms.reddit_subs.clone(),
+                web.clone(),
+                Arc::clone(&pacer),
+            )),
+            Arc::new(FourchanForum::new(
+                config.backrooms.fourchan_boards.clone(),
+                pacer,
+            )),
         ];
         let persona = render_persona(&deps.persona);
         let gm_sources = GmSources {
             memory: Some(Arc::clone(&deps.memory)),
             x: Some(Arc::clone(&deps.x_reads)),
-            persona: if persona.is_empty() { voice.clone() } else { persona },
+            persona: if persona.is_empty() {
+                voice.clone()
+            } else {
+                persona
+            },
             lore: lore.clone(),
             bot_username: deps.settings.bot_username.clone(),
             max_emoji: deps.settings.max_emoji,
@@ -197,8 +208,18 @@ impl Backrooms {
                 bot_username: deps.settings.bot_username.clone(),
             },
             // Warmer than the judge: the thought is written, not classified.
-            Arc::new(deps.llm.clone().with_source("backrooms:editor").with_temperature(0.5)),
-            Arc::new(deps.llm.clone().with_source("backrooms:judge").with_temperature(0.2)),
+            Arc::new(
+                deps.llm
+                    .clone()
+                    .with_source("backrooms:editor")
+                    .with_temperature(0.5),
+            ),
+            Arc::new(
+                deps.llm
+                    .clone()
+                    .with_source("backrooms:judge")
+                    .with_temperature(0.2),
+            ),
             RoomDefaults {
                 agents: config.backrooms.agents.clone(),
                 turns: config.backrooms.turns,
@@ -222,12 +243,18 @@ impl Backrooms {
 
     /// Opens a room on `seed` and reads it.
     pub async fn run(&self, seed: &Seed, options: &RunOptions) -> anyhow::Result<RunResult> {
-        let names = options.agents.clone().unwrap_or_else(|| self.defaults.agents.clone());
+        let names = options
+            .agents
+            .clone()
+            .unwrap_or_else(|| self.defaults.agents.clone());
         let specs = pick_agents(&names, &self.presets)?;
         let settings = BackroomsSettings {
             rng: options.rng.unwrap_or_else(Rng::seed_from_time),
             turns: options.turns.unwrap_or(self.defaults.turns),
-            temps: specs.iter().map(|spec| (spec.id.clone(), spec.temperature)).collect(),
+            temps: specs
+                .iter()
+                .map(|spec| (spec.id.clone(), spec.temperature))
+                .collect(),
             budget: options.budget.unwrap_or(self.defaults.budget),
             drift_every: options.drift_every.unwrap_or(4),
             max_tool_calls: self.defaults.max_tool_calls,
@@ -241,10 +268,21 @@ impl Backrooms {
         for spec in &specs {
             // One draw per agent, in order, so the same rng gives the same contexts.
             let mut draw = Rng::new((random.next_f64() * 2f64.powi(31)) as u32);
-            let tools: &[String] = if settings.max_tool_calls > 0 { &spec.tools } else { &[] };
+            let tools: &[String] = if settings.max_tool_calls > 0 {
+                &spec.tools
+            } else {
+                &[]
+            };
             let context = self
                 .builder
-                .build(spec, seed, &mut draw, settings.budget, tools, options.engine.as_deref())
+                .build(
+                    spec,
+                    seed,
+                    &mut draw,
+                    settings.budget,
+                    tools,
+                    options.engine.as_deref(),
+                )
                 .await;
             tracing::info!(agent = %spec.id, tokens = context.tokens, problems = ?context.problems, "backrooms: context");
             contexts.push(context);
@@ -257,9 +295,20 @@ impl Backrooms {
             .iter()
             .zip(&agents)
             .zip(&contexts)
-            .map(|((spec, agent), context)| Seat { spec, agent, context })
+            .map(|((spec, agent), context)| Seat {
+                spec,
+                agent,
+                context,
+            })
             .collect();
-        let turns = run_backrooms(&seats, seed, settings.turns, &mut random, settings.drift_every).await?;
+        let turns = run_backrooms(
+            &seats,
+            seed,
+            settings.turns,
+            &mut random,
+            settings.drift_every,
+        )
+        .await?;
         let mut run = BackroomsRun {
             id,
             started_at: iso(now),
@@ -290,7 +339,10 @@ impl Backrooms {
         if options.gm
             && let Some(thought) = &thought
         {
-            match self.gm(&run, thought, &mut problems, &GmAgain::default()).await {
+            match self
+                .gm(&run, thought, &mut problems, &GmAgain::default())
+                .await
+            {
                 Ok(post) => morning = Some(post),
                 Err(error) => tracing::info!(%error, "backrooms: gm failed"),
             }
@@ -301,13 +353,16 @@ impl Backrooms {
             thought: thought.clone(),
             gm: morning.clone(),
         };
-        let saved = self.store_dir.as_ref().and_then(|dir| match save(dir, &run, &extras) {
-            Ok(saved) => Some(saved),
-            Err(error) => {
-                tracing::warn!(%error, "backrooms: could not write the run");
-                None
-            }
-        });
+        let saved = self
+            .store_dir
+            .as_ref()
+            .and_then(|dir| match save(dir, &run, &extras) {
+                Ok(saved) => Some(saved),
+                Err(error) => {
+                    tracing::warn!(%error, "backrooms: could not write the run");
+                    None
+                }
+            });
         Ok(RunResult {
             run,
             stats: counted,
@@ -332,7 +387,8 @@ impl Backrooms {
         problems: &mut Vec<String>,
         again: &GmAgain,
     ) -> anyhow::Result<GmPost> {
-        let material = gather_gm_material(&self.gm_sources, self.clock.now().date_naive(), problems).await;
+        let material =
+            gather_gm_material(&self.gm_sources, self.clock.now().date_naive(), problems).await;
         gm(run, thought, &material, self.editor.as_ref(), again).await
     }
 

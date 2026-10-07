@@ -46,7 +46,9 @@ static SEPARATORS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[-_/.]+").exp
 impl LikenessFinder {
     fn path(&self, name: &str) -> Option<PathBuf> {
         let slug = crate::backrooms::store::slugify(name, 80);
-        self.cache_dir.as_ref().map(|dir| dir.join(format!("{slug}.json")))
+        self.cache_dir
+            .as_ref()
+            .map(|dir| dir.join(format!("{slug}.json")))
     }
 
     /// A picture whose own URL names the person first, then any picture on
@@ -61,7 +63,12 @@ impl LikenessFinder {
                 ..WebQuery::default()
             })
             .await?;
-        let parts: Vec<String> = name.trim().to_lowercase().split_whitespace().map(str::to_owned).collect();
+        let parts: Vec<String> = name
+            .trim()
+            .to_lowercase()
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect();
         let names = |text: &str| {
             let text = text.to_lowercase();
             parts.iter().all(|part| text.contains(part.as_str()))
@@ -75,11 +82,16 @@ impl LikenessFinder {
                 }
             }
         }
-        let by_url = candidates.iter().find(|(url, _, _)| names(&SEPARATORS.replace_all(url, " ")));
+        let by_url = candidates
+            .iter()
+            .find(|(url, _, _)| names(&SEPARATORS.replace_all(url, " ")));
         let by_page = candidates
             .iter()
             .find(|(_, title, page)| names(title) || names(&SEPARATORS.replace_all(page, " ")));
-        Ok(by_url.or(by_page).or(candidates.first()).map(|(url, _, _)| url.clone()))
+        Ok(by_url
+            .or(by_page)
+            .or(candidates.first())
+            .map(|(url, _, _)| url.clone()))
     }
 }
 
@@ -113,7 +125,11 @@ impl LikenessSource for LikenessFinder {
         };
         if let (Some(path), Some(dir)) = (&path, &self.cache_dir) {
             tokio::fs::create_dir_all(dir).await?;
-            tokio::fs::write(path, format!("{}\n", serde_json::to_string_pretty(&likeness)?)).await?;
+            tokio::fs::write(
+                path,
+                format!("{}\n", serde_json::to_string_pretty(&likeness)?),
+            )
+            .await?;
         }
         tracing::info!(name, photo = %likeness.photo_url, "narrative: wrote a likeness");
         Ok(Some(likeness))
@@ -126,10 +142,15 @@ pub fn with_likeness(text: &str, visitor: &str, likeness: &Likeness) -> String {
         return text.to_owned();
     };
     if !pattern.is_match(text) {
-        return format!("{visitor} ({}) is in the scene. {text}", likeness.description);
+        return format!(
+            "{visitor} ({}) is in the scene. {text}",
+            likeness.description
+        );
     }
     pattern
-        .replacen(text, 1, |c: &regex::Captures<'_>| format!("{} ({})", &c[0], likeness.description))
+        .replacen(text, 1, |c: &regex::Captures<'_>| {
+            format!("{} ({})", &c[0], likeness.description)
+        })
         .into_owned()
 }
 

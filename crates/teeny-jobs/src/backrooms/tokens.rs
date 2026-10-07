@@ -87,7 +87,6 @@ impl Rng {
             .unwrap_or(0);
         (nanos % 1_000_000) as u32
     }
-
 }
 
 impl Random for Rng {

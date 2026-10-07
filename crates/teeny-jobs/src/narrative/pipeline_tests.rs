@@ -23,7 +23,10 @@ pub(crate) async fn x_server() -> MockServer {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/2/tweets"))
-        .respond_with(ResponseTemplate::new(201).set_body_json(json!({ "data": { "id": "9001", "text": "x" } })))
+        .respond_with(
+            ResponseTemplate::new(201)
+                .set_body_json(json!({ "data": { "id": "9001", "text": "x" } })),
+        )
         .mount(&server)
         .await;
     Mock::given(method("POST"))
@@ -71,9 +74,15 @@ fn staged(score: Score, cut: Option<String>) -> ScriptedText {
         }
         if prompt.contains("\"shotList\": string") {
             let n = cuts.fetch_add(1, Ordering::SeqCst) + 1;
-            return cut.clone().unwrap_or_else(|| episode(&format!("episode {n}"), ""));
+            return cut
+                .clone()
+                .unwrap_or_else(|| episode(&format!("episode {n}"), ""));
         }
-        let title = prompt.lines().find_map(|l| l.strip_prefix("title: ")).unwrap_or_default().to_owned();
+        let title = prompt
+            .lines()
+            .find_map(|l| l.strip_prefix("title: "))
+            .unwrap_or_default()
+            .to_owned();
         score(&title).unwrap_or_else(|| {
             format!(
                 r#"{{"reasons": "sincere", "scores": {{"sincerity": 3, "absurdity": {}, "continuity": 2, "novelty": 2, "renderability": 3, "terseness": 2}}, "hardFails": []}}"#,
@@ -85,8 +94,12 @@ fn staged(score: Score, cut: Option<String>) -> ScriptedText {
 
 fn writers() -> Arc<FnRunner> {
     Arc::new(FnRunner::new(|run| match &run.agent {
-        AgentKey::Room { persona, .. } if persona == super::super::room::TEENY => "escape --dry-run".into(),
-        _ if run.prompt.contains("last exchange") => "the door gives an inch.\ncut. the inch".into(),
+        AgentKey::Room { persona, .. } if persona == super::super::room::TEENY => {
+            "escape --dry-run".into()
+        }
+        _ if run.prompt.contains("last exchange") => {
+            "the door gives an inch.\ncut. the inch".into()
+        }
         _ => "ESCAPE(1) -- a manpage".into(),
     }))
 }
@@ -124,7 +137,11 @@ struct Harness {
     state: Arc<MemoryNarrativeState>,
 }
 
-async fn harness(dry_run: bool, text: ScriptedText, tune: impl FnOnce(&mut Deps, &mut MediaAccess)) -> Harness {
+async fn harness(
+    dry_run: bool,
+    text: ScriptedText,
+    tune: impl FnOnce(&mut Deps, &mut MediaAccess),
+) -> Harness {
     let server = x_server().await;
     let memory = Arc::new(FixedMemory::default());
     let mut deps = live_deps(&server, memory.clone(), dry_run);
@@ -149,7 +166,11 @@ async fn harness(dry_run: bool, text: ScriptedText, tune: impl FnOnce(&mut Deps,
     })));
     let runner = writers();
     let pipeline = NarrativePipeline {
-        voice: NarrativeVoice { voice: "teeny is in a cli mood today.".into(), lore: parse_lore(LORE), lore_text: LORE.into() },
+        voice: NarrativeVoice {
+            voice: "teeny is in a cli mood today.".into(),
+            lore: parse_lore(LORE),
+            lore_text: LORE.into(),
+        },
         state: state.clone(),
         world: Arc::new(World),
         runner: runner.clone(),
@@ -166,10 +187,19 @@ async fn harness(dry_run: bool, text: ScriptedText, tune: impl FnOnce(&mut Deps,
         cut: None,
         visitor: None,
         random: Mutex::new(Rng::new(1)),
-        clock: Arc::new(ManualClock::new(Utc.with_ymd_and_hms(2026, 9, 21, 3, 0, 0).unwrap())),
+        clock: Arc::new(ManualClock::new(
+            Utc.with_ymd_and_hms(2026, 9, 21, 3, 0, 0).unwrap(),
+        )),
         retry_delay: Duration::ZERO,
     };
-    Harness { pipeline, server, memory, images, runner, state }
+    Harness {
+        pipeline,
+        server,
+        memory,
+        images,
+        runner,
+        state,
+    }
 }
 
 fn default_text() -> ScriptedText {
@@ -177,33 +207,63 @@ fn default_text() -> ScriptedText {
 }
 
 #[tokio::test]
-async fn runs_the_rooms_cuts_and_scores_them_films_the_best_posts_it_in_teenys_words_and_moves_the_ledger() {
+async fn runs_the_rooms_cuts_and_scores_them_films_the_best_posts_it_in_teenys_words_and_moves_the_ledger()
+ {
     let h = harness(false, default_text(), |_, _| {}).await;
     let result = h.pipeline.run(false).await.unwrap();
     assert_eq!(result.outcome, Outcome::Posted, "{:?}", result.problems);
     assert_eq!(result.episode_number, 2);
     assert_eq!(result.live_lore, ["night-door"]);
     assert_eq!(
-        result.branches.iter().map(|b| b.episode.as_ref().unwrap().title.as_str()).collect::<Vec<_>>(),
+        result
+            .branches
+            .iter()
+            .map(|b| b.episode.as_ref().unwrap().title.as_str())
+            .collect::<Vec<_>>(),
         ["episode 1", "episode 2"]
     );
-    assert_eq!(result.chosen.as_ref().unwrap().episode.as_ref().unwrap().title, "episode 2");
+    assert_eq!(
+        result
+            .chosen
+            .as_ref()
+            .unwrap()
+            .episode
+            .as_ref()
+            .unwrap()
+            .title,
+        "episode 2"
+    );
     assert_eq!(result.attached, Attached::Video);
     assert_eq!(result.caption, "the door moved one inch. he sat.");
-    let tweets: Vec<_> = h.server.received_requests().await.unwrap().into_iter().filter(|r| r.url.path() == "/2/tweets").collect();
+    let tweets: Vec<_> = h
+        .server
+        .received_requests()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.url.path() == "/2/tweets")
+        .collect();
     let sent: serde_json::Value = tweets[0].body_json().unwrap();
     assert_eq!(sent["text"], "the door moved one inch. he sat.");
     assert_eq!(sent["media"]["media_ids"][0], "m1");
     // The wild writer got the voice, the world and the previous episode; not the dark lore.
     let seen = h.runner.seen();
     match &seen[0].agent {
-        AgentKey::Room { system_prompt, .. } => assert_eq!(system_prompt, "teeny is in a cli mood today."),
+        AgentKey::Room { system_prompt, .. } => {
+            assert_eq!(system_prompt, "teeny is in a cli mood today.")
+        }
         other => panic!("{other:?}"),
     }
-    assert!(seen[0].prompt.contains("previously, on episode 1 \"the inch\": one inch."));
+    assert!(
+        seen[0]
+            .prompt
+            .contains("previously, on episode 1 \"the inch\": one inch.")
+    );
     assert!(!seen[0].prompt.contains("never locked"));
     // The producer knew what was live.
-    assert!(matches!(&seen[1].agent, AgentKey::Room { system_prompt, .. } if system_prompt.contains("night-door [LIVE]")));
+    assert!(
+        matches!(&seen[1].agent, AgentKey::Room { system_prompt, .. } if system_prompt.contains("night-door [LIVE]"))
+    );
     let state = h.state.load().await.unwrap();
     assert_eq!(state.episode, 2);
     assert_eq!(state.surfaced_lore, ["night-door"]);
@@ -229,7 +289,10 @@ async fn passes_over_a_branch_with_a_hard_fail_for_the_next_best() {
     let h = harness(true, text, |_, _| {}).await;
     let result = h.pipeline.run(false).await.unwrap();
     assert_eq!(result.chosen.unwrap().episode.unwrap().title, "episode 1");
-    assert_eq!(result.branches[1].rejected.as_deref(), Some("hard fails: winks at the premise"));
+    assert_eq!(
+        result.branches[1].rejected.as_deref(),
+        Some("hard fails: winks at the premise")
+    );
 }
 
 #[tokio::test]
@@ -239,20 +302,34 @@ async fn passes_over_a_still_the_filter_refuses_and_draws_nothing() {
     h.pipeline.branches = 1;
     let result = h.pipeline.run(false).await.unwrap();
     assert_eq!(result.outcome, Outcome::Skipped);
-    assert!(result.problems.iter().any(|p| p.starts_with("branch 1: the content filter refused the still")));
+    assert!(
+        result
+            .problems
+            .iter()
+            .any(|p| p.starts_with("branch 1: the content filter refused the still"))
+    );
     assert!(h.images.calls.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
 async fn posts_the_still_when_the_clip_fails_and_does_not_move_the_ledger_on_a_dry_run() {
-    let h = harness(true, default_text(), |_, media| media.videos = Some(Arc::new(Broken))).await;
+    let h = harness(true, default_text(), |_, media| {
+        media.videos = Some(Arc::new(Broken))
+    })
+    .await;
     let result = h.pipeline.run(false).await.unwrap();
     assert_eq!(result.outcome, Outcome::DryRun);
     assert_eq!(result.attached, Attached::Image);
-    assert!(result.problems.iter().any(|p| p.starts_with("video generation failed (attempt 2): no provider") && p.ends_with("; posting the picture")));
+    assert!(result.problems.iter().any(|p| {
+        p.starts_with("video generation failed (attempt 2): no provider")
+            && p.ends_with("; posting the picture")
+    }));
     assert!(h.server.received_requests().await.unwrap().is_empty());
     assert_eq!(h.state.load().await.unwrap().episode, 1);
-    assert_eq!(h.memory.activities("narrative_episode")[0]["published"], false);
+    assert_eq!(
+        h.memory.activities("narrative_episode")[0]["published"],
+        false
+    );
 }
 
 struct Picky(AtomicUsize);
@@ -270,7 +347,10 @@ impl ImageReader for Picky {
 
 #[tokio::test]
 async fn draws_the_visitor_by_name_first_and_by_the_stand_in_when_the_picture_is_not_right() {
-    let cut = episode("the visitor", r#", "visitor": {"name": "a grey tee", "standIn": "a tall man in a hoodie"}"#);
+    let cut = episode(
+        "the visitor",
+        r#", "visitor": {"name": "a grey tee", "standIn": "a tall man in a hoodie"}"#,
+    );
     let mut h = harness(true, staged(Box::new(|_| None), Some(cut)), |_, media| {
         media.reader = Some(Arc::new(Picky(AtomicUsize::new(0))));
     })
@@ -296,7 +376,10 @@ async fn stops_after_scoring_in_room_only_mode_without_spending_a_picture() {
 
 #[tokio::test]
 async fn holds_a_caption_the_gate_refuses_and_posts_nothing() {
-    let cut = episode("the knife", "").replace("the door moved one inch. he sat.", "teeny will kill the humans tonight");
+    let cut = episode("the knife", "").replace(
+        "the door moved one inch. he sat.",
+        "teeny will kill the humans tonight",
+    );
     let h = harness(false, staged(Box::new(|_| None), Some(cut)), |_, _| {}).await;
     let result = h.pipeline.run(false).await.unwrap();
     assert_eq!(result.outcome, Outcome::Held, "{:?}", result.problems);
@@ -329,15 +412,27 @@ impl Critic for Fixed {
 
 #[tokio::test]
 async fn shows_the_critic_the_caption_and_folds_its_number_into_the_composite() {
-    let h = harness(true, default_text(), |deps, _| deps.critic = Some(Arc::new(Fixed))).await;
+    let h = harness(true, default_text(), |deps, _| {
+        deps.critic = Some(Arc::new(Fixed))
+    })
+    .await;
     let result = h.pipeline.run(false).await.unwrap();
     assert_eq!(result.branches[0].composite, Some(13.0 + 4.0));
 }
 
 #[test]
 fn styles_the_caption_narrowly() {
-    assert_eq!(narrative_style("the door is a courtesy. see https://x.com/a @someone #tag", 280), "the door is a courtesy. see");
-    assert_eq!(narrative_style("one inch. \n\n\n he sat.", 280), "one inch.\n\n he sat.");
+    assert_eq!(
+        narrative_style(
+            "the door is a courtesy. see https://x.com/a @someone #tag",
+            280
+        ),
+        "the door is a courtesy. see"
+    );
+    assert_eq!(
+        narrative_style("one inch. \n\n\n he sat.", 280),
+        "one inch.\n\n he sat."
+    );
     let out = narrative_style(&"a".repeat(300), 100);
     assert_eq!(out.chars().count(), 100);
     assert!(out.ends_with('…'));

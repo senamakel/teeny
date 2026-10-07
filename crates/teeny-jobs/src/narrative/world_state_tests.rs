@@ -30,7 +30,12 @@ async fn reads_every_source_and_renders_only_what_is_true() {
     let state = build_world_state(
         &Fixed { fail: false },
         4,
-        Some((3, Some("the inch".into()), Some("one inch out".into()), Some("8".into()))),
+        Some((
+            3,
+            Some("the inch".into()),
+            Some("one inch out".into()),
+            Some("8".into()),
+        )),
         Utc.with_ymd_and_hms(2026, 9, 21, 3, 0, 0).unwrap(),
     )
     .await;
@@ -42,7 +47,9 @@ async fn reads_every_source_and_renders_only_what_is_true() {
     assert_eq!(fields["mentions24h"], Field::Number(2.0));
     let text = render_world_state(&state, "teenydroid");
     assert!(text.contains("03:00 utc (the small hours; senamakel is asleep). episode 4."));
-    assert!(text.contains("@teenydroid has 8500 followers on x. the last episode did 40 likes and 7 replies."));
+    assert!(text.contains(
+        "@teenydroid has 8500 followers on x. the last episode did 40 likes and 7 replies."
+    ));
     assert!(text.contains("2 people talked about teeny today. some of what they said"));
     assert!(text.contains("last episode: #3 \"the inch\" -- one inch out"));
     assert!(!text.contains('$'));
@@ -50,7 +57,13 @@ async fn reads_every_source_and_renders_only_what_is_true() {
 
 #[tokio::test]
 async fn renders_unknown_never_a_guess_for_every_source_that_fails() {
-    let state = build_world_state(&Fixed { fail: true }, 1, None, Utc.with_ymd_and_hms(2026, 9, 21, 19, 0, 0).unwrap()).await;
+    let state = build_world_state(
+        &Fixed { fail: true },
+        1,
+        None,
+        Utc.with_ymd_and_hms(2026, 9, 21, 19, 0, 0).unwrap(),
+    )
+    .await;
     assert!(state.followers.is_none());
     assert_eq!(state.problems, ["followers: x 401", "mentions: x 401"]);
     let text = render_world_state(&state, "teenydroid");

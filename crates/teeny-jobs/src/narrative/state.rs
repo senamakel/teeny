@@ -66,7 +66,9 @@ impl NarrativeStateStore for FileNarrativeState {
     async fn load(&self) -> anyhow::Result<NarrativeState> {
         match tokio::fs::read_to_string(&self.path).await {
             Ok(text) => Ok(serde_json::from_str(&text)?),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(NarrativeState::default()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Ok(NarrativeState::default())
+            }
             Err(error) => Err(error.into()),
         }
     }
@@ -76,7 +78,11 @@ impl NarrativeStateStore for FileNarrativeState {
             tokio::fs::create_dir_all(dir).await?;
         }
         let temporary = self.path.with_extension("json.tmp");
-        tokio::fs::write(&temporary, format!("{}\n", serde_json::to_string_pretty(state)?)).await?;
+        tokio::fs::write(
+            &temporary,
+            format!("{}\n", serde_json::to_string_pretty(state)?),
+        )
+        .await?;
         tokio::fs::rename(&temporary, &self.path).await?;
         Ok(())
     }
@@ -106,7 +112,9 @@ mod tests {
     #[tokio::test]
     async fn starts_at_episode_zero_and_round_trips_a_file() {
         let dir = scratch("narrative-state");
-        let store = FileNarrativeState { path: dir.join("state.json") };
+        let store = FileNarrativeState {
+            path: dir.join("state.json"),
+        };
         assert_eq!(store.load().await.unwrap(), NarrativeState::default());
         let state = NarrativeState {
             episode: 4,
@@ -118,7 +126,9 @@ mod tests {
         };
         store.save(&state).await.unwrap();
         assert_eq!(store.load().await.unwrap(), state);
-        let raw: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("state.json")).unwrap()).unwrap();
+        let raw: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("state.json")).unwrap())
+                .unwrap();
         assert_eq!(raw["surfacedLore"][0], "goat-blinks");
         std::fs::remove_dir_all(dir).ok();
     }

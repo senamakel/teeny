@@ -193,7 +193,8 @@ pub async fn run_backrooms(
     Ok(transcript)
 }
 
-static WORDS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[A-Za-z][A-Za-z'-]*").expect("valid"));
+static WORDS: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"[A-Za-z][A-Za-z'-]*").expect("valid"));
 
 const COMMON: &str = "the a an and or but of to in on at for with from by is are was were be been it its this that these those i you we they he she me my your our their him her them not no yes so if then than as up down out off over under into about what when where who how why one two do does did done have has had can could will would should may might just very there here now still again never always all some any more most one thing things something nothing door room lab kettle agent agents teeny swarm";
 
@@ -216,7 +217,11 @@ pub fn looks_like_salad(text: &str) -> bool {
         .filter(|word| word.starts_with(|c: char| c.is_ascii_uppercase()))
         .count() as f64
         / total;
-    let long = words.iter().filter(|word| word.chars().count() >= 9).count() as f64 / total;
+    let long = words
+        .iter()
+        .filter(|word| word.chars().count() >= 9)
+        .count() as f64
+        / total;
     common < 0.22 || capitalised > 0.25 || long > 0.3
 }
 
@@ -255,7 +260,9 @@ fn opener(seed: &Seed, others: bool) -> String {
 /// The seed, put back in front of a speaker mid-room, as the thing tonight is about.
 pub fn wire_again(seed: &Seed) -> String {
     let what = head(
-        &flatten(&quote_untrusted(seed.title.as_deref().unwrap_or(&seed.text))),
+        &flatten(&quote_untrusted(
+            seed.title.as_deref().unwrap_or(&seed.text),
+        )),
         200,
     );
     [
