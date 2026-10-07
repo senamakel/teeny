@@ -94,7 +94,11 @@ pub fn reason_to_skip(post: &XPost, rules: &CandidateRules) -> Option<String> {
     if author.as_deref() == Some(handle.as_str()) {
         return Some("our own post".into());
     }
-    if rules.quoted.iter().any(|entry| entry.post_id == post.id.as_str()) {
+    if rules
+        .quoted
+        .iter()
+        .any(|entry| entry.post_id == post.id.as_str())
+    {
         return Some("already quoted".into());
     }
     if let Some(author) = &author {
@@ -103,8 +107,7 @@ pub fn reason_to_skip(post: &XPost, rules: &CandidateRules) -> Option<String> {
                 .author_username
                 .as_deref()
                 .is_some_and(|quoted| quoted.to_lowercase() == *author)
-                && parse(&entry.quoted_at)
-                    .is_some_and(|at| rules.now - at < rules.author_cooldown)
+                && parse(&entry.quoted_at).is_some_and(|at| rules.now - at < rules.author_cooldown)
         });
         if let Some(recent) = recent {
             return Some(format!(
@@ -161,9 +164,9 @@ pub fn reason_to_skip(post: &XPost, rules: &CandidateRules) -> Option<String> {
 
 /// Likes, replies twice, reposts and quotes three times.
 pub fn conversation_score(post: &XPost) -> u64 {
-    post.metrics.as_ref().map_or(0, |m| {
-        m.likes + 2 * m.replies + 3 * (m.reposts + m.quotes)
-    })
+    post.metrics
+        .as_ref()
+        .map_or(0, |m| m.likes + 2 * m.replies + 3 * (m.reposts + m.quotes))
 }
 
 /// How many of one author's posts may be in the list.

@@ -79,7 +79,11 @@ impl QuoteLog for FileQuoteLog {
             tokio::fs::create_dir_all(dir).await?;
         }
         let temporary = self.path.with_extension("json.tmp");
-        tokio::fs::write(&temporary, format!("{}\n", serde_json::to_string_pretty(&file)?)).await?;
+        tokio::fs::write(
+            &temporary,
+            format!("{}\n", serde_json::to_string_pretty(&file)?),
+        )
+        .await?;
         tokio::fs::rename(&temporary, &self.path).await?;
         Ok(())
     }
@@ -102,7 +106,11 @@ impl MemoryQuoteLog {
 #[async_trait]
 impl QuoteLog for MemoryQuoteLog {
     async fn list(&self) -> anyhow::Result<Vec<QuotedPost>> {
-        Ok(self.quoted.lock().unwrap_or_else(|p| p.into_inner()).clone())
+        Ok(self
+            .quoted
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone())
     }
 
     async fn record(&self, entry: QuotedPost) -> anyhow::Result<()> {

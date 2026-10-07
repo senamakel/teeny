@@ -47,7 +47,11 @@ pub fn build(ctx: &JobCtx) -> QuotePipeline {
         text: Arc::new(deps.llm.clone().with_source("quote")),
         memory: Arc::clone(&deps.memory),
         log: Arc::new(FileQuoteLog::new(&quote.log_path)),
-        poster: Arc::new(XOwnPoster::from_deps(deps, HoldSurface::Quote, "quote_post")),
+        poster: Arc::new(XOwnPoster::from_deps(
+            deps,
+            HoldSurface::Quote,
+            "quote_post",
+        )),
         safety: Some(Arc::clone(&deps.safety)),
         persona: with_skills(&render_persona(&deps.persona), &config.agent.skills_dir),
         bot_username: deps.settings.bot_username.clone(),
@@ -94,7 +98,14 @@ pub async fn run_pipeline(ctx: &JobCtx, pipeline: &QuotePipeline) -> Result<JobR
     let result = match pipeline.run(Mode::Live).await {
         Ok(result) => result,
         Err(error) => {
-            journal_failure(ctx, day_id(ctx, JOB), Trigger::Quote, "the quote post", &error).await;
+            journal_failure(
+                ctx,
+                day_id(ctx, JOB),
+                Trigger::Quote,
+                "the quote post",
+                &error,
+            )
+            .await;
             return Err(error).context("the quote post");
         }
     };
@@ -159,7 +170,11 @@ pub fn summarise(reasons: &[String]) -> String {
 async fn journal(ctx: &JobCtx, result: &QuoteResult) {
     let mut thinking = vec![result.why.clone()];
     if !result.skipped.is_empty() {
-        let reasons: Vec<String> = result.skipped.iter().map(|entry| entry.reason.clone()).collect();
+        let reasons: Vec<String> = result
+            .skipped
+            .iter()
+            .map(|entry| entry.reason.clone())
+            .collect();
         thinking.push(format!("skipped: {}", summarise(&reasons)));
     }
     record_quietly(

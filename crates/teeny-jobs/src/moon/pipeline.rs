@@ -122,9 +122,11 @@ impl MoonPipeline {
     }
 
     async fn ask(&self, ask: &Ask) -> Result<String> {
-        Ok(ask_json::<Caption>(self.text.as_ref(), &ask.system, &ask.prompt)
-            .await?
-            .text)
+        Ok(
+            ask_json::<Caption>(self.text.as_ref(), &ask.system, &ask.prompt)
+                .await?
+                .text,
+        )
     }
 
     pub async fn run(&self, mode: Mode) -> Result<MoonResult> {
@@ -142,7 +144,10 @@ impl MoonPipeline {
         );
 
         // 2. The board, with our own row on it.
-        let board = self.source.category(&self.category, self.board_size).await?;
+        let board = self
+            .source
+            .category(&self.category, self.board_size)
+            .await?;
         let token = match board.iter().find(|coin| coin.id == self.coin_id) {
             Some(token) => token.clone(),
             None => {
@@ -191,7 +196,12 @@ impl MoonPipeline {
             self.rungs,
             self.min_multiple,
         );
-        tracing::info!(target = target.symbol, multiple = headline.multiple, ?excluded, "moon: target picked");
+        tracing::info!(
+            target = target.symbol,
+            multiple = headline.multiple,
+            ?excluded,
+            "moon: target picked"
+        );
 
         // 4. The picture. A missing logo is a disc with a letter.
         let (token_logo, target_logo) = tokio::join!(self.logo(&token), self.logo(&target));
@@ -236,17 +246,20 @@ impl MoonPipeline {
             today,
         };
         let mut caption = self
-            .caption(&context, &MoonCaptionInput {
-                token: &drawn_token,
-                target: &headline,
-                ladder: &climb,
-                board_name: &self.board_name,
-                board_size: board.len(),
-                history: &history,
-                community: &community,
-                max_emoji: self.max_emoji,
-                max_length: MAX_POST_LENGTH,
-            })
+            .caption(
+                &context,
+                &MoonCaptionInput {
+                    token: &drawn_token,
+                    target: &headline,
+                    ladder: &climb,
+                    board_name: &self.board_name,
+                    board_size: board.len(),
+                    history: &history,
+                    community: &community,
+                    max_emoji: self.max_emoji,
+                    max_length: MAX_POST_LENGTH,
+                },
+            )
             .await?;
         let mut held = false;
         if let Some(safety) = &self.safety {
@@ -338,7 +351,11 @@ impl MoonPipeline {
         Ok(result)
     }
 
-    async fn caption(&self, context: &StageContext, input: &MoonCaptionInput<'_>) -> Result<String> {
+    async fn caption(
+        &self,
+        context: &StageContext,
+        input: &MoonCaptionInput<'_>,
+    ) -> Result<String> {
         let ask = moon_caption_prompt(context, input);
         let mut text = self.ask(&ask).await?;
         if asks_the_reader(&text) {

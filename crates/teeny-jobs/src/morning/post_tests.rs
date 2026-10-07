@@ -60,7 +60,9 @@ async fn uploads_posts_and_records_the_own_post_under_its_kind() {
         .await;
     Mock::given(method("POST"))
         .and(path("/2/tweets"))
-        .and(body_partial_json(json!({ "text": "gm builders", "media": { "media_ids": ["m1"] } })))
+        .and(body_partial_json(
+            json!({ "text": "gm builders", "media": { "media_ids": ["m1"] } }),
+        ))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": { "id": "9001" } })))
         .expect(1)
         .mount(&server)
@@ -77,7 +79,10 @@ async fn uploads_posts_and_records_the_own_post_under_its_kind() {
     assert_eq!(posted.id, "9001");
     assert!(!posted.dry_run);
     let last = ledger.latest().await.unwrap().unwrap();
-    assert_eq!((last.post_id.as_str(), last.kind.as_str()), ("9001", "morning"));
+    assert_eq!(
+        (last.post_id.as_str(), last.kind.as_str()),
+        ("9001", "morning")
+    );
 
     // A second own post inside the gap is the cadence's to refuse.
     let refused = poster.post(post("moon")).await.unwrap_err();

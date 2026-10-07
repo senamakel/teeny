@@ -22,7 +22,9 @@ use teeny_media::types::{
     VideoOrientation, VideoRequest,
 };
 use teeny_memory::Memory;
-use teeny_safety::critic::{Critic, Critique, CritiqueInput, CritiqueKind, CritiqueVerdict, render_critique};
+use teeny_safety::critic::{
+    Critic, Critique, CritiqueInput, CritiqueKind, CritiqueVerdict, render_critique,
+};
 use teeny_safety::gate::{SafetyDecision, SafetyGate};
 use teeny_safety::house_style::{
     HouseStyleOptions, apply_house_style, asks_the_reader, count_emoji, without_the_ask,
@@ -426,7 +428,13 @@ impl MorningPipeline {
         let posts = timeline.posts;
         let trends = timeline.trends;
         let dropped = dropped_news + timeline.dropped;
-        tracing::info!(stories = stories.len(), posts = posts.len(), quiet = timeline.quiet, dropped, "morning: news gathered");
+        tracing::info!(
+            stories = stories.len(),
+            posts = posts.len(),
+            quiet = timeline.quiet,
+            dropped,
+            "morning: news gathered"
+        );
         if self.timeline.is_some() && posts.is_empty() {
             problems.push("the timeline gave nothing; chosen from the news alone".into());
         }
@@ -489,7 +497,12 @@ impl MorningPipeline {
             {
                 pick.angle = format!("{} ({fallback})", pick.angle);
             }
-            tracing::info!(attempt, story = pick.story, headline = pick.headline, "morning: story chosen");
+            tracing::info!(
+                attempt,
+                story = pick.story,
+                headline = pick.headline,
+                "morning: story chosen"
+            );
 
             let subject = subject_of(&pick, story.as_ref());
             if let Some(fresh) = self
@@ -541,9 +554,7 @@ impl MorningPipeline {
                 None => String::new(),
             };
             let look = seed.as_ref().map(|seed| seed.look.as_str());
-            let mut scene: Scene = self
-                .ask(&scene_prompt(&pick, &article, look, None))
-                .await?;
+            let mut scene: Scene = self.ask(&scene_prompt(&pick, &article, look, None)).await?;
             scene_refused = self.refused(&scene.scene, "generate_image").await;
             if let Some(category) = scene_refused.clone() {
                 problems.push(format!(
@@ -604,7 +615,11 @@ impl MorningPipeline {
                 problems.push("the daily image allowance was already spent".into());
                 break;
             }
-            let candidate = match self.images.generate(&image_prompt, ImageAspect::Square).await {
+            let candidate = match self
+                .images
+                .generate(&image_prompt, ImageAspect::Square)
+                .await
+            {
                 Ok(generated) => self.store.put(NewMedia {
                     kind: MediaKind::Image,
                     data: generated.data,
@@ -642,7 +657,10 @@ impl MorningPipeline {
                     media: None,
                     context: Some(about(&pick)),
                 };
-                if let Some(read) = self.critique("script", input(&written.script), &mut problems).await {
+                if let Some(read) = self
+                    .critique("script", input(&written.script), &mut problems)
+                    .await
+                {
                     let flat = read.verdict != CritiqueVerdict::Worthy;
                     let critique = render_critique(&read);
                     script_critique = Some(read);
@@ -653,7 +671,10 @@ impl MorningPipeline {
                                 prompt: rewrite_with(&ask.prompt, &written.script, &critique),
                             })
                             .await?;
-                        if let Some(again) = self.critique("script", input(&written.script), &mut problems).await {
+                        if let Some(again) = self
+                            .critique("script", input(&written.script), &mut problems)
+                            .await
+                        {
                             script_critique = Some(again);
                         }
                     }
@@ -731,7 +752,9 @@ impl MorningPipeline {
         } else {
             Attached::None
         };
-        let mut caption = self.caption(&pick, attached, &community, None, None).await?;
+        let mut caption = self
+            .caption(&pick, attached, &community, None, None)
+            .await?;
         let mut post_check = None;
         let mut caption_critique = None;
         if attached != Attached::None {
@@ -771,14 +794,20 @@ impl MorningPipeline {
                 media: Some(shows.clone()),
                 context: Some(about(&pick)),
             };
-            if let Some(read) = self.critique("caption", input(&caption), &mut problems).await {
+            if let Some(read) = self
+                .critique("caption", input(&caption), &mut problems)
+                .await
+            {
                 let flat = read.verdict != CritiqueVerdict::Worthy;
                 caption_critique = Some(read.clone());
                 if flat {
                     caption = self
                         .caption(&pick, attached, &community, Some((&caption, &read)), None)
                         .await?;
-                    if let Some(again) = self.critique("caption", input(&caption), &mut problems).await {
+                    if let Some(again) = self
+                        .critique("caption", input(&caption), &mut problems)
+                        .await
+                    {
                         caption_critique = Some(again);
                     }
                 }
@@ -804,7 +833,10 @@ impl MorningPipeline {
                 SafetyDecision::Clean => caption = outgoing.text,
                 SafetyDecision::Held(hold) => {
                     held = true;
-                    problems.push(format!("content filter withheld the caption: {}", hold.category));
+                    problems.push(format!(
+                        "content filter withheld the caption: {}",
+                        hold.category
+                    ));
                 }
             }
         }
@@ -848,7 +880,11 @@ impl MorningPipeline {
             return Ok(result);
         }
         if mode == Mode::Live {
-            let media = result.video.as_ref().or(result.image.as_ref()).expect("attached");
+            let media = result
+                .video
+                .as_ref()
+                .or(result.image.as_ref())
+                .expect("attached");
             let post = OwnPost {
                 kind: "morning".into(),
                 text: result.caption.clone(),
@@ -871,7 +907,9 @@ impl MorningPipeline {
                     return Ok(result);
                 }
                 Err(PostFailure::Refused(reason)) => {
-                    result.problems.push(format!("content filter withheld the caption: {reason}"));
+                    result
+                        .problems
+                        .push(format!("content filter withheld the caption: {reason}"));
                     result.caption = String::new();
                     result.outcome = Outcome::Held;
                     return Ok(result);
@@ -905,7 +943,11 @@ impl MorningPipeline {
             entries.insert("url".into(), json!(story.url));
             entries.insert(
                 "from".into(),
-                json!(if story.kind == StoryKind::X { "x" } else { "news" }),
+                json!(if story.kind == StoryKind::X {
+                    "x"
+                } else {
+                    "news"
+                }),
             );
         }
         if let Some(seed) = &result.seed {

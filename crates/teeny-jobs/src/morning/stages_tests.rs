@@ -112,10 +112,17 @@ fn reads_a_pick_with_its_defaults_and_cuts_a_long_shortlist_line() {
 
 #[test]
 fn refuses_a_pick_off_the_topic_list_or_missing_a_field() {
-    let issues = Pick::read(&json!({ "story": 1, "headline": "h", "topic": "politics", "angle": "a" }))
-        .unwrap_err();
-    assert!(issues.iter().any(|issue| issue.starts_with("topic:")), "{issues:?}");
-    assert!(issues.iter().any(|issue| issue == "visual: Required"), "{issues:?}");
+    let issues =
+        Pick::read(&json!({ "story": 1, "headline": "h", "topic": "politics", "angle": "a" }))
+            .unwrap_err();
+    assert!(
+        issues.iter().any(|issue| issue.starts_with("topic:")),
+        "{issues:?}"
+    );
+    assert!(
+        issues.iter().any(|issue| issue == "visual: Required"),
+        "{issues:?}"
+    );
 }
 
 #[test]

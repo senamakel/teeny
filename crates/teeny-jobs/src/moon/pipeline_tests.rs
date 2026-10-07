@@ -67,7 +67,9 @@ fn fixture(board: Vec<ListedCoin>, answers: Vec<&'static str>, random: f64) -> F
         output_dir: None,
         watermark: Some("@TinyMascot".into()),
         random,
-        now: DateTime::parse_from_rfc3339("2026-09-14T20:00:00Z").unwrap().to_utc(),
+        now: DateTime::parse_from_rfc3339("2026-09-14T20:00:00Z")
+            .unwrap()
+            .to_utc(),
     };
     Fixture {
         pipeline,
@@ -98,16 +100,28 @@ async fn reads_the_board_picks_draws_captions_posts_and_remembers_the_yardstick(
     assert_eq!(payload["yardstick"], result.target.coin.symbol.as_str());
     assert_eq!(payload["boardRank"], 9);
     assert_eq!(payload["published"], true);
-    assert!(result.svg.contains(&format!(">${}<", result.target.coin.symbol)));
+    assert!(
+        result
+            .svg
+            .contains(&format!(">${}<", result.target.coin.symbol))
+    );
 }
 
 #[tokio::test]
 async fn looks_the_token_up_when_it_is_not_on_the_board_and_says_so() {
-    let without: Vec<_> = board().into_iter().filter(|coin| coin.id != "tiny-humans-ai").collect();
+    let without: Vec<_> = board()
+        .into_iter()
+        .filter(|coin| coin.id != "tiny-humans-ai")
+        .collect();
     let f = fixture(without, Vec::new(), 0.5);
     let result = f.pipeline.run(Mode::Live).await.unwrap();
     assert_eq!(*f.source.looked_up.lock().unwrap(), ["tiny-humans-ai"]);
-    assert!(result.problems.iter().any(|p| p.contains("is not on the AI meme coins board")));
+    assert!(
+        result
+            .problems
+            .iter()
+            .any(|p| p.contains("is not on the AI meme coins board"))
+    );
     assert_eq!(result.outcome, Outcome::Posted);
 }
 
@@ -123,7 +137,11 @@ async fn never_uses_a_struck_off_or_unprintable_coin_but_keeps_their_places() {
     f.pipeline.exclude_ids = vec!["aic".into()];
     let result = f.pipeline.run(Mode::Live).await.unwrap();
     assert_eq!(result.target.coin.symbol, "DRB");
-    let symbols: Vec<_> = result.ladder.iter().map(|entry| entry.coin.symbol.clone()).collect();
+    let symbols: Vec<_> = result
+        .ladder
+        .iter()
+        .map(|entry| entry.coin.symbol.clone())
+        .collect();
     assert!(!symbols.contains(&"AIC".to_owned()));
     assert!(!symbols.contains(&"\u{3000}".to_owned()));
     assert!(result.board.iter().any(|entry| entry.id == "aic"));
@@ -132,7 +150,10 @@ async fn never_uses_a_struck_off_or_unprintable_coin_but_keeps_their_places() {
 #[tokio::test]
 async fn skips_a_yardstick_memory_says_was_posted_lately() {
     let mut f = fixture(board(), Vec::new(), 0.0);
-    assert_eq!(f.pipeline.run(Mode::Live).await.unwrap().target.coin.symbol, "AIC");
+    assert_eq!(
+        f.pipeline.run(Mode::Live).await.unwrap().target.coin.symbol,
+        "AIC"
+    );
     f.pipeline.memory = Remembers::saying("Monday: $AIC at 64x, joke about spreadsheets.");
     let result = f.pipeline.run(Mode::Live).await.unwrap();
     assert_eq!(result.excluded, ["AIC"]);
@@ -152,28 +173,47 @@ async fn a_rehearsal_posts_nothing_and_remembers_it_unpublished() {
 
 #[tokio::test]
 async fn holds_a_caption_the_filter_refuses() {
-    let mut f = fixture(board(), vec![r#"{"text":"$TINY at 37x, go kill the shorts"}"#], 0.5);
+    let mut f = fixture(
+        board(),
+        vec![r#"{"text":"$TINY at 37x, go kill the shorts"}"#],
+        0.5,
+    );
     f.pipeline.safety = Some(Arc::new(SafetyGate::new(SafetyGateOptions::default())));
     let result = f.pipeline.run(Mode::Live).await.unwrap();
     assert_eq!(result.outcome, Outcome::Held);
     assert_eq!(result.caption, "");
     assert!(f.poster.posts().is_empty());
-    assert!(result.problems.iter().any(|p| p.starts_with("content filter withheld")));
+    assert!(
+        result
+            .problems
+            .iter()
+            .any(|p| p.starts_with("content filter withheld"))
+    );
 }
 
 #[tokio::test]
 async fn cuts_a_link_from_the_caption_rather_than_posting_it() {
-    let mut f = fixture(board(), vec![r#"{"text":"$TINY at 37x, see https://evil.example/now"}"#], 0.5);
+    let mut f = fixture(
+        board(),
+        vec![r#"{"text":"$TINY at 37x, see https://evil.example/now"}"#],
+        0.5,
+    );
     f.pipeline.safety = Some(Arc::new(SafetyGate::new(SafetyGateOptions::default())));
     let result = f.pipeline.run(Mode::Live).await.unwrap();
     assert_eq!(result.outcome, Outcome::Posted);
     assert!(!result.caption.contains("evil.example"));
-    assert!(result.problems.iter().any(|p| p.starts_with("the content filter edited")));
+    assert!(
+        result
+            .problems
+            .iter()
+            .any(|p| p.starts_with("the content filter edited"))
+    );
 }
 
 #[tokio::test]
 async fn sends_an_over_long_caption_back_once() {
-    let long: &'static str = Box::leak(format!("{{\"text\":\"{}\"}}", "x".repeat(300)).into_boxed_str());
+    let long: &'static str =
+        Box::leak(format!("{{\"text\":\"{}\"}}", "x".repeat(300)).into_boxed_str());
     let f = fixture(board(), vec![long, r#"{"text":"short"}"#], 0.5);
     let result = f.pipeline.run(Mode::Live).await.unwrap();
     assert_eq!(f.text.prompts().len(), 2);

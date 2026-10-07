@@ -104,6 +104,21 @@ impl JobCtx {
             .unwrap_or_else(|poison| poison.into_inner());
         Arc::clone(guards.entry(job.to_owned()).or_default())
     }
+
+    /// The named job's re-run guard with its own interval (a calendar
+    /// item's hour), the same one on every call; the interval is set by the
+    /// first call.
+    pub fn guard_with(&self, job: &str, minimum: chrono::TimeDelta) -> Arc<RerunGuard> {
+        let mut guards = self
+            .guards
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        Arc::clone(
+            guards
+                .entry(job.to_owned())
+                .or_insert_with(|| Arc::new(RerunGuard::new(minimum))),
+        )
+    }
 }
 
 /// What a run did.

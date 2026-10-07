@@ -15,7 +15,9 @@ async fn starts_empty_appends_replaces_a_repeat_and_survives_a_reread() {
     let path = dir.join("nested").join("quotes.json");
     let log = FileQuoteLog::new(&path);
     assert!(log.list().await.unwrap().is_empty());
-    log.record(entry("1", "2026-09-21T23:00:00.000Z")).await.unwrap();
+    log.record(entry("1", "2026-09-21T23:00:00.000Z"))
+        .await
+        .unwrap();
     log.record(QuotedPost {
         author_username: None,
         own_post_id: Some("own".into()),
@@ -23,7 +25,9 @@ async fn starts_empty_appends_replaces_a_repeat_and_survives_a_reread() {
     })
     .await
     .unwrap();
-    log.record(entry("1", "2026-09-23T23:00:00.000Z")).await.unwrap();
+    log.record(entry("1", "2026-09-23T23:00:00.000Z"))
+        .await
+        .unwrap();
     let ids: Vec<_> = FileQuoteLog::new(&path)
         .list()
         .await
@@ -32,7 +36,8 @@ async fn starts_empty_appends_replaces_a_repeat_and_survives_a_reread() {
         .map(|entry| entry.post_id)
         .collect();
     assert_eq!(ids, ["2", "1"]);
-    let raw: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let raw: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     assert_eq!(raw["quoted"][0]["ownPostId"], "own");
     std::fs::remove_dir_all(dir).unwrap();
 }

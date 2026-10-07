@@ -78,7 +78,14 @@ pub async fn run(ctx: &JobCtx) -> Result<JobReport> {
     let outcome = match turn(ctx).await {
         Ok(outcome) => outcome,
         Err(error) => {
-            journal_failure(ctx, day_id(ctx, JOB), Trigger::Chart, &incoming(ctx), &error).await;
+            journal_failure(
+                ctx,
+                day_id(ctx, JOB),
+                Trigger::Chart,
+                &incoming(ctx),
+                &error,
+            )
+            .await;
             return Err(error);
         }
     };

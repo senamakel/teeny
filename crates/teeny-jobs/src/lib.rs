@@ -22,3 +22,5 @@ pub mod moon;
 pub mod lore;
 pub mod chart;
 pub mod quote;
+pub mod afternoon;
+pub mod calendar;

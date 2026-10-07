@@ -25,6 +25,7 @@ use crate::morning::job::{Gates, admit, day_id, journal_failure, roll};
 use crate::morning::pipeline::Mode;
 use crate::morning::post::XOwnPoster;
 use crate::morning::prompts::with_skills;
+use crate::morning::timeline::thousands;
 use pipeline::{MoonPipeline, MoonResult};
 
 const JOB: &str = "moon";
@@ -85,7 +86,14 @@ pub async fn run_pipeline(ctx: &JobCtx, pipeline: &MoonPipeline) -> Result<JobRe
     let result = match pipeline.run(Mode::Live).await {
         Ok(result) => result,
         Err(error) => {
-            journal_failure(ctx, day_id(ctx, JOB), Trigger::Moon, "the moon chart", &error).await;
+            journal_failure(
+                ctx,
+                day_id(ctx, JOB),
+                Trigger::Moon,
+                "the moon chart",
+                &error,
+            )
+            .await;
             return Err(error).context("the moon chart");
         }
     };
@@ -115,18 +123,6 @@ fn report(result: &MoonResult) -> JobReport {
     report.problems = result.problems.clone();
     report.note = held_note(result);
     report
-}
-
-fn thousands(value: f64) -> String {
-    let digits = (value.round() as i64).to_string();
-    let mut out = String::new();
-    for (index, ch) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index) % 3 == 0 {
-            out.push(',');
-        }
-        out.push(ch);
-    }
-    out
 }
 
 /// The moon turn, for the mind page.
@@ -164,7 +160,7 @@ async fn journal(ctx: &JobCtx, result: &MoonResult) {
                 "{} coins on the board, ${} at ${}",
                 result.board.len(),
                 result.token.symbol,
-                thousands(result.token.market_cap_usd)
+                thousands(result.token.market_cap_usd.round() as u64)
             ),
             tone: Tone::Neutral,
             recalled: [&result.history, &result.community]

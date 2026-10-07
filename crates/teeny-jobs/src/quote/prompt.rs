@@ -65,7 +65,12 @@ pub fn render_candidate(index: usize, candidate: &Candidate, now: DateTime<Utc>)
     });
     let metrics = post.metrics.as_ref().map_or_else(
         || "no counters".to_owned(),
-        |m| format!("{} likes, {} replies, {} reposts", m.likes, m.replies, m.reposts),
+        |m| {
+            format!(
+                "{} likes, {} replies, {} reposts",
+                m.likes, m.replies, m.reposts
+            )
+        },
     );
     let media = match post.media.len() {
         0 => String::new(),

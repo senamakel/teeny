@@ -113,8 +113,20 @@ impl QuotePipeline {
             screen,
             now: self.now,
         };
-        let found = find_candidates(self.x.as_ref(), &self.query, self.max_results, self.keep, &rules).await;
-        tracing::info!(searched = found.searched, kept = found.candidates.len(), skipped = found.skipped.len(), "quote: candidates found");
+        let found = find_candidates(
+            self.x.as_ref(),
+            &self.query,
+            self.max_results,
+            self.keep,
+            &rules,
+        )
+        .await;
+        tracing::info!(
+            searched = found.searched,
+            kept = found.candidates.len(),
+            skipped = found.skipped.len(),
+            "quote: candidates found"
+        );
         let mut result = QuoteResult {
             candidates: found.candidates,
             skipped: found.skipped,
@@ -221,7 +233,10 @@ impl QuotePipeline {
             match outgoing.decision {
                 SafetyDecision::Clean => text = outgoing.text,
                 SafetyDecision::Held(hold) => {
-                    problems.push(format!("content filter withheld the text: {}", hold.category));
+                    problems.push(format!(
+                        "content filter withheld the text: {}",
+                        hold.category
+                    ));
                     result.problems = problems;
                     result.outcome = Outcome::Held;
                     return Ok(result);
@@ -280,7 +295,9 @@ impl QuotePipeline {
             own_post_id: result.posted_id.clone(),
         };
         if let Err(error) = self.log.record(entry).await {
-            result.problems.push(format!("could not log the quote: {error}"));
+            result
+                .problems
+                .push(format!("could not log the quote: {error}"));
         }
         let id = result
             .posted_id

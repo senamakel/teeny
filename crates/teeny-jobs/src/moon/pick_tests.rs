@@ -28,11 +28,18 @@ pub(crate) fn tiny() -> ListedCoin {
 
 pub(crate) fn board() -> Vec<ListedCoin> {
     vec![
-        ListedCoin { rank: Some(150.0), board_rank: Some(1), ..coin("TIBBIR", 248_000_000.0) },
+        ListedCoin {
+            rank: Some(150.0),
+            board_rank: Some(1),
+            ..coin("TIBBIR", 248_000_000.0)
+        },
         coin("FARTCOIN", 143_000_000.0),
         coin("TURBO", 63_000_000.0),
         coin("AIC", 32_000_000.0),
-        ListedCoin { board_rank: Some(5), ..coin("DRB", 18_500_000.0) },
+        ListedCoin {
+            board_rank: Some(5),
+            ..coin("DRB", 18_500_000.0)
+        },
         coin("CRABAI", 14_700_000.0),
         coin("LUNA", 4_900_000.0),
         coin("AIDOGE", 1_950_000.0),
@@ -64,19 +71,44 @@ fn only_picks_above_the_floor_inside_the_ceiling_and_never_itself() {
 
 #[test]
 fn skips_what_memory_says_was_used_and_resets_when_everything_was() {
-    assert_eq!(pick_target(&tiny(), &board(), &band(0.0)).unwrap().symbol, "AIC");
-    let skip = PickOptions { exclude: vec!["AIC".into()], ..band(0.0) };
+    assert_eq!(
+        pick_target(&tiny(), &board(), &band(0.0)).unwrap().symbol,
+        "AIC"
+    );
+    let skip = PickOptions {
+        exclude: vec!["AIC".into()],
+        ..band(0.0)
+    };
     assert_eq!(pick_target(&tiny(), &board(), &skip).unwrap().symbol, "DRB");
-    let all = ["AIC", "AIDOGE", "CRABAI", "DRB", "LUNA"].map(String::from).to_vec();
-    let all = PickOptions { exclude: all, ..band(0.0) };
+    let all = ["AIC", "AIDOGE", "CRABAI", "DRB", "LUNA"]
+        .map(String::from)
+        .to_vec();
+    let all = PickOptions {
+        exclude: all,
+        ..band(0.0)
+    };
     assert_eq!(pick_target(&tiny(), &board(), &all).unwrap().symbol, "AIC");
 }
 
 #[test]
 fn falls_back_to_anything_above_and_to_nothing_when_nothing_is_above() {
-    let high = PickOptions { min_multiple: 400.0, max_multiple: 450.0, ..band(0.0) };
-    assert_eq!(pick_target(&tiny(), &board(), &high).unwrap().symbol, "TIBBIR");
-    assert!(pick_target(&tiny(), &[coin("BELOW", 100_000.0)], &PickOptions::default()).is_none());
+    let high = PickOptions {
+        min_multiple: 400.0,
+        max_multiple: 450.0,
+        ..band(0.0)
+    };
+    assert_eq!(
+        pick_target(&tiny(), &board(), &high).unwrap().symbol,
+        "TIBBIR"
+    );
+    assert!(
+        pick_target(
+            &tiny(),
+            &[coin("BELOW", 100_000.0)],
+            &PickOptions::default()
+        )
+        .is_none()
+    );
 }
 
 #[test]

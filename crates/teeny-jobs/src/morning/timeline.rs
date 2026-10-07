@@ -151,10 +151,7 @@ pub fn story_of(post: &XPost, query: &TimelineQuery) -> Story {
         .find(|line| !line.is_empty())
         .unwrap_or_else(|| text.clone());
     let title = if super::stages::js_len(&first_line) > 140 {
-        format!(
-            "{}…",
-            super::stages::js_prefix(&first_line, 137).trim_end()
-        )
+        format!("{}…", super::stages::js_prefix(&first_line, 137).trim_end())
     } else {
         first_line
     };
@@ -243,7 +240,7 @@ pub async fn gather_timeline(
 /// The trends as the model reads them, most posts first.
 pub fn render_trends(trends: &[Trend]) -> String {
     let mut sorted = trends.to_vec();
-    sorted.sort_by(|a, b| b.posts.unwrap_or(0).cmp(&a.posts.unwrap_or(0)));
+    sorted.sort_by_key(|trend| std::cmp::Reverse(trend.posts.unwrap_or(0)));
     sorted
         .iter()
         .map(|trend| match trend.posts.filter(|posts| *posts > 0) {
@@ -254,11 +251,12 @@ pub fn render_trends(trends: &[Trend]) -> String {
         .join("\n")
 }
 
-fn thousands(n: u64) -> String {
+/// `5000` as `5,000`.
+pub(crate) fn thousands(n: u64) -> String {
     let digits = n.to_string();
     let mut out = String::new();
     for (index, ch) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index) % 3 == 0 {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
             out.push(',');
         }
         out.push(ch);

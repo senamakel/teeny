@@ -51,7 +51,9 @@ fn fixture(text: Arc<Staged>) -> Fixture {
         video_seconds: 12,
         max_emoji: 1,
         random: 0.0,
-        now: DateTime::parse_from_rfc3339("2026-09-14T08:00:00Z").unwrap().to_utc(),
+        now: DateTime::parse_from_rfc3339("2026-09-14T08:00:00Z")
+            .unwrap()
+            .to_utc(),
         retry_delay: Duration::ZERO,
     };
     Fixture {
@@ -93,7 +95,11 @@ async fn reads_picks_draws_from_a_seed_scripts_films_captions_posts_and_remember
 
     let queries = f.memory.queries();
     assert_eq!(queries.len(), 4);
-    assert!(queries.iter().any(|q| q.contains("Headline: An agent runtime hit 40k stars")));
+    assert!(
+        queries
+            .iter()
+            .any(|q| q.contains("Headline: An agent runtime hit 40k stars"))
+    );
     assert!(queries.iter().any(|q| q.contains("gm builders")));
     assert_eq!(result.subject_checks.len(), 1);
     assert_eq!(result.post_check.as_ref().unwrap().verdict, Verdict::Fresh);
@@ -136,7 +142,10 @@ async fn retries_a_failed_clip_once_then_posts_the_picture() {
     let result = f.pipeline.run(Mode::Live).await.unwrap();
     assert_eq!(result.attached, Attached::Image);
     assert!(result.problems[1].ends_with("; posting the picture"));
-    assert_eq!(f.poster.posts()[0].media.as_ref().unwrap().mime_type, MimeType::Png);
+    assert_eq!(
+        f.poster.posts()[0].media.as_ref().unwrap().mime_type,
+        MimeType::Png
+    );
 }
 
 #[tokio::test]
@@ -145,7 +154,10 @@ async fn posts_the_picture_when_video_is_off() {
     f.pipeline.videos = None;
     let result = f.pipeline.run(Mode::Live).await.unwrap();
     assert_eq!(result.attached, Attached::Image);
-    assert_eq!(result.problems, ["video generation is off; posting the picture"]);
+    assert_eq!(
+        result.problems,
+        ["video generation is off; posting the picture"]
+    );
 }
 
 struct Spent;
@@ -167,7 +179,11 @@ async fn posts_nothing_without_a_picture_because_the_picture_is_the_post() {
     let result = f.pipeline.run(Mode::Live).await.unwrap();
     assert_eq!(result.outcome, Outcome::Skipped);
     assert_eq!(result.attached, Attached::None);
-    assert!(result.problems.contains(&"nothing to attach, so nothing was posted".to_owned()));
+    assert!(
+        result
+            .problems
+            .contains(&"nothing to attach, so nothing was posted".to_owned())
+    );
     assert!(f.poster.posts().is_empty());
     assert!(f.memory.activities().is_empty());
 }
@@ -187,24 +203,31 @@ async fn a_rehearsal_does_everything_but_post_and_remembers_it_as_one() {
 async fn carries_on_with_the_headline_when_the_story_is_not_on_the_list() {
     let f = fixture(staged(vec![(
         "pick",
-        vec![r#"{"story": 9, "headline": "Something else", "topic": "tech", "angle": "a", "visual": "v"}"#],
+        vec![
+            r#"{"story": 9, "headline": "Something else", "topic": "tech", "angle": "a", "visual": "v"}"#,
+        ],
     )]));
     let result = f.pipeline.run(Mode::Live).await.unwrap();
     assert!(result.story.is_none());
-    assert_eq!(result.problems[0], "the model chose story 9 of 2; using its headline alone");
+    assert_eq!(
+        result.problems[0],
+        "the model chose story 9 of 2; using its headline alone"
+    );
 }
 
 #[tokio::test]
 async fn sends_an_over_long_caption_back_once_then_applies_the_house_style() {
-    let long: &'static str = Box::leak(
-        format!("{{\"text\": \"gm — {} 🌅🌅\"}}", "word ".repeat(70)).into_boxed_str(),
-    );
+    let long: &'static str =
+        Box::leak(format!("{{\"text\": \"gm — {} 🌅🌅\"}}", "word ".repeat(70)).into_boxed_str());
     let f = fixture(staged(vec![(
         "caption",
         vec![long, r#"{"text": "gm — builders 🌅🌅"}"#],
     )]));
     let result = f.pipeline.run(Mode::Live).await.unwrap();
-    assert_eq!(f.text.asked_with("Rewrite it under 280 characters").len(), 1);
+    assert_eq!(
+        f.text.asked_with("Rewrite it under 280 characters").len(),
+        1
+    );
     assert!(!result.caption.contains('—'));
     assert_eq!(count_emoji(&result.caption), 1);
 }
@@ -219,7 +242,10 @@ async fn withholds_a_caption_the_content_filter_refuses() {
     let result = f.pipeline.run(Mode::Live).await.unwrap();
     assert_eq!(result.outcome, Outcome::Held);
     assert_eq!(result.caption, "");
-    assert_eq!(result.problems, ["content filter withheld the caption: weapons"]);
+    assert_eq!(
+        result.problems,
+        ["content filter withheld the caption: weapons"]
+    );
     assert!(f.poster.posts().is_empty());
     assert!(f.memory.activities().is_empty());
 }
@@ -228,7 +254,9 @@ async fn withholds_a_caption_the_content_filter_refuses() {
 async fn posts_what_the_filter_handed_back_with_a_link_cut() {
     let mut f = fixture(staged(vec![(
         "caption",
-        vec![r#"{"text": "gm builders. see https://totally-legit-claim.xyz/airdrop for the story."}"#],
+        vec![
+            r#"{"text": "gm builders. see https://totally-legit-claim.xyz/airdrop for the story."}"#,
+        ],
     )]));
     f.pipeline.safety = Some(Arc::new(SafetyGate::new(SafetyGateOptions::default())));
     let result = f.pipeline.run(Mode::Live).await.unwrap();
@@ -241,7 +269,9 @@ async fn posts_what_the_filter_handed_back_with_a_link_cut() {
 async fn rewrites_a_refused_scene_once_then_turns_the_story_down() {
     let mut f = fixture(staged(vec![(
         "scene",
-        vec![r#"{"scene": "Tiny cleaning a shotgun at dawn, very calmly.", "storyCue": "a shotgun", "alt": "Tiny at dawn."}"#],
+        vec![
+            r#"{"scene": "Tiny cleaning a shotgun at dawn, very calmly.", "storyCue": "a shotgun", "alt": "Tiny at dawn."}"#,
+        ],
     )]));
     f.pipeline.safety = Some(Arc::new(SafetyGate::new(SafetyGateOptions::default())));
     let result = f.pipeline.run(Mode::Live).await.unwrap();
@@ -251,10 +281,12 @@ async fn rewrites_a_refused_scene_once_then_turns_the_story_down() {
     // Three picks, each scene written twice.
     assert_eq!(f.text.asked_with("\"scene\": string").len(), 6);
     assert_eq!(f.text.asked_with("ALREADY CHOSEN THIS MORNING").len(), 2);
-    assert!(result
-        .problems
-        .iter()
-        .any(|problem| problem.starts_with("the content filter refused the scene again")));
+    assert!(
+        result
+            .problems
+            .iter()
+            .any(|problem| problem.starts_with("the content filter refused the scene again"))
+    );
 }
 
 #[tokio::test]
@@ -281,10 +313,8 @@ async fn takes_the_last_pick_when_every_one_is_stale_and_says_so() {
         vec![r#"{"reason": "two days old", "verdict": "stale"}"#],
     )]));
     let result = f.pipeline.run(Mode::Live).await.unwrap();
-    assert!(result
-        .problems
-        .iter()
-        .any(|problem| problem == "the subject was stale on the last try too (two days old); going with it"));
+    assert!(result.problems.iter().any(|problem| problem
+        == "the subject was stale on the last try too (two days old); going with it"));
 }
 
 #[tokio::test]
@@ -294,7 +324,13 @@ async fn fails_open_when_memory_is_down() {
     let result = f.pipeline.run(Mode::Live).await.unwrap();
     assert!(result.problems[0].starts_with("could not check the subject against memory"));
     assert_eq!(result.outcome, Outcome::Posted);
-    assert!(result.problems.last().unwrap().starts_with("could not remember the post"));
+    assert!(
+        result
+            .problems
+            .last()
+            .unwrap()
+            .starts_with("could not remember the post")
+    );
 }
 
 struct Reader(Mutex<VecDeque<CritiqueVerdict>>, Mutex<Vec<CritiqueInput>>);
@@ -341,8 +377,14 @@ async fn rewrites_the_script_and_the_caption_once_on_a_flat_read() {
     f.pipeline.critic = Some(reader.clone());
     let result = f.pipeline.run(Mode::Live).await.unwrap();
     assert_eq!(f.text.asked_with("lead with the joke").len(), 2);
-    assert_eq!(result.script_critique.unwrap().verdict, CritiqueVerdict::Worthy);
-    assert_eq!(result.caption_critique.unwrap().verdict, CritiqueVerdict::Worthy);
+    assert_eq!(
+        result.script_critique.unwrap().verdict,
+        CritiqueVerdict::Worthy
+    );
+    assert_eq!(
+        result.caption_critique.unwrap().verdict,
+        CritiqueVerdict::Worthy
+    );
     let seen = reader.1.lock().unwrap().clone();
     assert_eq!(seen[2].kind, CritiqueKind::Caption);
     assert!(seen[2].media.as_deref().unwrap().contains("raises the mug"));
@@ -372,13 +414,20 @@ async fn sends_a_caption_that_asks_the_reader_back_once_then_cuts_the_ask() {
         ],
     )]));
     let result = f.pipeline.run(Mode::Live).await.unwrap();
-    assert_eq!(f.text.asked_with("It ends by asking the reader something").len(), 1);
+    assert_eq!(
+        f.text
+            .asked_with("It ends by asking the reader something")
+            .len(),
+        1
+    );
     assert!(!result.caption.contains('?'), "{}", result.caption);
 }
 
 #[test]
 fn reads_a_loose_verdict_when_the_json_is_broken() {
-    assert!(!loose_verdict("{\"ok\": false, \"reason\": \"an \"unescaped\" quote"));
+    assert!(!loose_verdict(
+        "{\"ok\": false, \"reason\": \"an \"unescaped\" quote"
+    ));
     assert!(loose_verdict("Yes, that is Tiny."));
     assert!(!loose_verdict("I cannot tell."));
 }

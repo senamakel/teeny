@@ -10,7 +10,11 @@ fn pipeline(ctx: &JobCtx, board: Vec<teeny_market::leaderboard::ListedCoin>) -> 
     struct Fixed(Vec<teeny_market::leaderboard::ListedCoin>);
     #[async_trait::async_trait]
     impl pipeline::LeaderboardSource for Fixed {
-        async fn category(&self, _: &str, _: usize) -> Result<Vec<teeny_market::leaderboard::ListedCoin>> {
+        async fn category(
+            &self,
+            _: &str,
+            _: usize,
+        ) -> Result<Vec<teeny_market::leaderboard::ListedCoin>> {
             Ok(self.0.clone())
         }
         async fn coin(&self, _: &str) -> Result<teeny_market::leaderboard::ListedCoin> {
@@ -23,7 +27,9 @@ fn pipeline(ctx: &JobCtx, board: Vec<teeny_market::leaderboard::ListedCoin>) -> 
     let mut pipeline = build(ctx);
     pipeline.source = Arc::new(Fixed(board));
     pipeline.coin_id = "tiny-humans-ai".into();
-    pipeline.text = Arc::new(Staged::new(|_| Ok(r#"{"text": "$TINY at $AIC's cap. small robot."}"#.into())));
+    pipeline.text = Arc::new(Staged::new(|_| {
+        Ok(r#"{"text": "$TINY at $AIC's cap. small robot."}"#.into())
+    }));
     pipeline.memory = Remembers::saying("Monday: $DRB at 37x");
     pipeline.poster = Recorder::new();
     pipeline.min_multiple = 2.0;
@@ -35,13 +41,23 @@ fn pipeline(ctx: &JobCtx, board: Vec<teeny_market::leaderboard::ListedCoin>) -> 
 #[tokio::test]
 async fn runs_on_its_day_and_journals_the_turn() {
     // The fake configuration's rota: three days from its anchor, the moon in slot 0.
-    let rota = Rota::from_config(&JobCtx::fake(Arc::new(crate::runner::ScriptedRunner::new())).config.rota).unwrap();
+    let rota = Rota::from_config(
+        &JobCtx::fake(Arc::new(crate::runner::ScriptedRunner::new()))
+            .config
+            .rota,
+    )
+    .unwrap();
     let mut day = at("2026-09-14T13:00:00Z");
     while rota.slot(day) != 0 {
         day += TimeDelta::days(1);
     }
     let (ctx, clock) = ctx_at(day, Arc::default());
-    let gates = Gates { job: JOB, kind: Some(JOB), rota: Some((rota, 0)), force: false };
+    let gates = Gates {
+        job: JOB,
+        kind: Some(JOB),
+        rota: Some((rota, 0)),
+        force: false,
+    };
     assert!(admit(&ctx, gates).await.is_ok());
     let report = run_pipeline(&ctx, &pipeline(&ctx, board())).await.unwrap();
     assert_eq!(report.outcome, Outcome::Posted);

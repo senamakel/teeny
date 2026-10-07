@@ -201,10 +201,7 @@ impl<'a> Fields<'a> {
 
     fn check_string(&mut self, key: &str, value: &Value, min: usize, max: usize) -> String {
         let Some(text) = value.as_str() else {
-            self.issue(
-                key,
-                format!("Expected string, received {}", kind_of(value)),
-            );
+            self.issue(key, format!("Expected string, received {}", kind_of(value)));
             return String::new();
         };
         let length = js_len(text);
@@ -214,7 +211,10 @@ impl<'a> Fields<'a> {
                 format!("String must contain at least {min} character(s)"),
             );
         } else if length > max {
-            self.issue(key, format!("String must contain at most {max} character(s)"));
+            self.issue(
+                key,
+                format!("String must contain at most {max} character(s)"),
+            );
         }
         text.to_owned()
     }
@@ -247,10 +247,7 @@ impl<'a> Fields<'a> {
     fn check_count(&mut self, key: &str, value: &Value) -> u32 {
         match value.as_f64() {
             None => {
-                self.issue(
-                    key,
-                    format!("Expected number, received {}", kind_of(value)),
-                );
+                self.issue(key, format!("Expected number, received {}", kind_of(value)));
                 0
             }
             Some(number) if number.fract() != 0.0 => {
@@ -304,10 +301,7 @@ impl<'a> Fields<'a> {
             Some(value) => match value.as_str() {
                 Some(text) => text.to_owned(),
                 None => {
-                    self.issue(
-                        key,
-                        format!("Expected string, received {}", kind_of(value)),
-                    );
+                    self.issue(key, format!("Expected string, received {}", kind_of(value)));
                     return String::new();
                 }
             },
@@ -354,7 +348,13 @@ impl<'a> Fields<'a> {
     }
 
     /// A string inside a list.
-    pub(crate) fn item_string(&mut self, path: &str, value: &Value, min: usize, max: usize) -> String {
+    pub(crate) fn item_string(
+        &mut self,
+        path: &str,
+        value: &Value,
+        min: usize,
+        max: usize,
+    ) -> String {
         self.check_string(path, value, min, max)
     }
 
@@ -522,7 +522,10 @@ impl Shape for Freshness {
         let mut fields = Fields::new(value);
         let said = fields.string_or("said", 400, "");
         let reason = fields.string("reason", 0, 300);
-        let verdict = match fields.one_of("verdict", &["fresh", "repeat", "stale"]).as_str() {
+        let verdict = match fields
+            .one_of("verdict", &["fresh", "repeat", "stale"])
+            .as_str()
+        {
             "repeat" => Verdict::Repeat,
             "stale" => Verdict::Stale,
             _ => Verdict::Fresh,

@@ -37,11 +37,17 @@ pub async fn admit(ctx: &JobCtx, gates: Gates) -> Result<(), String> {
     if let Some((rota, slot)) = gates.rota
         && !rota.is_turn(slot, now)
     {
-        return Err(format!("{} job: skipping, not its day on the rota", gates.job));
+        return Err(format!(
+            "{} job: skipping, not its day on the rota",
+            gates.job
+        ));
     }
     let guard = ctx.guard(gates.job);
     if guard.check(now).is_err() {
-        return Err(format!("{} job: skipping, it already ran recently", gates.job));
+        return Err(format!(
+            "{} job: skipping, it already ran recently",
+            gates.job
+        ));
     }
     if let Some(kind) = gates.kind {
         match ctx.deps.cadence.claim(kind).await {

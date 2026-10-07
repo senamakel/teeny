@@ -41,6 +41,10 @@ fn hands_the_model_the_arithmetic_and_the_rules() {
         "Yesterday: $TURBO at 127x",
         "At most 1 emoji",
     ] {
-        assert!(ask.prompt.contains(needle), "missing {needle}:\n{}", ask.prompt);
+        assert!(
+            ask.prompt.contains(needle),
+            "missing {needle}:\n{}",
+            ask.prompt
+        );
     }
 }

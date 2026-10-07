@@ -14,7 +14,9 @@ fn story(title: &str) -> Story {
         title: title.into(),
         url: format!(
             "https://news.example/{}",
-            title.to_lowercase().replace(|c: char| !c.is_alphanumeric(), "-")
+            title
+                .to_lowercase()
+                .replace(|c: char| !c.is_alphanumeric(), "-")
         ),
         source: "news.example".into(),
         published_at: None,
@@ -47,12 +49,16 @@ fn drops_governments_wars_and_named_politicians_wherever_the_word_sits() {
         "Washington scrambles to meet calls for AI guardrails",
         "Lawmakers are seeking to address..."
     )));
-    assert!(is_political(&story("Feds Have Now Frozen $938M in Scam Crypto")));
+    assert!(is_political(&story(
+        "Feds Have Now Frozen $938M in Scam Crypto"
+    )));
 }
 
 #[test]
 fn keeps_ordinary_stories_and_matches_whole_words_only() {
-    assert!(!is_political(&story("Open-source agent framework hits 40k stars")));
+    assert!(!is_political(&story(
+        "Open-source agent framework hits 40k stars"
+    )));
     assert!(!is_political(&story("Solana devs ship a new runtime")));
     assert!(!is_political(&story("Robots sort a warehouse")));
     assert!(!is_political(&story("A trumpet-playing robot")));
@@ -67,7 +73,11 @@ struct Scripted {
 impl NewsSource for Scripted {
     async fn search(&self, topic: &str, days: u32, limit: u32) -> Result<Vec<Story>, String> {
         self.asked.lock().unwrap().push((topic.into(), days, limit));
-        self.answers.lock().unwrap().pop_front().unwrap_or(Ok(Vec::new()))
+        self.answers
+            .lock()
+            .unwrap()
+            .pop_front()
+            .unwrap_or(Ok(Vec::new()))
     }
     async fn read(&self, _url: &str, _max_characters: usize) -> String {
         String::new()
@@ -78,7 +88,10 @@ impl NewsSource for Scripted {
 async fn searches_every_topic_drops_politics_folds_duplicates_and_survives_a_failure() {
     let source = Scripted {
         answers: Mutex::new(VecDeque::from([
-            Ok(vec![story("A new open model"), story("Congress hearing on AI")]),
+            Ok(vec![
+                story("A new open model"),
+                story("Congress hearing on AI"),
+            ]),
             Err("exa down".to_owned()),
             Ok(vec![
                 Story {
@@ -133,15 +146,20 @@ async fn asks_exa_for_recent_news_and_reads_what_comes_back() {
         .await;
     Mock::given(method("POST"))
         .and(path("/contents"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "results": [
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "results": [
             { "url": "https://www.example.com/a", "text": "The  full\n article." }
-        ] })))
+        ] })),
+        )
         .mount(&server)
         .await;
     let source = ExaNewsSource::new(std::sync::Arc::new(
         ExaClient::new(Secret::new("k")).with_base_url(server.uri()),
     ));
-    assert_eq!(source.read("https://www.example.com/a", 500).await, "The full article.");
+    assert_eq!(
+        source.read("https://www.example.com/a", 500).await,
+        "The full article."
+    );
     let found = source.search("ai news", 2, 4).await.unwrap();
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].title, "A story");

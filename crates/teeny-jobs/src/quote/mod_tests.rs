@@ -58,7 +58,13 @@ async fn refuses_to_run_twice_inside_the_interval_and_journals_the_turn() {
     assert_eq!(entry.trigger, Trigger::Quote);
     assert_eq!(entry.said, "the words");
     assert_eq!(entry.incoming, "@bull: the post about $TINY and the lab");
-    assert!(entry.thinking.contains("skipped: says nothing beyond the ticker ×2"), "{}", entry.thinking);
+    assert!(
+        entry
+            .thinking
+            .contains("skipped: says nothing beyond the ticker ×2"),
+        "{}",
+        entry.thinking
+    );
 
     clock.advance(TimeDelta::hours(1));
     assert!(!run(&ctx).await.unwrap().ran);

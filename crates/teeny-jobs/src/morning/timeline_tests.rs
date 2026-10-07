@@ -60,7 +60,10 @@ fn turns_a_post_into_a_story_with_its_counters_picture_and_url() {
 #[test]
 fn values_a_reply_as_ten_likes() {
     let queries = default_queries();
-    assert_eq!(conversation_score(&story_of(&quiet(), &queries[1])), 12.0 * 0.5 + 1.0);
+    assert_eq!(
+        conversation_score(&story_of(&quiet(), &queries[1])),
+        12.0 * 0.5 + 1.0
+    );
     assert_eq!(
         conversation_score(&story_of(&meme(), &queries[0])),
         310.0 * 5.0 + 140.0 * 5.0 + 90.0 + 4_200.0 * 0.5
@@ -70,20 +73,36 @@ fn values_a_reply_as_ten_likes() {
 #[tokio::test]
 async fn reads_recent_originals_by_relevancy_best_conversations_first() {
     let reads = std::sync::Arc::new(FakeReads::answering([Ok(vec![quiet(), meme()])]));
-    let now = chrono::DateTime::parse_from_rfc3339("2026-09-14T08:00:00Z").unwrap().to_utc();
+    let now = chrono::DateTime::parse_from_rfc3339("2026-09-14T08:00:00Z")
+        .unwrap()
+        .to_utc();
     let source = XTimelineSource::new(reads.clone(), None, now);
     let found = source.pulse(&default_queries()[0], 24, 20).await;
     let urls: Vec<_> = found.iter().map(|s| s.url.as_str()).collect();
-    assert_eq!(urls, ["https://x.com/someone/status/77", "https://x.com/lab/status/78"]);
+    assert_eq!(
+        urls,
+        [
+            "https://x.com/someone/status/77",
+            "https://x.com/lab/status/78"
+        ]
+    );
     let (query, options) = reads.searched()[0].clone();
     assert!(query.contains("has:media -has:cashtags -is:retweet -is:reply"));
     assert_eq!(options.max_results, Some(20));
-    assert_eq!(options.start_time.as_deref(), Some("2026-09-13T07:59:00.000Z"));
-    assert_eq!(options.end_time.as_deref(), Some("2026-09-14T07:59:00.000Z"));
+    assert_eq!(
+        options.start_time.as_deref(),
+        Some("2026-09-13T07:59:00.000Z")
+    );
+    assert_eq!(
+        options.end_time.as_deref(),
+        Some("2026-09-14T07:59:00.000Z")
+    );
     assert_eq!(options.sort_order, Some(SortOrder::Relevancy));
     assert!(source.trending().await.is_empty());
 
-    let broken = std::sync::Arc::new(FakeReads::answering([Err(teeny_x::XError::Missing("429".into()))]));
+    let broken = std::sync::Arc::new(FakeReads::answering([Err(teeny_x::XError::Missing(
+        "429".into(),
+    ))]));
     let source = XTimelineSource::new(broken, Some(1), now);
     assert!(source.pulse(&default_queries()[0], 24, 10).await.is_empty());
     assert!(source.trending().await.is_empty());
@@ -95,8 +114,14 @@ struct Corners;
 impl TimelineSource for Corners {
     async fn trending(&self) -> Vec<Trend> {
         vec![
-            Trend { name: "gm".into(), posts: Some(100) },
-            Trend { name: "OpenAI".into(), posts: Some(5_000) },
+            Trend {
+                name: "gm".into(),
+                posts: Some(100),
+            },
+            Trend {
+                name: "OpenAI".into(),
+                posts: Some(5_000),
+            },
         ]
     }
     async fn pulse(&self, query: &TimelineQuery, _hours: u32, _limit: u32) -> Vec<Story> {
@@ -108,7 +133,10 @@ impl TimelineSource for Corners {
             ]
         } else {
             vec![
-                story_of(&XPost::new("2", "the senate hearing on AI was wild"), &queries[1]),
+                story_of(
+                    &XPost::new("2", "the senate hearing on AI was wild"),
+                    &queries[1],
+                ),
                 story_of(&quiet(), &queries[1]),
             ]
         }
@@ -122,16 +150,23 @@ async fn gathers_every_corner_drops_promotions_and_politics_and_is_off_at_zero()
     assert_eq!(titles, [meme().text.split('\n').next().unwrap().to_owned()]);
     assert_eq!(read.dropped, 2);
     assert_eq!(read.quiet, 1);
-    assert_eq!(render_trends(&read.trends), "- OpenAI (5,000 posts)\n- gm (100 posts)");
+    assert_eq!(
+        render_trends(&read.trends),
+        "- OpenAI (5,000 posts)\n- gm (100 posts)"
+    );
     let off = gather_timeline(&Corners, &default_queries(), 24, 0).await;
     assert!(off.posts.is_empty() && off.trends.is_empty() && off.dropped == 0);
 }
 
 #[test]
 fn a_contract_address_or_another_cashtag_is_a_promotion() {
-    assert!(is_spam("hear me out, ca: 0x7927cd547e644db657d95cb04ea678c5feb37777 could run"));
+    assert!(is_spam(
+        "hear me out, ca: 0x7927cd547e644db657d95cb04ea678c5feb37777 could run"
+    ));
     assert!(is_spam("$DARWIN is not an agent, it rewrites itself"));
-    assert!(!is_spam("$TINY holders, the model said we are absolutely right again"));
+    assert!(!is_spam(
+        "$TINY holders, the model said we are absolutely right again"
+    ));
 }
 
 #[test]

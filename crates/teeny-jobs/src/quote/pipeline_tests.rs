@@ -8,7 +8,8 @@ use crate::morning::test_support::{FakeReads, Recorder, Remembers, Staged};
 use crate::quote::candidates::tests::{OWN, by, now, post};
 use crate::quote::log::MemoryQuoteLog;
 
-const PICKED: &str = r#"{"pick":1,"why":"a bull with a reason","text":"@bull said it. the lab is the point."}"#;
+const PICKED: &str =
+    r#"{"pick":1,"why":"a bull with a reason","text":"@bull said it. the lab is the point."}"#;
 
 struct Fixture {
     pipeline: QuotePipeline,
@@ -57,7 +58,10 @@ fn fixture(posts: Vec<teeny_x::model::XPost>, answers: Vec<&'static str>) -> Fix
 }
 
 fn bull() -> Vec<teeny_x::model::XPost> {
-    vec![by("bull", post("1", "$TINY is the AI meme with the real lab behind it"))]
+    vec![by(
+        "bull",
+        post("1", "$TINY is the AI meme with the real lab behind it"),
+    )]
 }
 
 #[tokio::test]
@@ -107,7 +111,10 @@ async fn does_not_quote_what_the_log_says_it_already_did() {
 
 #[tokio::test]
 async fn lets_the_model_pick_nothing_and_posts_nothing() {
-    let f = fixture(bull(), vec![r#"{"pick":null,"why":"all sarcasm today","text":""}"#]);
+    let f = fixture(
+        bull(),
+        vec![r#"{"pick":null,"why":"all sarcasm today","text":""}"#],
+    );
     let result = f.pipeline.run(Mode::Live).await.unwrap();
     assert_eq!(result.outcome, Outcome::Skipped);
     assert_eq!(result.why, "all sarcasm today");
@@ -129,7 +136,10 @@ async fn a_rehearsal_posts_nothing_but_still_logs_the_pick_unpublished() {
 
 #[tokio::test]
 async fn holds_text_the_filter_refuses_and_cuts_a_link_it_lets_through() {
-    let mut held = fixture(bull(), vec![r#"{"pick":1,"why":"w","text":"go kill the shorts"}"#]);
+    let mut held = fixture(
+        bull(),
+        vec![r#"{"pick":1,"why":"w","text":"go kill the shorts"}"#],
+    );
     held.pipeline.safety = Some(Arc::new(SafetyGate::new(SafetyGateOptions::default())));
     let result = held.pipeline.run(Mode::Live).await.unwrap();
     assert_eq!(result.outcome, Outcome::Held);
@@ -137,7 +147,10 @@ async fn holds_text_the_filter_refuses_and_cuts_a_link_it_lets_through() {
     assert!(held.poster.posts().is_empty());
     assert!(held.log.list().await.unwrap().is_empty());
 
-    let mut cut = fixture(bull(), vec![r#"{"pick":1,"why":"w","text":"the lab is the point, see https://evil.example/now"}"#]);
+    let mut cut = fixture(
+        bull(),
+        vec![r#"{"pick":1,"why":"w","text":"the lab is the point, see https://evil.example/now"}"#],
+    );
     cut.pipeline.safety = Some(Arc::new(SafetyGate::new(SafetyGateOptions::default())));
     let posted = cut.pipeline.run(Mode::Live).await.unwrap();
     assert_eq!(posted.outcome, Outcome::Posted);
@@ -146,7 +159,10 @@ async fn holds_text_the_filter_refuses_and_cuts_a_link_it_lets_through() {
 
 #[tokio::test]
 async fn screens_candidates_through_the_lexicon_before_the_model_sees_them() {
-    let mut f = fixture(vec![by("angry", post("1", "$TINY holders, go kill the shorts"))], Vec::new());
+    let mut f = fixture(
+        vec![by("angry", post("1", "$TINY holders, go kill the shorts"))],
+        Vec::new(),
+    );
     f.pipeline.safety = Some(Arc::new(SafetyGate::new(SafetyGateOptions::default())));
     let result = f.pipeline.run(Mode::Live).await.unwrap();
     assert_eq!(result.outcome, Outcome::Skipped);
@@ -155,8 +171,13 @@ async fn screens_candidates_through_the_lexicon_before_the_model_sees_them() {
 
 #[tokio::test]
 async fn sends_an_over_long_text_back_once_keeping_the_pick() {
-    let long: &'static str = Box::leak(format!(r#"{{"pick":1,"why":"w","text":"{}"}}"#, "x".repeat(300)).into_boxed_str());
-    let f = fixture(bull(), vec![long, r#"{"pick":null,"why":"w","text":"short"}"#]);
+    let long: &'static str = Box::leak(
+        format!(r#"{{"pick":1,"why":"w","text":"{}"}}"#, "x".repeat(300)).into_boxed_str(),
+    );
+    let f = fixture(
+        bull(),
+        vec![long, r#"{"pick":null,"why":"w","text":"short"}"#],
+    );
     let result = f.pipeline.run(Mode::Live).await.unwrap();
     assert_eq!(f.text.prompts().len(), 2);
     assert_eq!(result.outcome, Outcome::Posted);

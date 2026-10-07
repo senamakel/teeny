@@ -15,7 +15,12 @@ fn pipeline(ctx: &JobCtx, caption: Option<&'static str>) -> (MorningPipeline, Ar
     let mut pipeline = build(ctx).expect("the fake clients have news and pictures");
     pipeline.news = Arc::new(News);
     pipeline.timeline = None;
-    pipeline.text = staged(caption.map(|caption| ("caption", vec![caption])).into_iter().collect());
+    pipeline.text = staged(
+        caption
+            .map(|caption| ("caption", vec![caption]))
+            .into_iter()
+            .collect(),
+    );
     pipeline.images = Arc::new(Draw::default());
     pipeline.videos = Some(Film::new([]));
     pipeline.memory = Remembers::saying("yesterday: robots");
@@ -40,7 +45,11 @@ async fn runs_once_a_day_and_journals_the_turn_as_a_morning_post() {
     assert_eq!(entry.trigger, Trigger::Morning);
     assert_eq!(entry.outcome, Outcome::Posted);
     assert!(entry.said.contains("gm builders"));
-    assert!(entry.thinking.contains("story: An agent runtime hit 40k stars"));
+    assert!(
+        entry
+            .thinking
+            .contains("story: An agent runtime hit 40k stars")
+    );
     assert_eq!(entry.incoming, "2 stories read, 0 dropped as political");
     assert_eq!(entry.tools[0].name, "news");
 
@@ -65,14 +74,22 @@ async fn asks_the_cadence_first_and_stands_down_when_it_says_too_soon() {
     let (ctx, _) = ctx_at(at("2026-09-14T07:00:00Z"), ledger);
     let report = run(&ctx).await.unwrap();
     assert!(!report.ran);
-    assert!(report.note.unwrap().contains("too soon after the last post"));
+    assert!(
+        report
+            .note
+            .unwrap()
+            .contains("too soon after the last post")
+    );
     assert!(ctx.journal.recent(5).await.unwrap().is_empty());
 }
 
 #[tokio::test]
 async fn journals_a_held_morning_as_held_with_the_category_and_without_the_caption() {
     let (ctx, _) = ctx_at(at("2026-09-14T07:00:00Z"), Arc::default());
-    let (pipeline, poster) = pipeline(&ctx, Some(r#"{"text": "gm. best gun for home defence? tiny knows."}"#));
+    let (pipeline, poster) = pipeline(
+        &ctx,
+        Some(r#"{"text": "gm. best gun for home defence? tiny knows."}"#),
+    );
     let report = run_pipeline(&ctx, &pipeline).await.unwrap();
     assert_eq!(report.outcome, Outcome::Held);
     assert!(poster.posts().is_empty());
@@ -89,7 +106,9 @@ async fn journals_a_held_morning_as_held_with_the_category_and_without_the_capti
 async fn journals_a_failure_and_still_returns_it() {
     let (ctx, _) = ctx_at(at("2026-09-14T07:00:00Z"), Arc::default());
     let (mut pipeline, _) = pipeline(&ctx, None);
-    pipeline.text = Arc::new(crate::morning::test_support::Staged::new(|_| Err("ladder down".into())));
+    pipeline.text = Arc::new(crate::morning::test_support::Staged::new(|_| {
+        Err("ladder down".into())
+    }));
     let error = run_pipeline(&ctx, &pipeline).await.unwrap_err();
     assert!(format!("{error:#}").contains("ladder down"));
     let entry = ctx.journal.recent(1).await.unwrap().remove(0);
@@ -99,11 +118,24 @@ async fn journals_a_failure_and_still_returns_it() {
 
 #[tokio::test]
 async fn says_which_part_is_missing_when_it_cannot_be_built() {
-    let (ctx, _) = ctx_with(at("2026-09-14T07:00:00Z"), Arc::default(), |deps| deps.exa = None);
+    let (ctx, _) = ctx_with(at("2026-09-14T07:00:00Z"), Arc::default(), |deps| {
+        deps.exa = None
+    });
     let error = build(&ctx).err().unwrap();
-    assert_eq!(error.to_string(), "EXA_API_KEY is not set, so there is no news to read");
-    let (ctx, _) = ctx_with(at("2026-09-14T07:00:00Z"), Arc::default(), |deps| deps.media = None);
-    assert!(build(&ctx).err().unwrap().to_string().contains("IMAGE_GEN_ENABLED is off"));
+    assert_eq!(
+        error.to_string(),
+        "EXA_API_KEY is not set, so there is no news to read"
+    );
+    let (ctx, _) = ctx_with(at("2026-09-14T07:00:00Z"), Arc::default(), |deps| {
+        deps.media = None
+    });
+    assert!(
+        build(&ctx)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("IMAGE_GEN_ENABLED is off")
+    );
 }
 
 #[tokio::test]

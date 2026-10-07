@@ -147,11 +147,7 @@ impl OwnPoster for XOwnPoster {
             ..Draft::new(&post.text)
         };
         if self.publisher.is_dry_run() {
-            let published = self
-                .publisher
-                .post(draft)
-                .await
-                .map_err(refused)?;
+            let published = self.publisher.post(draft).await.map_err(refused)?;
             return Ok(posted(published));
         }
         let x = Arc::clone(&self.x);

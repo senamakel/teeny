@@ -392,21 +392,27 @@ pub fn script_prompt(context: &StageContext, pick: &Pick, scene: &Scene, seconds
             format!("What in it says which story this is: {}", scene.story_cue),
             String::new(),
             format!("Write a {seconds}-second script as a tiny story with a joke in it: four or"),
-            "five beats, each with a time range (\"0-2s:\", \"2-5s:\", ...), using the whole".into(),
+            "five beats, each with a time range (\"0-2s:\", \"2-5s:\", ...), using the whole"
+                .into(),
             format!("{seconds} seconds. Beat one is the setup: the news event happening in front"),
-            "of us, so a viewer knows the story before Tiny reacts. The middle beats are the".into(),
+            "of us, so a viewer knows the story before Tiny reacts. The middle beats are the"
+                .into(),
             "turn: Tiny does our angle on it, and something goes a little wrong or a little".into(),
-            "too right -- the tool is too small, the fix is absurdly simple, the machine sulks.".into(),
+            "too right -- the tool is too small, the fix is absurdly simple, the machine sulks."
+                .into(),
             "The last beat is the payoff and a morning gesture in one: the deadpan sip, the".into(),
-            "wave, the thumbs up, the stretch, timed like a punchline. One location, at most".into(),
+            "wave, the thumbs up, the stretch, timed like a punchline. One location, at most"
+                .into(),
             "one cut. Describe the camera plainly (static, slow push in, gentle pan, a whip".into(),
-            "to reveal). Keep it renderable: no crowds, no dialogue, no readable text beyond".into(),
+            "to reveal). Keep it renderable: no crowds, no dialogue, no readable text beyond"
+                .into(),
             "what the picture already has, no fast cuts, at most two moving things at once.".into(),
             String::new(),
             "Hard rules, same as the picture: no real person, no logo, no other project, no".into(),
             "chart, no price, nothing political or violent, nothing mean about a person.".into(),
             String::new(),
-            "Then write summary: one line, under 25 words, saying what a viewer sees happen in".into(),
+            "Then write summary: one line, under 25 words, saying what a viewer sees happen in"
+                .into(),
             "the clip, for the journal.".into(),
             String::new(),
             "Shape: {\"script\": string, \"summary\": string}".into(),

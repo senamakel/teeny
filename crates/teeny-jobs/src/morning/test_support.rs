@@ -15,8 +15,10 @@ use super::post::{OwnPost, OwnPoster, PostFailure, Posted};
 
 /// A text model answering every prompt with `answer(prompt)`, and keeping
 /// what it was asked.
+type Answer = Box<dyn Fn(&str) -> Result<String, String> + Send + Sync>;
+
 pub struct Staged {
-    answer: Box<dyn Fn(&str) -> Result<String, String> + Send + Sync>,
+    answer: Answer,
     pub asked: Mutex<Vec<(String, String)>>,
 }
 
@@ -165,11 +167,6 @@ impl OwnPoster for Recorder {
     }
 }
 
-/// A post as the tests write them.
-pub fn x_post(id: &str, text: &str) -> XPost {
-    XPost::new(id, text)
-}
-
 /// Memory that answers every recall the same way and keeps what it is told.
 pub struct Remembers {
     pub answer: Result<String, String>,
@@ -220,7 +217,9 @@ impl Remembers {
 impl teeny_memory::Memory for Remembers {
     async fn capture(&self, experience: teeny_memory::Experience) -> teeny_memory::Result<()> {
         if self.answer.is_err() {
-            return Err(teeny_memory::MemoryError::InvalidInput("memory is down".into()));
+            return Err(teeny_memory::MemoryError::InvalidInput(
+                "memory is down".into(),
+            ));
         }
         self.captured.lock().unwrap().push(experience);
         Ok(())
@@ -284,8 +283,8 @@ pub fn ctx_with(
 use async_trait::async_trait as fake_async;
 use teeny_media::reference::ReferenceSeed;
 use teeny_media::types::{
-    GeneratedImage, GeneratedVideo, ImageAspect, ImageGenerator, ImageInput, ImageReader,
-    MimeType, VideoGenerator, VideoRequest,
+    GeneratedImage, GeneratedVideo, ImageAspect, ImageGenerator, ImageInput, ImageReader, MimeType,
+    VideoGenerator, VideoRequest,
 };
 
 use super::news::{NewsSource, Story, StoryKind};
@@ -313,7 +312,10 @@ pub struct News;
 impl NewsSource for News {
     async fn search(&self, _topic: &str, _days: u32, _limit: u32) -> Result<Vec<Story>, String> {
         Ok(vec![
-            story("An open-source agent runtime crossed 40k stars", "Builders are flocking."),
+            story(
+                "An open-source agent runtime crossed 40k stars",
+                "Builders are flocking.",
+            ),
             story("A wallet shipped account abstraction", ""),
         ])
     }
@@ -329,7 +331,11 @@ pub struct Draw {
 
 #[fake_async]
 impl ImageGenerator for Draw {
-    async fn generate(&self, prompt: &str, aspect: ImageAspect) -> teeny_media::Result<GeneratedImage> {
+    async fn generate(
+        &self,
+        prompt: &str,
+        aspect: ImageAspect,
+    ) -> teeny_media::Result<GeneratedImage> {
         assert_eq!(aspect, ImageAspect::Square);
         self.prompts.lock().unwrap().push(prompt.to_owned());
         Ok(GeneratedImage {
@@ -364,7 +370,9 @@ impl VideoGenerator for Film {
                 seconds: Some(12),
             })
         } else {
-            Err(teeny_media::Error::failed("no provider could accept this job right now"))
+            Err(teeny_media::Error::failed(
+                "no provider could accept this job right now",
+            ))
         }
     }
 }
@@ -373,8 +381,18 @@ pub struct Eyes(pub Mutex<VecDeque<&'static str>>);
 
 #[fake_async]
 impl ImageReader for Eyes {
-    async fn describe(&self, _image: ImageInput, _question: Option<&str>) -> teeny_media::Result<String> {
-        Ok(self.0.lock().unwrap().pop_front().unwrap_or("{\"ok\": true}").to_owned())
+    async fn describe(
+        &self,
+        _image: ImageInput,
+        _question: Option<&str>,
+    ) -> teeny_media::Result<String> {
+        Ok(self
+            .0
+            .lock()
+            .unwrap()
+            .pop_front()
+            .unwrap_or("{\"ok\": true}")
+            .to_owned())
     }
 }
 
@@ -397,7 +415,8 @@ pub const PICK: &str = r#"{"story": 1, "headline": "An agent runtime hit 40k sta
 pub const SCENE: &str = r#"{"scene": "Tiny sits at a sunrise desk, a mug in hand, watching a star counter tick up on a tiny screen.", "storyCue": "the counter reading 40k stars", "alt": "Tiny at a desk at dawn."}"#;
 pub const SCRIPT: &str = r#"{"script": "0-4s: static shot, Tiny sips from the mug as the sun rises. 4-10s: slow push in as the counter ticks. 10-12s: Tiny raises the mug to camera.", "summary": "Tiny sips coffee at sunrise, then raises the mug to say gm"}"#;
 pub const CAPTION: &str = r#"{"text": "gm builders.\n\nan open-source agent runtime crossed 40k stars overnight, reportedly. small robots, big repos.\n\nin today's clip Tiny raises a mug to all of you."}"#;
-pub const FRESH: &str = r#"{"said": "", "reason": "nothing like it in memory", "verdict": "fresh"}"#;
+pub const FRESH: &str =
+    r#"{"said": "", "reason": "nothing like it in memory", "verdict": "fresh"}"#;
 
 /// Answers each stage by the shape it was asked for; `overrides` replaces a
 /// stage's answer by its name, one answer per call, the last repeating.
@@ -422,7 +441,10 @@ pub fn staged(overrides: Vec<(&'static str, Vec<&'static str>)>) -> Arc<Staged> 
         } else if prompt.contains("\"text\": string") {
             "caption"
         } else {
-            return Err(format!("unexpected stage: {}", &prompt[..60.min(prompt.len())]));
+            return Err(format!(
+                "unexpected stage: {}",
+                &prompt[..60.min(prompt.len())]
+            ));
         };
         let mut overrides = overrides.lock().unwrap();
         if let Some((_, answers)) = overrides.iter_mut().find(|(name, _)| *name == stage) {

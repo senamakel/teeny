@@ -35,7 +35,11 @@ impl Default for PickOptions {
 /// One coin from the board, above the token, chosen at random within the
 /// band. When every candidate was used lately the list resets rather than
 /// the day being skipped; nothing above the token is `None`.
-pub fn pick_target(token: &ListedCoin, board: &[ListedCoin], options: &PickOptions) -> Option<ListedCoin> {
+pub fn pick_target(
+    token: &ListedCoin,
+    board: &[ListedCoin],
+    options: &PickOptions,
+) -> Option<ListedCoin> {
     let multiple = |coin: &ListedCoin| coin.market_cap_usd / token.market_cap_usd;
     let above: Vec<&ListedCoin> = board
         .iter()
@@ -56,7 +60,8 @@ pub fn pick_target(token: &ListedCoin, board: &[ListedCoin], options: &PickOptio
         .filter(|coin| !options.exclude.contains(&coin.symbol))
         .collect();
     let candidates = if fresh.is_empty() { pool } else { fresh };
-    let index = ((options.random * candidates.len() as f64).floor() as usize).min(candidates.len() - 1);
+    let index =
+        ((options.random * candidates.len() as f64).floor() as usize).min(candidates.len() - 1);
     Some(candidates[index].clone())
 }
 

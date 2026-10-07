@@ -54,9 +54,11 @@ pub fn build(ctx: &JobCtx) -> Result<MorningPipeline> {
         .clone()
         .ok_or_else(|| anyhow!("EXA_API_KEY is not set, so there is no news to read"))?;
     let media = deps.media.as_ref();
-    let images = media.and_then(|media| media.images.clone()).ok_or_else(|| {
-        anyhow!("IMAGE_GEN_ENABLED is off, so there is nothing to draw the morning post with")
-    })?;
+    let images = media
+        .and_then(|media| media.images.clone())
+        .ok_or_else(|| {
+            anyhow!("IMAGE_GEN_ENABLED is off, so there is nothing to draw the morning post with")
+        })?;
     let media = media.expect("images came from it");
     let morning = &config.morning;
     let timeline = (morning.x_posts_per_query > 0).then(|| {
@@ -83,7 +85,11 @@ pub fn build(ctx: &JobCtx) -> Result<MorningPipeline> {
         store: Arc::clone(&media.store),
         budget: Arc::clone(&deps.media_budget),
         memory: Arc::clone(&deps.memory),
-        poster: Arc::new(XOwnPoster::from_deps(deps, HoldSurface::Morning, "morning_post")),
+        poster: Arc::new(XOwnPoster::from_deps(
+            deps,
+            HoldSurface::Morning,
+            "morning_post",
+        )),
         safety: Some(Arc::clone(&deps.safety)),
         critic: deps.critic.clone(),
         persona: with_skills(&render_persona(&deps.persona), &config.agent.skills_dir),
@@ -108,7 +114,14 @@ pub async fn run(ctx: &JobCtx) -> Result<JobReport> {
     let pipeline = match build(ctx) {
         Ok(pipeline) => pipeline,
         Err(error) => {
-            journal_failure(ctx, day_id(ctx, JOB), Trigger::Morning, "the morning post", &error).await;
+            journal_failure(
+                ctx,
+                day_id(ctx, JOB),
+                Trigger::Morning,
+                "the morning post",
+                &error,
+            )
+            .await;
             return Err(error);
         }
     };
@@ -137,7 +150,14 @@ pub async fn run_pipeline(ctx: &JobCtx, pipeline: &MorningPipeline) -> Result<Jo
     let result = match pipeline.run(Mode::Live).await {
         Ok(result) => result,
         Err(error) => {
-            journal_failure(ctx, day_id(ctx, JOB), Trigger::Morning, "the morning post", &error).await;
+            journal_failure(
+                ctx,
+                day_id(ctx, JOB),
+                Trigger::Morning,
+                "the morning post",
+                &error,
+            )
+            .await;
             return Err(error).context("the morning post");
         }
     };
