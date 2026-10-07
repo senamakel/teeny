@@ -475,7 +475,9 @@ fn installs_on_the_real_runtime_and_runs_a_job_now() {
                     .unwrap()
                     .contains(&"teeny_probe".to_owned())
             );
-            std::fs::remove_dir_all(data_dir).ok();
+            // The workspace is left in place: the runtime is the process's
+            // one, and the other runtime test may still be using it.
+            let _ = data_dir;
         }))
         .unwrap();
 }
@@ -496,7 +498,7 @@ fn a_job_due_before_the_scheduler_starts_fires_once_after_boot() {
     executor
         .block_on(executor.spawn(async {
             let data_dir =
-                std::env::temp_dir().join(format!("teeny-boot-order-{}", std::process::id()));
+                std::env::temp_dir().join(format!("teeny-schedule-{}", std::process::id()));
             let runtime = runtime::global(RuntimeSettings {
                 data_dir: data_dir.clone(),
                 chrome_path: None,
@@ -512,12 +514,13 @@ fn a_job_due_before_the_scheduler_starts_fires_once_after_boot() {
             let counter = Arc::clone(&ran);
             let scheduler = RuntimeScheduler(&runtime);
             // Stored before its handler exists, as a job from a previous
-            // process is: due one second from now.
+            // process is: due one second from now. Not `teeny_`-named, so
+            // the other runtime test's prune leaves it alone.
             scheduler
                 .upsert(
                     JobSpec::system(
-                        "teeny_due_probe",
-                        "teeny_due_probe",
+                        "boot_order_probe",
+                        "boot_order_probe",
                         JobSchedule::At {
                             at: SystemTime::now() + Duration::from_secs(1),
                         },
@@ -531,7 +534,7 @@ fn a_job_due_before_the_scheduler_starts_fires_once_after_boot() {
             assert!(
                 runtime
                     .cron()
-                    .runs("teeny_due_probe", 5)
+                    .runs("boot_order_probe", 5)
                     .unwrap()
                     .is_empty(),
                 "a due job was dispatched before cron was started"
@@ -539,7 +542,7 @@ fn a_job_due_before_the_scheduler_starts_fires_once_after_boot() {
 
             scheduler
                 .on_job(
-                    "teeny_due_probe",
+                    "boot_order_probe",
                     Arc::new(move || {
                         counter.fetch_add(1, Ordering::SeqCst);
                         async { Ok(()) }.boxed()
@@ -559,7 +562,9 @@ fn a_job_due_before_the_scheduler_starts_fires_once_after_boot() {
             tokio::time::sleep(Duration::from_secs(7)).await;
             assert_eq!(ran.load(Ordering::SeqCst), 1, "fires exactly once");
             runtime.stop_services();
-            std::fs::remove_dir_all(data_dir).ok();
+            // The workspace is left in place: the runtime is the process's
+            // one, and the other runtime test may still be using it.
+            let _ = data_dir;
         }))
         .unwrap();
 }
