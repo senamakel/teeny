@@ -16,6 +16,8 @@
 # - rust: the cargo workspace at the root, on the toolchain rust-toolchain.toml
 #   pins, plus the duplicate OpenHuman-crate tripwire.
 # - web: the Next.js site.
+# - deploy-scripts: shellcheck over deploy/ and docker/, and the bot image's
+#   entrypoint tests (the volume layout and the legacy migration).
 
 name: check
 
@@ -46,7 +48,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Not `submodules: recursive`: that would also fetch brain/, which this
-      # job has no use for. OpenHuman and its nested vendors, shallow.
+      # job has no use for. OpenHuman (the senamakel/openhuman fork, pinned
+      # on its teeny-integration branch) and its nested vendors, shallow; all
+      # of them are public over https, so no credentials are needed.
       - uses: actions/checkout@v5
       - name: Fetch vendor/openhuman
         run: git submodule update --init --recursive --depth 1 --jobs 8 vendor/openhuman
@@ -64,8 +68,18 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --check
       - run: scripts/check-dup-crates.sh
+      # --workspace lints the crates/ members only; vendor/ is a path
+      # dependency, not a member, so its warnings are not ours to fail on.
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
+
+  deploy-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # shellcheck ships on the runner image.
+      - run: shellcheck -x deploy/*.sh deploy/opencompany/entrypoint.sh docker/*.sh
+      - run: docker/entrypoint_test.sh
 
   web:
     runs-on: ubuntu-latest
