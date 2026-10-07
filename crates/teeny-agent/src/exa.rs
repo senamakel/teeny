@@ -148,6 +148,18 @@ impl ExaClient {
         Ok(self.post::<Results>("/search", &body).await?.results)
     }
 
+    /// `/search` with a body the caller shapes, answered as the raw results:
+    /// for the options the typed calls leave out (a domain filter, a
+    /// highlight shape, image links).
+    pub async fn search_raw(&self, body: &Value) -> Result<Vec<Value>, ExaError> {
+        #[derive(serde::Deserialize)]
+        struct Raw {
+            #[serde(default)]
+            results: Vec<Value>,
+        }
+        Ok(self.post::<Raw>("/search", body).await?.results)
+    }
+
     /// `getContents`: up to 4,000 characters of each page.
     pub async fn contents(&self, urls: &[String]) -> Result<Vec<ExaHit>, ExaError> {
         let body = json!({ "urls": urls, "text": { "maxCharacters": 4_000 } });
