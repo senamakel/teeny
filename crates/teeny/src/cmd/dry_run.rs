@@ -12,9 +12,9 @@ use std::io::Write;
 use std::sync::Arc;
 
 use anyhow::{Context, bail};
-use teeny_cadence::calendar::load_calendar;
 use teeny_core::Config;
 use teeny_jobs::backrooms::{Backrooms, RunOptions, Seed, SeedKind};
+use teeny_jobs::calendar::load_calendar;
 use teeny_jobs::chat::{ChatMessage, handle_message};
 use teeny_jobs::ctx::{JobCtx, JobReport};
 use teeny_jobs::reply::harness::generate;

@@ -38,3 +38,57 @@ fn the_named_form_is_one_the_scheduler_accepts() {
         );
     }
 }
+
+#[test]
+fn names_a_step_over_a_named_range_and_a_wrapping_named_range() {
+    assert_eq!(
+        named_weekdays("0 9 * * MON-FRI/2").unwrap(),
+        "0 9 * * MON,WED,FRI"
+    );
+    assert_eq!(
+        named_weekdays("0 9 * * mon/2").unwrap(),
+        "0 9 * * MON,WED,FRI"
+    );
+    assert_eq!(
+        named_weekdays("0 9 * * SAT-SUN").unwrap(),
+        "0 9 * * SAT,SUN"
+    );
+    assert_eq!(named_weekdays("0 9 * * MON-5").unwrap(), "0 9 * * MON-FRI");
+}
+
+#[test]
+fn refuses_a_weekday_that_cannot_be_written_with_names() {
+    for weekday in ["5#2", "L", "5L", "1W", "FOO", "MONDAY", "*/0", "8", "1-9"] {
+        let expression = format!("0 9 * * {weekday}");
+        let error = named_weekdays(&expression).unwrap_err();
+        assert_eq!(error.field, weekday, "{expression}");
+        let said = error.to_string();
+        assert!(said.contains(weekday), "{said}");
+        assert!(said.contains("day names"), "{said}");
+    }
+}
+
+#[test]
+fn never_leaves_a_numeric_weekday_in_what_it_returns() {
+    for expression in [
+        "0 9 * * 5",
+        "0 9 * * 0-7",
+        "0 9 * * 1-5/2",
+        "0 9 * * */3",
+        "0 9 * * 6-1",
+        "0 9 * * 1,MON-3",
+        "0 0 9 * * 5",
+    ] {
+        let named = named_weekdays(expression).unwrap();
+        let weekday = named.split_whitespace().last().unwrap();
+        assert!(
+            !weekday.chars().any(|c| c.is_ascii_digit()),
+            "{expression} -> {named}"
+        );
+        assert!(
+            teeny_cadence::calendar::is_cron_expression(&named),
+            "{named}"
+        );
+    }
+    assert_eq!(named_weekdays("0 9 * * 0-7").unwrap(), "0 9 * * SUN-SAT");
+}

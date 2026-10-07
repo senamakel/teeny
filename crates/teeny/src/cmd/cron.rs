@@ -15,8 +15,8 @@ use anyhow::bail;
 use chrono::{DateTime, SecondsFormat, Utc};
 use openhuman_embed::{JobSchedule, JobSpec, Runtime};
 use teeny_agent::runtime::{self as oh_runtime, RuntimeSettings};
-use teeny_cadence::calendar::load_calendar;
 use teeny_core::Config;
+use teeny_jobs::calendar::load_calendar;
 
 use crate::app::App;
 use crate::schedule::{self, Dispatch, Handler, RuntimeScheduler, Scheduler};

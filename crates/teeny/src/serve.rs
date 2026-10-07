@@ -23,9 +23,9 @@ use std::time::Duration;
 
 use anyhow::Context as _;
 use axum::Router;
-use teeny_cadence::calendar::load_calendar;
 use teeny_core::Config;
 use teeny_core::config::ReplyMode;
+use teeny_jobs::calendar::load_calendar;
 use teeny_jobs::reply::worker::ReplyWorker;
 use teeny_x::intake::ActivityIntake;
 use tokio::net::TcpListener;
