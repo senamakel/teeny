@@ -1,14 +1,21 @@
+# The build context for both the Rust image (./Dockerfile) and the legacy one
+# (legacy/Dockerfile). vendor/ stays in: it is the OpenHuman submodule the
+# cargo build and the TinyComputer module compile from. Build outputs,
+# dependency trees, git metadata and local state stay out.
 **/node_modules
 **/dist
-.git
+**/target
+**/worktrees
+**/.git
+.cargo
 .env
 .env.local
 data
-deploy
+legacy/data
 key.pem
 key.pem.pub
 npm-debug.log
+# Their own images, built from their own contexts.
 web
-.cargo
-**/target
-worktrees
+deploy
+brain
