@@ -197,3 +197,25 @@ pub struct BrainConfig {
     /// `BRAIN_USAGE_CRON`, default `* * * * *`.
     pub usage_cron: String,
 }
+
+/// The embedded OpenHuman runtime: where it keeps its state, and its
+/// research browser. None of these are legacy variables.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OpenHumanConfig {
+    /// `TEENY_DATA`, default `data`: the volume root. OpenHuman's workspace,
+    /// the Chrome profile and the downloads live below it.
+    pub data_dir: String,
+    /// `BROWSER_CHROME_PATH`, optional; unset, the browser finds Chrome itself.
+    pub chrome_path: Option<String>,
+    /// `BROWSE_UNATTENDED_ACTIONS`, comma separated, default `click,press`:
+    /// the gated browser actions a trusted scheduled turn may take without an
+    /// approval it cannot get. Blank allows none.
+    pub unattended_actions: Vec<String>,
+    /// `BROWSE_ALLOWED_DOMAINS`, comma separated, default none: the hosts the
+    /// browser may open. X is never among them, whatever is listed: the
+    /// account reaches X through its own API only.
+    pub allowed_domains: Vec<String>,
+    /// `TINYCOMPUTER_MODULE_PATH`, optional: a locally built
+    /// `libtinycomputer.so` loaded in place of the pinned release.
+    pub tinycomputer_module_path: Option<String>,
+}

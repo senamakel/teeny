@@ -46,6 +46,7 @@ pub(super) fn load(env: &mut Env) -> Config {
         },
         telegram: telegram(env),
         media: media(env),
+        openhuman: openhuman(env),
     }
 }
 
@@ -403,4 +404,14 @@ fn is_telegram_token(value: &str) -> bool {
         && secret
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+fn openhuman(env: &mut Env) -> OpenHumanConfig {
+    OpenHumanConfig {
+        data_dir: env.text("TEENY_DATA", "data"),
+        chrome_path: env.optional("BROWSER_CHROME_PATH"),
+        unattended_actions: env.list("BROWSE_UNATTENDED_ACTIONS", "click,press"),
+        allowed_domains: env.list("BROWSE_ALLOWED_DOMAINS", ""),
+        tinycomputer_module_path: env.optional("TINYCOMPUTER_MODULE_PATH"),
+    }
 }

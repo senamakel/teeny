@@ -29,8 +29,8 @@ pub use kinds::{
     AgentMode, ChartRenderer, ChartTimeframe, LoreSeed, ReplyMode, ServiceRole, VideoGenApi,
 };
 pub use service::{
-    AgentConfig, BrainConfig, CadenceConfig, CortexConfig, LlmConfig, ReplyConfig, SafetyConfig,
-    ServerConfig, StoreConfig, WebhookConfig, XConfig,
+    AgentConfig, BrainConfig, CadenceConfig, CortexConfig, LlmConfig, OpenHumanConfig, ReplyConfig,
+    SafetyConfig, ServerConfig, StoreConfig, WebhookConfig, XConfig,
 };
 
 use crate::ConfigError;
@@ -63,6 +63,7 @@ pub struct Config {
     pub calendar: CalendarConfig,
     pub telegram: TelegramConfig,
     pub media: MediaConfig,
+    pub openhuman: OpenHumanConfig,
 }
 
 impl Config {

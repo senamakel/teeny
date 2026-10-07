@@ -658,3 +658,46 @@ mod from_env {
         }
     }
 }
+
+mod openhuman {
+    use super::*;
+
+    #[test]
+    fn defaults_to_a_local_data_dir_clicks_and_presses_and_no_browsing() {
+        let config = load(&[]).openhuman;
+        assert_eq!(config.data_dir, "data");
+        assert_eq!(config.chrome_path, None);
+        assert_eq!(config.unattended_actions, ["click", "press"]);
+        assert!(config.allowed_domains.is_empty(), "browsing is opt-in");
+        assert_eq!(config.tinycomputer_module_path, None);
+    }
+
+    #[test]
+    fn reads_the_runtime_and_browser_variables() {
+        let config = load(&[
+            ("TEENY_DATA", "/data"),
+            ("BROWSER_CHROME_PATH", "/usr/bin/chromium"),
+            ("BROWSE_UNATTENDED_ACTIONS", "click, fill"),
+            ("BROWSE_ALLOWED_DOMAINS", "dexscreener.com, coingecko.com"),
+            (
+                "TINYCOMPUTER_MODULE_PATH",
+                "/opt/tinycomputer/libtinycomputer.so",
+            ),
+        ])
+        .openhuman;
+        assert_eq!(config.data_dir, "/data");
+        assert_eq!(config.chrome_path.as_deref(), Some("/usr/bin/chromium"));
+        assert_eq!(config.unattended_actions, ["click", "fill"]);
+        assert_eq!(config.allowed_domains, ["dexscreener.com", "coingecko.com"]);
+        assert_eq!(
+            config.tinycomputer_module_path.as_deref(),
+            Some("/opt/tinycomputer/libtinycomputer.so")
+        );
+    }
+
+    #[test]
+    fn a_blank_action_list_allows_no_unattended_action() {
+        let config = load(&[("BROWSE_UNATTENDED_ACTIONS", "")]).openhuman;
+        assert!(config.unattended_actions.is_empty());
+    }
+}
