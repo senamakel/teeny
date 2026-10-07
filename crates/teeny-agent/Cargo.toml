@@ -12,7 +12,28 @@ publish.workspace = true
 # fixed in the workspace table so every crate that names OpenHuman agrees.
 openhuman-core.workspace = true
 openhuman-embed.workspace = true
+teeny-cadence.workspace = true
 teeny-core.workspace = true
+teeny-market.workspace = true
+teeny-media.workspace = true
+teeny-memory.workspace = true
+teeny-safety.workspace = true
+teeny-store.workspace = true
+teeny-x.workspace = true
+
+anyhow.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+futures.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+wiremock.workspace = true
 
 [lints]
 workspace = true
