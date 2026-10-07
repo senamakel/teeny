@@ -8,6 +8,8 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+# The runner over the embedded agents (`oh_runner`): turn origins and progress.
+openhuman-embed.workspace = true
 teeny-agent.workspace = true
 teeny-cadence.workspace = true
 teeny-core.workspace = true
@@ -32,6 +34,7 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+teeny-agent = { workspace = true, features = ["testkit"] }
 wiremock.workspace = true
 
 [lints]

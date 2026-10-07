@@ -7,6 +7,11 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+# A scripted OpenAI-compatible provider and the booted runtime, for the
+# posture tests here and the runner's tests in teeny-jobs.
+testkit = ["dep:wiremock"]
+
 [dependencies]
 # The trimmed OpenHuman build (`skills` + `modules` only); the feature set is
 # fixed in the workspace table so every crate that names OpenHuman agrees.
@@ -35,9 +40,12 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+wiremock = { workspace = true, optional = true }
 
 [dev-dependencies]
 wiremock.workspace = true
+# The crate itself with the test kit on, for `tests/posture.rs`.
+teeny-agent = { path = ".", features = ["testkit"] }
 
 [lints]
 workspace = true

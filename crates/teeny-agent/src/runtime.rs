@@ -31,7 +31,7 @@ use openhuman_core::config::Config as OhConfig;
 use openhuman_core::config::schema::ModuleOverride;
 use openhuman_core::core::runtime::{AGENT_WORKER_STACK_BYTES, MAX_BLOCKING_THREADS};
 use openhuman_embed::{
-    Access, DomainSet, GroupMode, Runtime, RuntimeError, ServiceSet, ToolGroups, Workspace,
+    Access, DomainSet, Runtime, RuntimeError, ServiceSet, ToolGroups, Workspace,
 };
 use teeny_core::config::OpenHumanConfig;
 use tokio::sync::OnceCell;

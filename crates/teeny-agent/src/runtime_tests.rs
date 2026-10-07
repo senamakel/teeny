@@ -5,6 +5,8 @@
 
 use std::path::{Path, PathBuf};
 
+use openhuman_embed::GroupMode;
+
 use super::*;
 
 fn settings() -> RuntimeSettings {

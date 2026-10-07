@@ -23,6 +23,7 @@ pub mod lore;
 pub mod moon;
 pub mod morning;
 pub mod narrative;
+pub mod oh_runner;
 pub mod quote;
 pub mod reply;
 pub mod runner;

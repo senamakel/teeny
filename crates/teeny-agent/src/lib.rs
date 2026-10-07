@@ -9,4 +9,6 @@ pub mod prompt;
 pub mod runtime;
 pub mod shared_tool;
 pub mod specs;
+#[cfg(feature = "testkit")]
+pub mod testkit;
 pub mod tools;
