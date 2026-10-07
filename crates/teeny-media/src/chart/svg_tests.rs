@@ -62,7 +62,13 @@ fn breaks_an_overlay_line_where_the_indicator_has_no_value() {
         ],
     }];
     let svg = render_chart_svg(&input).unwrap();
-    let path = svg.split("<path d=\"").nth(1).unwrap().split('"').next().unwrap();
+    let path = svg
+        .split("<path d=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
     // Two move commands: the gap starts a new segment rather than drawing
     // straight across it.
     assert_eq!(path.matches('M').count(), 2);
@@ -73,7 +79,10 @@ fn puts_the_header_the_change_and_the_stats_where_a_reader_looks() {
     let mut input = tiny(candles(20));
     input.name = Some("Tiny Humans AI".into());
     input.change_pct = Some(17.4);
-    input.stats = vec![Stat { label: "MC".into(), value: "$730.7K".into() }];
+    input.stats = vec![Stat {
+        label: "MC".into(),
+        value: "$730.7K".into(),
+    }];
     let svg = render_chart_svg(&input).unwrap();
     assert!(svg.contains("$TINY"));
     assert!(svg.contains("+17.40%"));
@@ -84,7 +93,11 @@ fn puts_the_header_the_change_and_the_stats_where_a_reader_looks() {
 fn keeps_an_overlay_that_runs_past_the_candles_inside_the_panel() {
     let mut input = tiny(candles(20));
     // Far above every high: the scale has to grow to include it.
-    input.overlays = vec![Overlay { label: "x".into(), color: "#fff".into(), values: vec![Some(0.002); 20] }];
+    input.overlays = vec![Overlay {
+        label: "x".into(),
+        color: "#fff".into(),
+        values: vec![Some(0.002); 20],
+    }];
     let svg = render_chart_svg(&input).unwrap();
     let ys: Vec<f64> = svg
         .split("<path d=\"M")

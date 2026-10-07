@@ -8,7 +8,11 @@ fn wavy(count: usize) -> Vec<Candle> {
             let f = i as f64;
             let base = 0.0007 + (i % 7) as f64 * 0.00002 - (i % 3) as f64 * 0.000015 + f * 0.000001;
             let open = base;
-            let close = if i % 9 == 0 { base } else { base + ((i % 4) as f64 - 1.5) * 0.00001 };
+            let close = if i % 9 == 0 {
+                base
+            } else {
+                base + ((i % 4) as f64 - 1.5) * 0.00001
+            };
             Candle {
                 t: 1_700_000_000 + i as i64 * 14_400,
                 o: open,
@@ -25,7 +29,11 @@ fn daily(count: usize) -> Vec<Candle> {
     (0..count)
         .map(|i| {
             let open = 43_000.0 + (i % 4) as f64 * 650.5 - i as f64 * 120.25;
-            let close = if i == 5 { open } else { open + ((i % 3) as f64 - 1.0) * 410.75 };
+            let close = if i == 5 {
+                open
+            } else {
+                open + ((i % 3) as f64 - 1.0) * 410.75
+            };
             Candle {
                 t: 1_704_067_200 + i as i64 * 86_400,
                 o: open,
@@ -96,8 +104,14 @@ fn rasterises_the_chart_with_something_on_it() {
     assert_eq!(image.dimensions(), (1_200, 675));
     assert_eq!(image.get_pixel(0, 0).0, [0x13, 0x17, 0x22, 0xff]);
     // Candles in both colours made it onto the canvas, fonts or no fonts.
-    let up = image.pixels().filter(|pixel| pixel.0 == [0x26, 0xa6, 0x9a, 0xff]).count();
-    let down = image.pixels().filter(|pixel| pixel.0 == [0xef, 0x53, 0x50, 0xff]).count();
+    let up = image
+        .pixels()
+        .filter(|pixel| pixel.0 == [0x26, 0xa6, 0x9a, 0xff])
+        .count();
+    let down = image
+        .pixels()
+        .filter(|pixel| pixel.0 == [0xef, 0x53, 0x50, 0xff])
+        .count();
     assert!(up > 500 && down > 500, "up {up}, down {down}");
 }
 
@@ -110,7 +124,10 @@ fn writes_the_png_where_asked_named_by_symbol_and_timeframe() {
     let rendered = render_chart(&request).unwrap();
     let path = rendered.path.clone().unwrap();
     let name = path.file_name().unwrap().to_str().unwrap().to_owned();
-    assert!(name.starts_with("TINY-4h-") && name.ends_with(".png"), "{name}");
+    assert!(
+        name.starts_with("TINY-4h-") && name.ends_with(".png"),
+        "{name}"
+    );
     assert_eq!(std::fs::read(&path).unwrap(), rendered.png);
     // The symbol from the request wins over the overview's, cashtag kept once.
     assert!(rendered.svg.contains(">$TI-NY<"));
@@ -126,6 +143,9 @@ fn refuses_a_chart_with_no_candles() {
 #[test]
 fn seeds_the_ema_on_the_simple_average_of_the_first_period() {
     let values = [1.0, 2.0, 3.0, 4.0, 5.0];
-    assert_eq!(ema(&values, 3), vec![None, None, Some(2.0), Some(3.0), Some(4.0)]);
+    assert_eq!(
+        ema(&values, 3),
+        vec![None, None, Some(2.0), Some(3.0), Some(4.0)]
+    );
     assert_eq!(ema(&values, 6), vec![None; 5]);
 }

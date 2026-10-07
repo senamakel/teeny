@@ -36,7 +36,14 @@ struct Endpoint {
 
 impl Endpoint {
     fn new(base_url: String, api_key: String, model: String) -> Self {
-        Self { client: reqwest::Client::new(), base_url, api_key, model, timeout: DEFAULT_TIMEOUT, poll: DEFAULT_POLL }
+        Self {
+            client: reqwest::Client::new(),
+            base_url,
+            api_key,
+            model,
+            timeout: DEFAULT_TIMEOUT,
+            poll: DEFAULT_POLL,
+        }
     }
 
     fn url(&self, path: &str) -> String {
@@ -57,15 +64,30 @@ impl Endpoint {
     }
 
     async fn get_text(&self, url: &str) -> Result<(u16, String)> {
-        let response = self.client.get(url).bearer_auth(&self.api_key).timeout(STATUS_TIMEOUT).send().await?;
+        let response = self
+            .client
+            .get(url)
+            .bearer_auth(&self.api_key)
+            .timeout(STATUS_TIMEOUT)
+            .send()
+            .await?;
         let status = response.status().as_u16();
         Ok((status, response.text().await.unwrap_or_default()))
     }
 
     async fn download(&self, url: &str, id: &str) -> Result<Vec<u8>> {
-        let response = self.client.get(url).bearer_auth(&self.api_key).timeout(DOWNLOAD_TIMEOUT).send().await?;
+        let response = self
+            .client
+            .get(url)
+            .bearer_auth(&self.api_key)
+            .timeout(DOWNLOAD_TIMEOUT)
+            .send()
+            .await?;
         if !response.status().is_success() {
-            return Err(Error::failed(format!("video download failed ({})", response.status().as_u16())));
+            return Err(Error::failed(format!(
+                "video download failed ({})",
+                response.status().as_u16()
+            )));
         }
         let data = response.bytes().await?.to_vec();
         if data.is_empty() {
@@ -95,8 +117,15 @@ pub struct OpenAiVideoGenerator {
 impl OpenAiVideoGenerator {
     /// A generator on this endpoint and model: ten-minute deadline, ten-second
     /// polls, four-second clips unless asked otherwise.
-    pub fn new(base_url: impl Into<String>, api_key: impl Into<String>, model: impl Into<String>) -> Self {
-        Self { endpoint: Endpoint::new(base_url.into(), api_key.into(), model.into()), seconds: None }
+    pub fn new(
+        base_url: impl Into<String>,
+        api_key: impl Into<String>,
+        model: impl Into<String>,
+    ) -> Self {
+        Self {
+            endpoint: Endpoint::new(base_url.into(), api_key.into(), model.into()),
+            seconds: None,
+        }
     }
 
     /// Clip length when a request names none. Sora accepts 4, 8 or 12.
@@ -124,7 +153,10 @@ impl VideoGenerator for OpenAiVideoGenerator {
         let api = &self.endpoint;
         // Sora takes 4, 8 or 12 and nothing else; an ask in between rounds up.
         let wanted = request.seconds.or(self.seconds).unwrap_or(4);
-        let seconds = SORA_SECONDS.into_iter().find(|step| *step >= wanted).unwrap_or(12);
+        let seconds = SORA_SECONDS
+            .into_iter()
+            .find(|step| *step >= wanted)
+            .unwrap_or(12);
         let (status, text) = api
             .post(
                 "/videos",
@@ -138,14 +170,27 @@ impl VideoGenerator for OpenAiVideoGenerator {
             )
             .await?;
         let job = parse(&text);
-        let id = job.get("id").and_then(Value::as_str).filter(|id| !id.is_empty());
+        let id = job
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty());
         let (true, Some(id)) = (is_success(status), id) else {
-            return Err(Error::failed(format!("video generation failed ({status}): {}", error_detail(&job))));
+            return Err(Error::failed(format!(
+                "video generation failed ({status}): {}",
+                error_detail(&job)
+            )));
         };
 
         let deadline = Instant::now() + api.timeout;
-        let mut state = job.get("status").and_then(Value::as_str).unwrap_or("queued").to_owned();
-        let mut failure = job.pointer("/error/message").and_then(Value::as_str).map(str::to_owned);
+        let mut state = job
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("queued")
+            .to_owned();
+        let mut failure = job
+            .pointer("/error/message")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         let status_url = api.url(&format!("/videos/{}", encode_component(id)));
         while state != "completed" {
             if state == "failed" {
@@ -155,13 +200,18 @@ impl VideoGenerator for OpenAiVideoGenerator {
                 )));
             }
             if Instant::now() >= deadline {
-                return Err(Error::failed(format!("video {id} was still {state} at the deadline")));
+                return Err(Error::failed(format!(
+                    "video {id} was still {state} at the deadline"
+                )));
             }
             tokio::time::sleep(api.poll).await;
             let (status, text) = api.get_text(&status_url).await?;
             let next = parse(&text);
             if !is_success(status) {
-                return Err(Error::failed(format!("video status failed ({status}): {}", error_detail(&next))));
+                return Err(Error::failed(format!(
+                    "video status failed ({status}): {}",
+                    error_detail(&next)
+                )));
             }
             if let Some(next_state) = next.get("status").and_then(Value::as_str) {
                 state = next_state.to_owned();
@@ -172,7 +222,10 @@ impl VideoGenerator for OpenAiVideoGenerator {
         }
 
         let data = api.download(&format!("{status_url}/content"), id).await?;
-        Ok(GeneratedVideo { data, seconds: Some(seconds) })
+        Ok(GeneratedVideo {
+            data,
+            seconds: Some(seconds),
+        })
     }
 }
 
@@ -199,8 +252,22 @@ fn aspect(orientation: VideoOrientation) -> &'static str {
     }
 }
 
-const DONE: [&str; 6] = ["completed", "succeeded", "success", "done", "finished", "ready"];
-const DEAD: [&str; 6] = ["failed", "error", "canceled", "cancelled", "expired", "rejected"];
+const DONE: [&str; 6] = [
+    "completed",
+    "succeeded",
+    "success",
+    "done",
+    "finished",
+    "ready",
+];
+const DEAD: [&str; 6] = [
+    "failed",
+    "error",
+    "canceled",
+    "cancelled",
+    "expired",
+    "rejected",
+];
 
 /// Video generation through the LLM ladder: `POST /video/generations` answers
 /// 202 with a `media.job`, `GET /video/generations/{id}` is polled until it
@@ -220,8 +287,14 @@ pub struct LadderVideoGenerator {
 impl LadderVideoGenerator {
     /// A generator on this endpoint and model: ten-minute deadline, ten-second
     /// polls.
-    pub fn new(base_url: impl Into<String>, api_key: impl Into<String>, model: impl Into<String>) -> Self {
-        Self { endpoint: Endpoint::new(base_url.into(), api_key.into(), model.into()) }
+    pub fn new(
+        base_url: impl Into<String>,
+        api_key: impl Into<String>,
+        model: impl Into<String>,
+    ) -> Self {
+        Self {
+            endpoint: Endpoint::new(base_url.into(), api_key.into(), model.into()),
+        }
     }
 
     /// How long to wait for a render before giving up.
@@ -244,14 +317,25 @@ impl VideoGenerator for LadderVideoGenerator {
         let mut body = Map::new();
         body.insert("model".into(), json!(api.model));
         body.insert("prompt".into(), json!(request.prompt));
-        body.insert("aspect_ratio".into(), json!(aspect(request.orientation.unwrap_or_default())));
+        body.insert(
+            "aspect_ratio".into(),
+            json!(aspect(request.orientation.unwrap_or_default())),
+        );
         if let Some(seconds) = request.seconds.filter(|seconds| *seconds > 0) {
             length_fields(&mut body, seconds);
         }
         let (status, text) = api.post("/video/generations", &Value::Object(body)).await?;
         let mut job = JobNode::parse(&text);
-        let Some(id) = job.get("id").and_then(JobNode::as_str).map(str::to_owned).filter(|_| is_success(status)) else {
-            return Err(Error::failed(format!("video generation failed ({status}): {}", job.error_message())));
+        let Some(id) = job
+            .get("id")
+            .and_then(JobNode::as_str)
+            .map(str::to_owned)
+            .filter(|_| is_success(status))
+        else {
+            return Err(Error::failed(format!(
+                "video generation failed ({status}): {}",
+                job.error_message()
+            )));
         };
 
         let deadline = Instant::now() + api.timeout;
@@ -268,19 +352,27 @@ impl VideoGenerator for LadderVideoGenerator {
                 )));
             }
             if Instant::now() >= deadline {
-                return Err(Error::failed(format!("video {id} was still {state} at the deadline")));
+                return Err(Error::failed(format!(
+                    "video {id} was still {state} at the deadline"
+                )));
             }
             tokio::time::sleep(api.poll).await;
             let (status, text) = api.get_text(&status_url).await?;
             let next = JobNode::parse(&text);
             if !is_success(status) {
-                return Err(Error::failed(format!("video status failed ({status}): {}", next.error_message())));
+                return Err(Error::failed(format!(
+                    "video status failed ({status}): {}",
+                    next.error_message()
+                )));
             }
             job = next;
         }
 
         if let Some(data) = base64_of(&job) {
-            return Ok(GeneratedVideo { data, seconds: None });
+            return Ok(GeneratedVideo {
+                data,
+                seconds: None,
+            });
         }
         let Some(url) = video_url_of(&job) else {
             return Err(Error::failed(format!(
@@ -289,7 +381,10 @@ impl VideoGenerator for LadderVideoGenerator {
             )));
         };
         let data = api.download(&url, &id).await?;
-        Ok(GeneratedVideo { data, seconds: None })
+        Ok(GeneratedVideo {
+            data,
+            seconds: None,
+        })
     }
 }
 
@@ -315,7 +410,10 @@ impl JobNode {
 
     fn get(&self, key: &str) -> Option<&Self> {
         match self {
-            Self::Object(entries) => entries.iter().find(|(name, _)| name == key).map(|(_, value)| value),
+            Self::Object(entries) => entries
+                .iter()
+                .find(|(name, _)| name == key)
+                .map(|(_, value)| value),
             _ => None,
         }
     }
@@ -346,7 +444,10 @@ impl JobNode {
     }
 
     fn error_message(&self) -> &str {
-        self.get("error").and_then(|error| error.get("message")).and_then(Self::as_str).unwrap_or("no detail")
+        self.get("error")
+            .and_then(|error| error.get("message"))
+            .and_then(Self::as_str)
+            .unwrap_or("no detail")
     }
 
     /// The job's own words for why it died.
@@ -398,14 +499,20 @@ impl<'de> Deserialize<'de> for JobNode {
             fn visit_string<E>(self, value: String) -> std::result::Result<JobNode, E> {
                 Ok(JobNode::String(value))
             }
-            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> std::result::Result<JobNode, A::Error> {
+            fn visit_seq<A: SeqAccess<'de>>(
+                self,
+                mut seq: A,
+            ) -> std::result::Result<JobNode, A::Error> {
                 let mut items = Vec::new();
                 while let Some(item) = seq.next_element()? {
                     items.push(item);
                 }
                 Ok(JobNode::Array(items))
             }
-            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<JobNode, A::Error> {
+            fn visit_map<A: MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> std::result::Result<JobNode, A::Error> {
                 let mut entries: Vec<(String, JobNode)> = Vec::new();
                 while let Some((key, value)) = map.next_entry::<String, JobNode>()? {
                     // A repeated key keeps its first place and its last value,
@@ -435,7 +542,11 @@ fn urls_in(value: &JobNode, skip: &[&str], path: &str, found: &mut Vec<(String, 
         }
         JobNode::Object(entries) => {
             for (key, entry) in entries {
-                let here = if path.is_empty() { key.clone() } else { format!("{path}.{key}") };
+                let here = if path.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{path}.{key}")
+                };
                 match entry {
                     JobNode::String(text) => {
                         let is_url_key = key.to_lowercase().ends_with("url");
@@ -456,17 +567,27 @@ fn urls_in(value: &JobNode, skip: &[&str], path: &str, found: &mut Vec<(String, 
 /// anything filed under a key that says video, then anything not filed under a
 /// key that says it is a still (thumbnail, preview, poster, image).
 pub(crate) fn video_url_of(job: &JobNode) -> Option<String> {
-    let skip: Vec<&str> = ["poll_url", "cancel_url"].iter().filter_map(|key| job.get(key)?.as_str()).collect();
+    let skip: Vec<&str> = ["poll_url", "cancel_url"]
+        .iter()
+        .filter_map(|key| job.get(key)?.as_str())
+        .collect();
     let mut urls = Vec::new();
     urls_in(job, &skip, "", &mut urls);
     let is_mp4 = |url: &str| {
         let lower = url.to_lowercase();
         lower.ends_with(".mp4") || lower.contains(".mp4?")
     };
-    let still = |path: &str| ["thumb", "preview", "poster", "image", "cover"].iter().any(|word| path.contains(word));
+    let still = |path: &str| {
+        ["thumb", "preview", "poster", "image", "cover"]
+            .iter()
+            .any(|word| path.contains(word))
+    };
     urls.iter()
         .find(|(url, _)| is_mp4(url))
-        .or_else(|| urls.iter().find(|(_, path)| path.contains("video") || path.contains("clip")))
+        .or_else(|| {
+            urls.iter()
+                .find(|(_, path)| path.contains("video") || path.contains("clip"))
+        })
         .or_else(|| urls.iter().find(|(_, path)| !still(path)))
         .or_else(|| urls.first())
         .map(|(url, _)| url.clone())
@@ -474,14 +595,22 @@ pub(crate) fn video_url_of(job: &JobNode) -> Option<String> {
 
 /// An inline clip, when the job carries one.
 fn base64_of(job: &JobNode) -> Option<Vec<u8>> {
-    let candidates = [job.get("b64_json"), job.get("video_base64"), job.get("output").and_then(|output| output.get("b64_json"))];
+    let candidates = [
+        job.get("b64_json"),
+        job.get("video_base64"),
+        job.get("output").and_then(|output| output.get("b64_json")),
+    ];
     for candidate in candidates.into_iter().flatten() {
         if let Some(text) = candidate.as_str().filter(|text| !text.is_empty()) {
             return Some(decode_base64_lenient(text));
         }
     }
     match job.get("data") {
-        Some(JobNode::Array(items)) => items.first()?.get("b64_json")?.as_str().map(decode_base64_lenient),
+        Some(JobNode::Array(items)) => items
+            .first()?
+            .get("b64_json")?
+            .as_str()
+            .map(decode_base64_lenient),
         _ => None,
     }
 }

@@ -62,7 +62,11 @@ pub struct OpenAiImageGenerator {
 
 impl OpenAiImageGenerator {
     /// A generator on this endpoint and model, with the legacy 180 s timeout.
-    pub fn new(base_url: impl Into<String>, api_key: impl Into<String>, model: impl Into<String>) -> Self {
+    pub fn new(
+        base_url: impl Into<String>,
+        api_key: impl Into<String>,
+        model: impl Into<String>,
+    ) -> Self {
         Self {
             client: reqwest::Client::new(),
             base_url: base_url.into(),
@@ -132,15 +136,26 @@ impl ImageGenerator for OpenAiImageGenerator {
         }
         let first = answer.pointer("/data/0");
         let field = |name: &str| {
-            first.and_then(|first| first.get(name)).and_then(Value::as_str).filter(|value| !value.is_empty())
+            first
+                .and_then(|first| first.get(name))
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
         };
         if let Some(encoded) = field("b64_json") {
             return typed(decode_base64_lenient(encoded));
         }
         if let Some(url) = field("url") {
-            let download = self.client.get(url).timeout(DOWNLOAD_TIMEOUT).send().await?;
+            let download = self
+                .client
+                .get(url)
+                .timeout(DOWNLOAD_TIMEOUT)
+                .send()
+                .await?;
             if !download.status().is_success() {
-                return Err(Error::failed(format!("image download failed ({})", download.status().as_u16())));
+                return Err(Error::failed(format!(
+                    "image download failed ({})",
+                    download.status().as_u16()
+                )));
             }
             return typed(download.bytes().await?.to_vec());
         }
@@ -150,9 +165,16 @@ impl ImageGenerator for OpenAiImageGenerator {
 
 fn typed(data: Vec<u8>) -> Result<GeneratedImage> {
     match sniff(&data) {
-        Some(mime_type @ (MimeType::Png | MimeType::Jpeg | MimeType::Webp)) => Ok(GeneratedImage { data, mime_type }),
-        Some(other) => Err(Error::failed(format!("image generation returned {}", other.as_str()))),
-        None => Err(Error::failed("image generation returned something that is not an image")),
+        Some(mime_type @ (MimeType::Png | MimeType::Jpeg | MimeType::Webp)) => {
+            Ok(GeneratedImage { data, mime_type })
+        }
+        Some(other) => Err(Error::failed(format!(
+            "image generation returned {}",
+            other.as_str()
+        ))),
+        None => Err(Error::failed(
+            "image generation returned something that is not an image",
+        )),
     }
 }
 

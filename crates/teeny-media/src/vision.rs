@@ -45,11 +45,18 @@ pub fn is_fetchable_image_url(raw: &str) -> bool {
         return false;
     };
     let host = host.to_lowercase();
-    if host == "localhost" || host.ends_with(".localhost") || host.ends_with(".local") || host.ends_with(".internal") {
+    if host == "localhost"
+        || host.ends_with(".localhost")
+        || host.ends_with(".local")
+        || host.ends_with(".internal")
+    {
         return false;
     }
     // Anything that parses as an address rather than a name.
-    let numeric = !host.is_empty() && host.chars().all(|character| character.is_ascii_digit() || character == '.');
+    let numeric = !host.is_empty()
+        && host
+            .chars()
+            .all(|character| character.is_ascii_digit() || character == '.');
     !(numeric || host.contains(':') || (host.starts_with('[') && host.ends_with(']')))
 }
 
@@ -78,17 +85,25 @@ pub fn sniff(data: &[u8]) -> Option<MimeType> {
 /// image, and that it is small enough to send on.
 pub async fn fetch_image(client: &reqwest::Client, url: &str) -> Result<(Vec<u8>, MimeType)> {
     if !is_fetchable_image_url(url) {
-        return Err(Error::failed(format!("refusing to fetch {url}: only public https image URLs are read")));
+        return Err(Error::failed(format!(
+            "refusing to fetch {url}: only public https image URLs are read"
+        )));
     }
     download_image(client, url).await
 }
 
 /// [`fetch_image`] past the URL check.
-pub(crate) async fn download_image(client: &reqwest::Client, url: &str) -> Result<(Vec<u8>, MimeType)> {
+pub(crate) async fn download_image(
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<(Vec<u8>, MimeType)> {
     let response = client.get(url).timeout(FETCH_TIMEOUT).send().await?;
     let status = response.status();
     if !status.is_success() {
-        return Err(Error::failed(format!("image fetch failed ({}) for {url}", status.as_u16())));
+        return Err(Error::failed(format!(
+            "image fetch failed ({}) for {url}",
+            status.as_u16()
+        )));
     }
     let declared = response
         .headers()
@@ -105,8 +120,14 @@ pub(crate) async fn download_image(client: &reqwest::Client, url: &str) -> Resul
         )));
     }
     let Some(mime_type) = MimeType::image_from_header(&declared).or_else(|| sniff(&data)) else {
-        let declared = if declared.is_empty() { "unknown" } else { declared.as_str() };
-        return Err(Error::failed(format!("{url} did not return an image (content-type {declared})")));
+        let declared = if declared.is_empty() {
+            "unknown"
+        } else {
+            declared.as_str()
+        };
+        return Err(Error::failed(format!(
+            "{url} did not return an image (content-type {declared})"
+        )));
     };
     Ok((data, mime_type))
 }
@@ -126,7 +147,11 @@ pub struct OpenAiVisionReader {
 
 impl OpenAiVisionReader {
     /// A reader on this endpoint and model, with the legacy 60 s timeout.
-    pub fn new(base_url: impl Into<String>, api_key: impl Into<String>, model: impl Into<String>) -> Self {
+    pub fn new(
+        base_url: impl Into<String>,
+        api_key: impl Into<String>,
+        model: impl Into<String>,
+    ) -> Self {
         Self {
             client: reqwest::Client::new(),
             base_url: base_url.into(),
@@ -161,8 +186,15 @@ impl ImageReader for OpenAiVisionReader {
                 data.len()
             )));
         }
-        let question = question.map(str::trim).filter(|question| !question.is_empty()).unwrap_or(DEFAULT_QUESTION);
-        let data_url = format!("data:{};base64,{}", mime_type.as_str(), BASE64.encode(&data));
+        let question = question
+            .map(str::trim)
+            .filter(|question| !question.is_empty())
+            .unwrap_or(DEFAULT_QUESTION);
+        let data_url = format!(
+            "data:{};base64,{}",
+            mime_type.as_str(),
+            BASE64.encode(&data)
+        );
         let response = self
             .client
             .post(endpoint(&self.base_url, "/chat/completions"))
@@ -203,7 +235,9 @@ impl ImageReader for OpenAiVisionReader {
         };
         let trimmed = text.trim();
         if trimmed.is_empty() {
-            return Err(Error::failed("the vision model returned an empty description"));
+            return Err(Error::failed(
+                "the vision model returned an empty description",
+            ));
         }
         Ok(trimmed.to_owned())
     }

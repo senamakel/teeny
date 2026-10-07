@@ -78,6 +78,9 @@ fn rounds_ties_away_from_zero_like_to_fixed() {
 fn rounds_to_significant_figures_like_to_precision() {
     assert_eq!(to_precision_number(0.30000000000000004, 12), 0.3);
     assert_eq!(to_precision_number(0.000700000000000001, 12), 0.0007);
-    assert_eq!(to_precision_number(123_456_789_012_345.0, 12), 123_456_789_012_000.0);
+    assert_eq!(
+        to_precision_number(123_456_789_012_345.0, 12),
+        123_456_789_012_000.0
+    );
     assert_eq!(to_precision_number(0.0, 12), 0.0);
 }

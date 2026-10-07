@@ -104,7 +104,9 @@ pub fn ladder(
     // that reads "1.04x" next to the token makes the strip look like a typo.
     let mut above: Vec<&ListedCoin> = board
         .iter()
-        .filter(|coin| coin.id != token.id && coin.market_cap_usd / token.market_cap_usd >= min_multiple)
+        .filter(|coin| {
+            coin.id != token.id && coin.market_cap_usd / token.market_cap_usd >= min_multiple
+        })
         .collect();
     above.sort_by(|a, b| a.market_cap_usd.total_cmp(&b.market_cap_usd));
     let (Some(lowest), Some(highest)) = (above.first(), above.last()) else {
@@ -118,7 +120,11 @@ pub fn ladder(
         if chosen.len() >= count {
             break;
         }
-        let wanted = if slots == 1 { high } else { low + ((high - low) * slot as f64) / (slots - 1) as f64 };
+        let wanted = if slots == 1 {
+            high
+        } else {
+            low + ((high - low) * slot as f64) / (slots - 1) as f64
+        };
         // The coin nearest the wanted cap that is not already on the ladder.
         let distance = |coin: &ListedCoin| (coin.market_cap_usd.log10() - wanted).abs();
         let nearest = above
@@ -186,7 +192,11 @@ pub fn render_moon_svg(input: &MoonChartInput) -> String {
         r#"<clipPath id="disc-fighter"><circle cx="0" cy="0" r="64"/></clipPath>"#.to_owned(),
         r#"<clipPath id="disc-token"><circle cx="0" cy="0" r="14"/></clipPath>"#.to_owned(),
         "</defs>".to_owned(),
-        format!(r#"<rect width="{}" height="{}" fill="url(#sky)"/>"#, n(width), n(height)),
+        format!(
+            r#"<rect width="{}" height="{}" fill="url(#sky)"/>"#,
+            n(width),
+            n(height)
+        ),
     ];
 
     // A few stars, fixed by arithmetic rather than random so the same input
@@ -215,7 +225,14 @@ pub fn render_moon_svg(input: &MoonChartInput) -> String {
     let ring_y = 168.0;
     let left_x = 300.0;
     let right_x = width - 300.0;
-    parts.push(fighter(left_x, ring_y, token, input.token_logo.as_ref(), BASE.fast, &position(token, input)));
+    parts.push(fighter(
+        left_x,
+        ring_y,
+        token,
+        input.token_logo.as_ref(),
+        BASE.fast,
+        &position(token, input),
+    ));
     parts.push(fighter(
         right_x,
         ring_y,
@@ -298,19 +315,30 @@ pub fn render_moon_svg(input: &MoonChartInput) -> String {
     let track_y = 562.0;
     let track_left = 168.0;
     let track_right = width - 168.0;
-    let rungs: Vec<&Rung> =
-        input.ladder.iter().filter(|entry| entry.coin.market_cap_usd > token.market_cap_usd).collect();
-    let highest = rungs
+    let rungs: Vec<&Rung> = input
+        .ladder
         .iter()
-        .map(|entry| entry.coin.market_cap_usd)
-        .fold(target.coin.market_cap_usd, |max, cap| if cap.is_nan() || max.is_nan() { f64::NAN } else { max.max(cap) });
+        .filter(|entry| entry.coin.market_cap_usd > token.market_cap_usd)
+        .collect();
+    let highest = rungs.iter().map(|entry| entry.coin.market_cap_usd).fold(
+        target.coin.market_cap_usd,
+        |max, cap| {
+            if cap.is_nan() || max.is_nan() {
+                f64::NAN
+            } else {
+                max.max(cap)
+            }
+        },
+    );
     let low_log = token.market_cap_usd.log10();
     let high_log = highest.log10();
     let x_of = |cap: f64| {
         if high_log == low_log {
             track_left
         } else {
-            track_left + ((cap.log10() - low_log) / (high_log - low_log)) * (track_right - track_left - 48.0)
+            track_left
+                + ((cap.log10() - low_log) / (high_log - low_log))
+                    * (track_right - track_left - 48.0)
         }
     };
 
@@ -321,7 +349,14 @@ pub fn render_moon_svg(input: &MoonChartInput) -> String {
         n(track_right - track_left),
     ));
     // The token at the left end, where it is today; the moon at the right.
-    parts.push(disc(track_left, track_y, 14.0, token, input.token_logo.as_ref(), "disc-token"));
+    parts.push(disc(
+        track_left,
+        track_y,
+        14.0,
+        token,
+        input.token_logo.as_ref(),
+        "disc-token",
+    ));
     parts.push(format!(
         r#"<text x="{}" y="{}" fill="{}" font-size="16" font-weight="700" text-anchor="end">{}</text>"#,
         n(track_left - 24.0),
@@ -336,7 +371,11 @@ pub fn render_moon_svg(input: &MoonChartInput) -> String {
         BASE.muted,
         escape_xml(&compact_usd(token.market_cap_usd)),
     ));
-    parts.push(format!(r#"<circle cx="{}" cy="{}" r="18" fill="{MOON}"/>"#, n(track_right + 24.0), n(track_y)));
+    parts.push(format!(
+        r#"<circle cx="{}" cy="{}" r="18" fill="{MOON}"/>"#,
+        n(track_right + 24.0),
+        n(track_y)
+    ));
     parts.push(format!(
         r#"<circle cx="{}" cy="{}" r="4" fill="{MOON_SHADE}"/>"#,
         n(track_right + 18.0),
@@ -351,7 +390,10 @@ pub fn render_moon_svg(input: &MoonChartInput) -> String {
     // Rungs, in two lanes so labels can be twice as dense as the strip is
     // wide, and pushed apart within a lane: the strip is log-scaled and two
     // coins a few percent apart would otherwise land on the same pixel.
-    let mut placed: Vec<(&Rung, f64)> = rungs.iter().map(|entry| (*entry, x_of(entry.coin.market_cap_usd))).collect();
+    let mut placed: Vec<(&Rung, f64)> = rungs
+        .iter()
+        .map(|entry| (*entry, x_of(entry.coin.market_cap_usd)))
+        .collect();
     placed.sort_by(|a, b| a.1.total_cmp(&b.1));
     for lane in 0..2 {
         let mut floor = track_left + 24.0;
@@ -367,13 +409,25 @@ pub fn render_moon_svg(input: &MoonChartInput) -> String {
         let lit = entry.coin.id == target.coin.id;
         let tag = cashtag(&entry.coin.symbol);
         let above = index % 2 == 0;
-        let tag_y = if above { track_y - 34.0 } else { track_y + 40.0 };
-        let detail_y = if above { track_y - 16.0 } else { track_y + 58.0 };
+        let tag_y = if above {
+            track_y - 34.0
+        } else {
+            track_y + 40.0
+        };
+        let detail_y = if above {
+            track_y - 16.0
+        } else {
+            track_y + 58.0
+        };
         if lit {
             parts.push(format!(
                 r#"<rect x="{}" y="{}" width="116" height="48" rx="10" fill="{ACCENT_SOFT}"/>"#,
                 n(x - 58.0),
-                n(if above { track_y - 52.0 } else { track_y + 22.0 }),
+                n(if above {
+                    track_y - 52.0
+                } else {
+                    track_y + 22.0
+                }),
             ));
         }
         parts.push(format!(
@@ -381,7 +435,11 @@ pub fn render_moon_svg(input: &MoonChartInput) -> String {
             n(x),
             n(track_y),
             n(x),
-            n(if above { track_y - 10.0 } else { track_y + 10.0 }),
+            n(if above {
+                track_y - 10.0
+            } else {
+                track_y + 10.0
+            }),
             if lit { ACCENT } else { BASE.muted },
         ));
         parts.push(format!(
@@ -405,12 +463,18 @@ pub fn render_moon_svg(input: &MoonChartInput) -> String {
             n(x),
             n(detail_y),
             if lit { BASE.text } else { BASE.muted },
-            escape_xml(&format!("{} · {}", compact_usd(entry.coin.market_cap_usd), multiple(entry.multiple))),
+            escape_xml(&format!(
+                "{} · {}",
+                compact_usd(entry.coin.market_cap_usd),
+                multiple(entry.multiple)
+            )),
         ));
     }
 
     // --- the fine print -----------------------------------------------------
-    let board_size = input.board_size.map_or_else(String::new, |size| format!(" ({size} coins)"));
+    let board_size = input
+        .board_size
+        .map_or_else(String::new, |size| format!(" ({size} coins)"));
     parts.push(format!(
         r#"<text x="{}" y="{}" fill="{}" font-size="13">{}</text>"#,
         n(panel_x),
@@ -437,14 +501,25 @@ pub fn render_moon_svg(input: &MoonChartInput) -> String {
 
 /// One side of the versus: the logo in a coloured ring, the ticker, the name
 /// and place, the cap and price.
-fn fighter(cx: f64, cy: f64, coin: &ListedCoin, logo: Option<&Logo>, ring: &str, place: &str) -> String {
+fn fighter(
+    cx: f64,
+    cy: f64,
+    coin: &ListedCoin,
+    logo: Option<&Logo>,
+    ring: &str,
+    place: &str,
+) -> String {
     let n = js_number;
     let tag = cashtag(&coin.symbol);
     let change = coin.change_24h_pct.map_or_else(String::new, |change| {
         format!(
             r#" · <tspan fill="{}">{}</tspan>"#,
             if change >= 0.0 { BASE.up } else { BASE.down },
-            escape_xml(&format!("{}{}% 24h", if change >= 0.0 { "+" } else { "" }, to_fixed(change, 1))),
+            escape_xml(&format!(
+                "{}{}% 24h",
+                if change >= 0.0 { "+" } else { "" },
+                to_fixed(change, 1)
+            )),
         )
     });
     [
@@ -479,7 +554,9 @@ fn fighter(cx: f64, cy: f64, coin: &ListedCoin, logo: Option<&Logo>, ring: &str,
 /// not from a board.
 fn position(coin: &ListedCoin, input: &MoonChartInput) -> String {
     if let Some(board_rank) = coin.board_rank {
-        let of = input.board_size.map_or_else(String::new, |size| format!(" of {size}"));
+        let of = input
+            .board_size
+            .map_or_else(String::new, |size| format!(" of {size}"));
         return format!(" · #{board_rank}{of} {}", input.board_name);
     }
     if let Some(rank) = coin.rank {
@@ -489,14 +566,22 @@ fn position(coin: &ListedCoin, input: &MoonChartInput) -> String {
 }
 
 fn cashtag(symbol: &str) -> String {
-    if symbol.starts_with('$') { symbol.to_owned() } else { format!("${symbol}") }
+    if symbol.starts_with('$') {
+        symbol.to_owned()
+    } else {
+        format!("${symbol}")
+    }
 }
 
 /// A coin's logo in a circle, or a disc with its initial when there is none.
 fn disc(cx: f64, cy: f64, r: f64, coin: &ListedCoin, logo: Option<&Logo>, clip: &str) -> String {
     let n = js_number;
     if let Some(logo) = logo {
-        let href = format!("data:{};base64,{}", logo.mime_type, BASE64.encode(&logo.data));
+        let href = format!(
+            "data:{};base64,{}",
+            logo.mime_type,
+            BASE64.encode(&logo.data)
+        );
         return format!(
             r#"<g transform="translate({} {})" clip-path="url(#{clip})"><circle cx="0" cy="0" r="{}" fill="{CARD}"/><image href="{href}" x="{}" y="{}" width="{}" height="{}" preserveAspectRatio="xMidYMid slice"/></g>"#,
             n(cx),
@@ -509,7 +594,10 @@ fn disc(cx: f64, cy: f64, r: f64, coin: &ListedCoin, logo: Option<&Logo>, clip: 
         );
     }
     let bare = coin.symbol.strip_prefix('$').unwrap_or(&coin.symbol);
-    let letter = bare.chars().next().map_or_else(|| "?".to_owned(), |first| first.to_uppercase().collect());
+    let letter = bare
+        .chars()
+        .next()
+        .map_or_else(|| "?".to_owned(), |first| first.to_uppercase().collect());
     format!(
         r#"<circle cx="{}" cy="{}" r="{}" fill="{CARD}" stroke="{CARD_BORDER}" stroke-width="2"/><text x="{}" y="{}" fill="{}" font-size="{}" font-weight="700" text-anchor="middle">{}</text>"#,
         n(cx),

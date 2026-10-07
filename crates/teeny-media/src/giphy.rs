@@ -83,7 +83,9 @@ impl GiphyClient {
     fn url(&self, path: &str, query: &[(&str, &str)]) -> Result<Url> {
         let mut url = Url::parse(&format!("{}{path}", self.base_url.trim_end_matches('/')))
             .map_err(|error| Error::failed(format!("bad Giphy URL: {error}")))?;
-        url.query_pairs_mut().append_pair("api_key", &self.api_key).extend_pairs(query);
+        url.query_pairs_mut()
+            .append_pair("api_key", &self.api_key)
+            .extend_pairs(query);
         Ok(url)
     }
 }
@@ -92,20 +94,36 @@ impl GiphyClient {
 impl GifSource for GiphyClient {
     async fn search(&self, query: &str, channel_only: bool) -> Result<Vec<Gif>> {
         let channel = self.channel.strip_prefix('@').unwrap_or(&self.channel);
-        let scoped = if channel_only { format!("@{channel} {query}").trim().to_owned() } else { query.to_owned() };
+        let scoped = if channel_only {
+            format!("@{channel} {query}").trim().to_owned()
+        } else {
+            query.to_owned()
+        };
         let limit = self.limit.to_string();
         let url = self.url(
             "/v1/gifs/search",
-            &[("q", &scoped), ("limit", &limit), ("rating", "g"), ("bundle", "messaging_non_clips")],
+            &[
+                ("q", &scoped),
+                ("limit", &limit),
+                ("rating", "g"),
+                ("bundle", "messaging_non_clips"),
+            ],
         )?;
         let response = self.client.get(url).timeout(API_TIMEOUT).send().await?;
         let status = response.status();
         if !status.is_success() {
             let text = response.text().await.unwrap_or_default();
-            return Err(Error::failed(format!("Giphy search failed ({}): {text}", status.as_u16())));
+            return Err(Error::failed(format!(
+                "Giphy search failed ({}): {text}",
+                status.as_u16()
+            )));
         }
         let body: Value = response.json().await?;
-        let found = body.get("data").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+        let found = body
+            .get("data")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
         Ok(found.iter().filter_map(to_gif).collect())
     }
 
@@ -118,14 +136,22 @@ impl GifSource for GiphyClient {
         }
         if !status.is_success() {
             let text = response.text().await.unwrap_or_default();
-            return Err(Error::failed(format!("Giphy lookup failed ({}): {text}", status.as_u16())));
+            return Err(Error::failed(format!(
+                "Giphy lookup failed ({}): {text}",
+                status.as_u16()
+            )));
         }
         let body: Value = response.json().await?;
         Ok(body.get("data").and_then(to_gif))
     }
 
     async fn download(&self, gif: &Gif) -> Result<(Vec<u8>, MimeType)> {
-        let response = self.client.get(&gif.media_url).timeout(DOWNLOAD_TIMEOUT).send().await?;
+        let response = self
+            .client
+            .get(&gif.media_url)
+            .timeout(DOWNLOAD_TIMEOUT)
+            .send()
+            .await?;
         if !response.status().is_success() {
             return Err(Error::failed(format!(
                 "Giphy download failed ({}) for {}",
@@ -160,7 +186,10 @@ fn pick_rendition(gif: &Value) -> Option<String> {
     let images = gif.get("images")?;
     RENDITIONS.iter().find_map(|name| {
         let image = images.get(*name)?;
-        let url = image.get("url").and_then(Value::as_str).filter(|url| !url.is_empty())?;
+        let url = image
+            .get("url")
+            .and_then(Value::as_str)
+            .filter(|url| !url.is_empty())?;
         let size = size_of(image);
         (size > 0.0 && size <= MAX_UPLOAD_BYTES as f64).then(|| url.to_owned())
     })
@@ -168,8 +197,15 @@ fn pick_rendition(gif: &Value) -> Option<String> {
 
 fn to_gif(gif: &Value) -> Option<Gif> {
     let media_url = pick_rendition(gif)?;
-    let id = gif.get("id").and_then(Value::as_str).filter(|id| !id.is_empty())?;
-    let title = gif.get("title").and_then(Value::as_str).map(str::trim).filter(|title| !title.is_empty());
+    let id = gif
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())?;
+    let title = gif
+        .get("title")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|title| !title.is_empty());
     let page_url = gif
         .get("url")
         .and_then(Value::as_str)
@@ -186,7 +222,12 @@ fn to_gif(gif: &Value) -> Option<Gif> {
 /// What `find_gif` tells the model: each GIF's id, title and page, or why
 /// there were none and what to try next. `channel` is the account's own
 /// (`GIPHY_CHANNEL`), named in the answer when nothing in it matched.
-pub async fn find_gif(source: &dyn GifSource, channel: &str, query: &str, search_all: bool) -> Result<String> {
+pub async fn find_gif(
+    source: &dyn GifSource,
+    channel: &str,
+    query: &str,
+    search_all: bool,
+) -> Result<String> {
     let results = source.search(query, !search_all).await?;
     if results.is_empty() {
         return Ok(if search_all {
@@ -199,7 +240,12 @@ pub async fn find_gif(source: &dyn GifSource, channel: &str, query: &str, search
     }
     Ok(results
         .iter()
-        .map(|gif| format!("id: {}\ntitle: {}\npage: {}", gif.id, gif.title, gif.page_url))
+        .map(|gif| {
+            format!(
+                "id: {}\ntitle: {}\npage: {}",
+                gif.id, gif.title, gif.page_url
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n---\n"))
 }

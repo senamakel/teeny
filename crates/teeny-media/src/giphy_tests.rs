@@ -72,7 +72,14 @@ async fn can_search_beyond_the_channel() {
         .expect(1)
         .mount(&server)
         .await;
-    assert!(client(&server).with_limit(3).search("waving", false).await.unwrap().is_empty());
+    assert!(
+        client(&server)
+            .with_limit(3)
+            .search("waving", false)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[tokio::test]
@@ -83,25 +90,47 @@ async fn looks_one_up_by_id_and_knows_a_missing_one() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": waving(&server) })))
         .mount(&server)
         .await;
-    Mock::given(path("/v1/gifs/gone")).respond_with(ResponseTemplate::new(404)).mount(&server).await;
-    Mock::given(path("/v1/gifs/broken")).respond_with(ResponseTemplate::new(500).set_body_string("down")).mount(&server).await;
+    Mock::given(path("/v1/gifs/gone"))
+        .respond_with(ResponseTemplate::new(404))
+        .mount(&server)
+        .await;
+    Mock::given(path("/v1/gifs/broken"))
+        .respond_with(ResponseTemplate::new(500).set_body_string("down"))
+        .mount(&server)
+        .await;
     let giphy = client(&server);
     assert_eq!(giphy.get("abc123").await.unwrap().unwrap().id, "abc123");
     assert_eq!(giphy.get("gone").await.unwrap(), None);
-    assert_eq!(giphy.get("broken").await.unwrap_err().to_string(), "Giphy lookup failed (500): down");
+    assert_eq!(
+        giphy.get("broken").await.unwrap_err().to_string(),
+        "Giphy lookup failed (500): down"
+    );
 }
 
 #[tokio::test]
 async fn reports_a_failed_search_with_giphys_own_words() {
     let server = MockServer::start().await;
-    Mock::given(path("/v1/gifs/search")).respond_with(ResponseTemplate::new(403).set_body_string("bad key")).mount(&server).await;
-    assert_eq!(client(&server).search("x", true).await.unwrap_err().to_string(), "Giphy search failed (403): bad key");
+    Mock::given(path("/v1/gifs/search"))
+        .respond_with(ResponseTemplate::new(403).set_body_string("bad key"))
+        .mount(&server)
+        .await;
+    assert_eq!(
+        client(&server)
+            .search("x", true)
+            .await
+            .unwrap_err()
+            .to_string(),
+        "Giphy search failed (403): bad key"
+    );
 }
 
 #[tokio::test]
 async fn downloads_the_rendition_and_refuses_one_over_the_upload_limit() {
     let server = MockServer::start().await;
-    Mock::given(path("/media/abc123.gif")).respond_with(ResponseTemplate::new(200).set_body_bytes(vec![1, 2, 3])).mount(&server).await;
+    Mock::given(path("/media/abc123.gif"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(vec![1, 2, 3]))
+        .mount(&server)
+        .await;
     Mock::given(path("/media/huge.gif"))
         .respond_with(ResponseTemplate::new(200).set_body_bytes(vec![0; MAX_UPLOAD_BYTES + 1]))
         .mount(&server)
@@ -114,13 +143,27 @@ async fn downloads_the_rendition_and_refuses_one_over_the_upload_limit() {
         media_url: format!("{}/media/abc123.gif", server.uri()),
         mime_type: MimeType::Gif,
     };
-    assert_eq!(giphy.download(&gif).await.unwrap(), (vec![1, 2, 3], MimeType::Gif));
+    assert_eq!(
+        giphy.download(&gif).await.unwrap(),
+        (vec![1, 2, 3], MimeType::Gif)
+    );
     gif.media_url = format!("{}/media/huge.gif", server.uri());
     let error = giphy.download(&gif).await.unwrap_err();
-    assert_eq!(error.to_string(), format!("GIF abc123 is {} bytes, over the X upload limit", MAX_UPLOAD_BYTES + 1));
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "GIF abc123 is {} bytes, over the X upload limit",
+            MAX_UPLOAD_BYTES + 1
+        )
+    );
     gif.media_url = format!("{}/media/missing.gif", server.uri());
     let error = giphy.download(&gif).await.unwrap_err();
-    assert!(error.to_string().starts_with("Giphy download failed (404) for "), "{error}");
+    assert!(
+        error
+            .to_string()
+            .starts_with("Giphy download failed (404) for "),
+        "{error}"
+    );
 }
 
 #[tokio::test]
@@ -128,10 +171,15 @@ async fn find_gif_lists_what_it_found_for_the_model() {
     let server = MockServer::start().await;
     Mock::given(path("/v1/gifs/search"))
         .and(query_param("q", "@TinyHumansAI waving"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": [waving(&server), waving(&server)] })))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "data": [waving(&server), waving(&server)] })),
+        )
         .mount(&server)
         .await;
-    let output = find_gif(&client(&server), "TinyHumansAI", "waving", false).await.unwrap();
+    let output = find_gif(&client(&server), "TinyHumansAI", "waving", false)
+        .await
+        .unwrap();
     assert_eq!(
         output,
         "id: abc123\ntitle: tiny waving\npage: https://giphy.com/gifs/tiny-waving-abc123\n---\nid: abc123\ntitle: tiny waving\npage: https://giphy.com/gifs/tiny-waving-abc123"
@@ -141,14 +189,29 @@ async fn find_gif_lists_what_it_found_for_the_model() {
 #[tokio::test]
 async fn find_gif_names_the_channel_when_nothing_matched_inside_it() {
     let server = MockServer::start().await;
-    Mock::given(path("/v1/gifs/search")).respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": [] }))).mount(&server).await;
+    Mock::given(path("/v1/gifs/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": [] })))
+        .mount(&server)
+        .await;
     let giphy = client(&server);
-    let output = find_gif(&giphy, "TinyHumansAI", "waving", false).await.unwrap();
+    let output = find_gif(&giphy, "TinyHumansAI", "waving", false)
+        .await
+        .unwrap();
     assert_eq!(
         output,
         "No GIF in the @TinyHumansAI channel matched \"waving\". Try another wording, or set searchAllOfGiphy to look beyond the channel."
     );
-    assert_eq!(find_gif(&giphy, "TinyHumansAI", "waving", true).await.unwrap(), "No GIF matched \"waving\".");
+    assert_eq!(
+        find_gif(&giphy, "TinyHumansAI", "waving", true)
+            .await
+            .unwrap(),
+        "No GIF matched \"waving\"."
+    );
     let requests = server.received_requests().await.unwrap();
-    assert!(requests[1].url.query_pairs().any(|(key, value)| key == "q" && value == "waving"));
+    assert!(
+        requests[1]
+            .url
+            .query_pairs()
+            .any(|(key, value)| key == "q" && value == "waving")
+    );
 }

@@ -28,11 +28,18 @@ fn tiny() -> ListedCoin {
 
 fn board() -> Vec<ListedCoin> {
     vec![
-        ListedCoin { rank: Some(150), board_rank: Some(1), ..coin("TIBBIR", 248_000_000.0) },
+        ListedCoin {
+            rank: Some(150),
+            board_rank: Some(1),
+            ..coin("TIBBIR", 248_000_000.0)
+        },
         coin("FARTCOIN", 143_000_000.0),
         coin("TURBO", 63_000_000.0),
         coin("AIC", 32_000_000.0),
-        ListedCoin { board_rank: Some(5), ..coin("DRB", 18_500_000.0) },
+        ListedCoin {
+            board_rank: Some(5),
+            ..coin("DRB", 18_500_000.0)
+        },
         coin("CRABAI", 14_700_000.0),
         coin("LUNA", 4_900_000.0),
         coin("AIDOGE", 1_950_000.0),
@@ -43,7 +50,10 @@ fn board() -> Vec<ListedCoin> {
 }
 
 fn symbols(rungs: &[Rung]) -> Vec<&str> {
-    rungs.iter().map(|entry| entry.coin.symbol.as_str()).collect()
+    rungs
+        .iter()
+        .map(|entry| entry.coin.symbol.as_str())
+        .collect()
 }
 
 fn input() -> MoonChartInput {
@@ -88,7 +98,11 @@ fn spreads_the_board_across_the_climb_keeps_the_target_and_sorts_ascending() {
     let names = symbols(&rungs);
     assert!(names.contains(&"DRB") && names.contains(&"TIBBIR"));
     assert!(!names.contains(&"BELOW"));
-    assert!(rungs.windows(2).all(|pair| pair[1].coin.market_cap_usd > pair[0].coin.market_cap_usd));
+    assert!(
+        rungs
+            .windows(2)
+            .all(|pair| pair[1].coin.market_cap_usd > pair[0].coin.market_cap_usd)
+    );
 }
 
 #[test]
@@ -101,13 +115,22 @@ fn leaves_neighbours_under_the_floor_off_the_strip() {
 #[test]
 fn draws_the_target_alone_when_nothing_else_is_above() {
     let target = coin("ONLY", 5_000_000.0);
-    let rungs = ladder(&tiny(), &[target.clone(), coin("BELOW", 100_000.0)], &target, 7, 2.0);
+    let rungs = ladder(
+        &tiny(),
+        &[target.clone(), coin("BELOW", 100_000.0)],
+        &target,
+        7,
+        2.0,
+    );
     assert_eq!(symbols(&rungs), vec!["ONLY"]);
 }
 
 #[test]
 fn draws_byte_for_byte_what_the_legacy_renderer_drew() {
-    assert_eq!(render_moon_svg(&input()), include_str!("testdata/moon-plain.svg"));
+    assert_eq!(
+        render_moon_svg(&input()),
+        include_str!("testdata/moon-plain.svg")
+    );
 
     let token = tiny();
     let board = board();
@@ -119,25 +142,46 @@ fn draws_byte_for_byte_what_the_legacy_renderer_drew() {
     };
     let logos = MoonChartInput {
         target: rung(&token, &drop),
-        ladder: vec![rung(&token, &drop), rung(&token, &board[3]), rung(&token, &board[2])],
-        token_logo: Some(Logo { data: PNG.to_vec(), mime_type: "image/png".into() }),
-        target_logo: Some(Logo { data: PNG.to_vec(), mime_type: "image/jpeg".into() }),
+        ladder: vec![
+            rung(&token, &drop),
+            rung(&token, &board[3]),
+            rung(&token, &board[2]),
+        ],
+        token_logo: Some(Logo {
+            data: PNG.to_vec(),
+            mime_type: "image/png".into(),
+        }),
+        target_logo: Some(Logo {
+            data: PNG.to_vec(),
+            mime_type: "image/jpeg".into(),
+        }),
         board_size: None,
         watermark: None,
         ..input()
     };
-    assert_eq!(render_moon_svg(&logos), include_str!("testdata/moon-logos.svg"));
+    assert_eq!(
+        render_moon_svg(&logos),
+        include_str!("testdata/moon-logos.svg")
+    );
 
-    let near: Vec<ListedCoin> = [("A", 10_000_000.0), ("B", 10_100_000.0), ("C", 10_200_000.0), ("D", 10_300_000.0)]
-        .into_iter()
-        .map(|(symbol, cap)| coin(symbol, cap))
-        .collect();
+    let near: Vec<ListedCoin> = [
+        ("A", 10_000_000.0),
+        ("B", 10_100_000.0),
+        ("C", 10_200_000.0),
+        ("D", 10_300_000.0),
+    ]
+    .into_iter()
+    .map(|(symbol, cap)| coin(symbol, cap))
+    .collect();
     let near_input = MoonChartInput {
         ladder: near.iter().map(|entry| rung(&token, entry)).collect(),
         target: rung(&token, &near[0]),
         ..input()
     };
-    assert_eq!(render_moon_svg(&near_input), include_str!("testdata/moon-near.svg"));
+    assert_eq!(
+        render_moon_svg(&near_input),
+        include_str!("testdata/moon-near.svg")
+    );
 }
 
 #[test]
@@ -172,12 +216,21 @@ fn lights_the_target_rung_and_draws_the_others() {
 #[test]
 fn embeds_both_logos_as_data_uris_and_falls_back_to_a_lettered_disc_without_one() {
     let with_logos = render_moon_svg(&MoonChartInput {
-        token_logo: Some(Logo { data: PNG.to_vec(), mime_type: "image/png".into() }),
-        target_logo: Some(Logo { data: PNG.to_vec(), mime_type: "image/jpeg".into() }),
+        token_logo: Some(Logo {
+            data: PNG.to_vec(),
+            mime_type: "image/png".into(),
+        }),
+        target_logo: Some(Logo {
+            data: PNG.to_vec(),
+            mime_type: "image/jpeg".into(),
+        }),
         ..input()
     });
     // The fighter and the strip.
-    assert_eq!(with_logos.matches("href=\"data:image/png;base64,").count(), 2);
+    assert_eq!(
+        with_logos.matches("href=\"data:image/png;base64,").count(),
+        2
+    );
     assert!(with_logos.contains("href=\"data:image/jpeg;base64,"));
     let without = render_moon_svg(&input());
     assert!(!without.contains("data:image"));
@@ -188,10 +241,15 @@ fn embeds_both_logos_as_data_uris_and_falls_back_to_a_lettered_disc_without_one(
 #[test]
 fn keeps_rung_labels_apart_along_the_strip_when_coins_are_almost_the_same_size() {
     let token = tiny();
-    let near: Vec<ListedCoin> = [("A", 10_000_000.0), ("B", 10_100_000.0), ("C", 10_200_000.0), ("D", 10_300_000.0)]
-        .into_iter()
-        .map(|(symbol, cap)| coin(symbol, cap))
-        .collect();
+    let near: Vec<ListedCoin> = [
+        ("A", 10_000_000.0),
+        ("B", 10_100_000.0),
+        ("C", 10_200_000.0),
+        ("D", 10_300_000.0),
+    ]
+    .into_iter()
+    .map(|(symbol, cap)| coin(symbol, cap))
+    .collect();
     let svg = render_moon_svg(&MoonChartInput {
         ladder: near.iter().map(|entry| rung(&token, entry)).collect(),
         target: rung(&token, &near[0]),
@@ -199,8 +257,18 @@ fn keeps_rung_labels_apart_along_the_strip_when_coins_are_almost_the_same_size()
     });
     let mut xs: Vec<f64> = svg
         .lines()
-        .filter(|line| line.starts_with("<circle cx=\"") && (line.contains("cy=\"562\" r=\"5\"") || line.contains("cy=\"562\" r=\"8\"")))
-        .map(|line| line["<circle cx=\"".len()..].split('"').next().unwrap().parse().unwrap())
+        .filter(|line| {
+            line.starts_with("<circle cx=\"")
+                && (line.contains("cy=\"562\" r=\"5\"") || line.contains("cy=\"562\" r=\"8\""))
+        })
+        .map(|line| {
+            line["<circle cx=\"".len()..]
+                .split('"')
+                .next()
+                .unwrap()
+                .parse()
+                .unwrap()
+        })
         .collect();
     xs.sort_by(f64::total_cmp);
     assert_eq!(xs.len(), 4);
@@ -212,7 +280,10 @@ fn keeps_rung_labels_apart_along_the_strip_when_coins_are_almost_the_same_size()
 #[test]
 fn escapes_a_coin_name_that_carries_markup() {
     let token = tiny();
-    let nasty = ListedCoin { name: "<script>&\"".into(), ..coin("X", 5_000_000.0) };
+    let nasty = ListedCoin {
+        name: "<script>&\"".into(),
+        ..coin("X", 5_000_000.0)
+    };
     let svg = render_moon_svg(&MoonChartInput {
         target: rung(&token, &nasty),
         ladder: vec![rung(&token, &nasty)],
@@ -225,12 +296,18 @@ fn escapes_a_coin_name_that_carries_markup() {
 #[test]
 fn rasterises_the_picture() {
     let png = crate::png::svg_to_png(&render_moon_svg(&MoonChartInput {
-        token_logo: Some(Logo { data: PNG.to_vec(), mime_type: "image/png".into() }),
+        token_logo: Some(Logo {
+            data: PNG.to_vec(),
+            mime_type: "image/png".into(),
+        }),
         ..input()
     }))
     .unwrap();
     let image = image::load_from_memory(&png).unwrap().to_rgba8();
     assert_eq!(image.dimensions(), (1_200, 675));
     // The moon itself, at the right end of the strip.
-    assert_eq!(image.get_pixel(1_200 - 168 + 24 + 10, 562).0, [0xf5, 0xe6, 0xa8, 0xff]);
+    assert_eq!(
+        image.get_pixel(1_200 - 168 + 24 + 10, 562).0,
+        [0xf5, 0xe6, 0xa8, 0xff]
+    );
 }

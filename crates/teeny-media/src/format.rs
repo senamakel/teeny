@@ -23,7 +23,9 @@ pub fn js_number(value: f64) -> String {
     }
     let spelled = format!("{value:e}");
     match spelled.split_once('e') {
-        Some((mantissa, exponent)) if !exponent.starts_with('-') => format!("{mantissa}e+{exponent}"),
+        Some((mantissa, exponent)) if !exponent.starts_with('-') => {
+            format!("{mantissa}e+{exponent}")
+        }
         _ => spelled,
     }
 }
@@ -45,7 +47,11 @@ pub fn to_fixed(value: f64, digits: usize) -> String {
         .map(|byte| byte - b'0')
         .collect();
     let mut whole_len = whole.len();
-    if fraction.as_bytes().get(digits).is_some_and(|&next| next >= b'5') {
+    if fraction
+        .as_bytes()
+        .get(digits)
+        .is_some_and(|&next| next >= b'5')
+    {
         increment(&mut kept, &mut whole_len);
     }
     let mut out = String::with_capacity(kept.len() + 2);
@@ -131,7 +137,11 @@ pub fn price(value: f64) -> String {
 
 /// `+17.40%`.
 pub fn signed_percent(value: f64) -> String {
-    format!("{}{}%", if value >= 0.0 { "+" } else { "" }, to_fixed(value, 2))
+    format!(
+        "{}{}%",
+        if value >= 0.0 { "+" } else { "" },
+        to_fixed(value, 2)
+    )
 }
 
 /// Axis labels. Intraday charts want the clock; daily charts want the date.
@@ -208,7 +218,10 @@ fn grouped_two_places(value: f64) -> String {
         }
         out.push(char::from(b'0' + digit));
     }
-    let cents: String = digits[whole_len..].iter().map(|digit| char::from(b'0' + digit)).collect();
+    let cents: String = digits[whole_len..]
+        .iter()
+        .map(|digit| char::from(b'0' + digit))
+        .collect();
     let cents = cents.trim_end_matches('0');
     if !cents.is_empty() {
         out.push('.');

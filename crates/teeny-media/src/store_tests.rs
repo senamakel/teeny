@@ -4,7 +4,12 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use super::*;
 
 fn media(kind: MediaKind, byte: u8, mime_type: MimeType) -> NewMedia {
-    NewMedia { kind, data: vec![byte], mime_type, prompt: format!("prompt {byte}") }
+    NewMedia {
+        kind,
+        data: vec![byte],
+        mime_type,
+        prompt: format!("prompt {byte}"),
+    }
 }
 
 fn clock(start: i64) -> (Arc<AtomicI64>, impl Fn() -> i64 + Send + Sync + 'static) {
@@ -20,7 +25,9 @@ fn scratch(name: &str) -> PathBuf {
 #[test]
 fn hands_out_ids_by_kind_keeps_the_bytes_and_forgets_them_after_the_ttl() {
     let (now, read) = clock(1_000_000);
-    let store = MediaStore::new().with_ttl(Duration::from_secs(60)).with_clock(read);
+    let store = MediaStore::new()
+        .with_ttl(Duration::from_secs(60))
+        .with_clock(read);
     let image = store.put(media(MediaKind::Image, 1, MimeType::Png));
     let video = store.put(media(MediaKind::Video, 2, MimeType::Mp4));
 
@@ -60,7 +67,10 @@ fn writes_a_copy_named_by_id_and_finds_it_again_after_a_restart() {
     let (now, read) = clock(1_700_000_000_000 + 59 * 60_000);
     let restarted = MediaStore::new().with_output_dir(&dir).with_clock(read);
     let found = restarted.get(&stored.id).unwrap();
-    assert_eq!((found.data, found.mime_type, found.kind), (vec![7], MimeType::Jpeg, MediaKind::Image));
+    assert_eq!(
+        (found.data, found.mime_type, found.kind),
+        (vec![7], MimeType::Jpeg, MediaKind::Image)
+    );
     assert_eq!(found.created_at, 1_700_000_000_000);
     assert!(restarted.get("img_../../etc/passwd_1").is_none());
 

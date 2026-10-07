@@ -30,13 +30,19 @@ fn noise(width: u32, height: u32) -> RgbImage {
 
 #[test]
 fn cuts_a_square_from_the_middle_to_16_9_and_leaves_a_wide_one_alone() {
-    let square = GeneratedImage { data: encoded(&flat(640, 640), ImageFormat::Png), mime_type: MimeType::Png };
+    let square = GeneratedImage {
+        data: encoded(&flat(640, 640), ImageFormat::Png),
+        mime_type: MimeType::Png,
+    };
     let cut = crop_to_aspect(&square, 16.0 / 9.0).unwrap();
     assert_eq!(cut.mime_type, MimeType::Png);
     let decoded = image::load_from_memory(&cut.data).unwrap();
     assert_eq!((decoded.width(), decoded.height()), (640, 360));
 
-    let wide = GeneratedImage { data: encoded(&flat(1600, 900), ImageFormat::Jpeg), mime_type: MimeType::Jpeg };
+    let wide = GeneratedImage {
+        data: encoded(&flat(1600, 900), ImageFormat::Jpeg),
+        mime_type: MimeType::Jpeg,
+    };
     assert_eq!(crop_to_aspect(&wide, 16.0 / 9.0).unwrap(), wide);
 }
 
@@ -48,8 +54,14 @@ fn cuts_a_tall_image_from_the_middle_band() {
             tall.put_pixel(x, y, Rgb([0, 0, 0xff]));
         }
     }
-    let cut = crop_to_aspect(&GeneratedImage { data: encoded(&tall, ImageFormat::Png), mime_type: MimeType::Png }, 1.0)
-        .unwrap();
+    let cut = crop_to_aspect(
+        &GeneratedImage {
+            data: encoded(&tall, ImageFormat::Png),
+            mime_type: MimeType::Png,
+        },
+        1.0,
+    )
+    .unwrap();
     let decoded = image::load_from_memory(&cut.data).unwrap().to_rgb8();
     assert_eq!(decoded.dimensions(), (300, 300));
     assert_eq!(decoded.get_pixel(150, 150).0, [0, 0, 0xff]);
@@ -58,20 +70,38 @@ fn cuts_a_tall_image_from_the_middle_band() {
 #[test]
 fn passes_small_images_gifs_and_videos_through_untouched() {
     let small = encoded(&flat(64, 64), ImageFormat::Png);
-    assert_eq!(fit_image_for_x(small.clone(), MimeType::Png).unwrap(), (small, MimeType::Png));
+    assert_eq!(
+        fit_image_for_x(small.clone(), MimeType::Png).unwrap(),
+        (small, MimeType::Png)
+    );
     let big_gif = vec![0x47; X_IMAGE_MAX_BYTES + 1];
-    assert_eq!(fit_image_for_x(big_gif.clone(), MimeType::Gif).unwrap(), (big_gif, MimeType::Gif));
+    assert_eq!(
+        fit_image_for_x(big_gif.clone(), MimeType::Gif).unwrap(),
+        (big_gif, MimeType::Gif)
+    );
     let big_video = vec![0; X_IMAGE_MAX_BYTES + 1];
-    assert_eq!(fit_image_for_x(big_video.clone(), MimeType::Mp4).unwrap(), (big_video, MimeType::Mp4));
+    assert_eq!(
+        fit_image_for_x(big_video.clone(), MimeType::Mp4).unwrap(),
+        (big_video, MimeType::Mp4)
+    );
 }
 
 #[test]
 fn re_encodes_an_oversized_still_as_a_jpeg_under_the_limit() {
     let png = encoded(&noise(1_600, 1_200), ImageFormat::Png);
-    assert!(png.len() > X_IMAGE_MAX_BYTES, "fixture is only {} bytes", png.len());
+    assert!(
+        png.len() > X_IMAGE_MAX_BYTES,
+        "fixture is only {} bytes",
+        png.len()
+    );
     let (data, mime_type) = fit_image_for_x(png, MimeType::Png).unwrap();
     assert_eq!(mime_type, MimeType::Jpeg);
     assert!(data.len() <= X_IMAGE_MAX_BYTES);
     let decoded = image::load_from_memory(&data).unwrap();
-    assert_eq!(decoded.width() % 400, 0, "only ever full width or halved: {}", decoded.width());
+    assert_eq!(
+        decoded.width() % 400,
+        0,
+        "only ever full width or halved: {}",
+        decoded.width()
+    );
 }

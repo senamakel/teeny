@@ -6,5 +6,7 @@ pub mod theme;
 
 pub use pipeline::{ChartOverview, ChartRead, ChartRequest, RenderedChart, ema, render_chart};
 pub(crate) use svg::js_len;
-pub use svg::{ChartInput, HorizontalLine, Overlay, Stat, percentile, price_ticks, render_chart_svg};
+pub use svg::{
+    ChartInput, HorizontalLine, Overlay, Stat, percentile, price_ticks, render_chart_svg,
+};
 pub use theme::{THEME, Theme};

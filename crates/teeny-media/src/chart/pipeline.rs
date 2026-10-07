@@ -4,9 +4,9 @@ use std::path::PathBuf;
 
 use teeny_core::config::ChartTimeframe;
 
-use crate::candle::Candle;
 use super::svg::{ChartInput, HorizontalLine, Overlay, Stat, render_chart_svg};
 use super::theme::THEME;
+use crate::candle::Candle;
 use crate::error::{Error, Result};
 use crate::format::compact_usd;
 use crate::png::svg_to_png;
@@ -118,7 +118,11 @@ pub fn render_chart(request: &ChartRequest) -> Result<RenderedChart> {
 
     let mut lines = Vec::new();
     if let Some(support) = read.and_then(|read| read.support) {
-        lines.push(HorizontalLine { label: "support".into(), value: support, color: Some(THEME.up.into()) });
+        lines.push(HorizontalLine {
+            label: "support".into(),
+            value: support,
+            color: Some(THEME.up.into()),
+        });
     }
     if let Some(resistance) = read.and_then(|read| read.resistance) {
         lines.push(HorizontalLine {
@@ -129,19 +133,39 @@ pub fn render_chart(request: &ChartRequest) -> Result<RenderedChart> {
     }
 
     let change_pct = read.map_or_else(
-        || if first.o == 0.0 { 0.0 } else { ((last.c - first.o) / first.o) * 100.0 },
+        || {
+            if first.o == 0.0 {
+                0.0
+            } else {
+                ((last.c - first.o) / first.o) * 100.0
+            }
+        },
         |read| read.change_pct,
     );
     let input = ChartInput {
         candles: candles.clone(),
-        symbol: if symbol.starts_with('$') { symbol.clone() } else { format!("${symbol}") },
-        name: overview.and_then(|overview| overview.name.clone()).filter(|name| !name.is_empty()),
+        symbol: if symbol.starts_with('$') {
+            symbol.clone()
+        } else {
+            format!("${symbol}")
+        },
+        name: overview
+            .and_then(|overview| overview.name.clone())
+            .filter(|name| !name.is_empty()),
         timeframe: request.timeframe,
         price_usd: overview.map(|overview| overview.price_usd),
         change_pct: Some(change_pct),
         overlays: vec![
-            Overlay { label: format!("EMA{fast_period}"), color: THEME.fast.into(), values: ema(&values, fast_period) },
-            Overlay { label: format!("EMA{slow_period}"), color: THEME.slow.into(), values: ema(&values, slow_period) },
+            Overlay {
+                label: format!("EMA{fast_period}"),
+                color: THEME.fast.into(),
+                values: ema(&values, fast_period),
+            },
+            Overlay {
+                label: format!("EMA{slow_period}"),
+                color: THEME.slow.into(),
+                values: ema(&values, slow_period),
+            },
         ],
         lines,
         stats,
@@ -162,7 +186,11 @@ pub fn render_chart(request: &ChartRequest) -> Result<RenderedChart> {
 
     if let Some(dir) = &request.output_dir {
         let clean: String = symbol.chars().filter(char::is_ascii_alphanumeric).collect();
-        let name = format!("{clean}-{}-{}.png", request.timeframe.as_str(), chrono::Utc::now().timestamp_millis());
+        let name = format!(
+            "{clean}-{}-{}.png",
+            request.timeframe.as_str(),
+            chrono::Utc::now().timestamp_millis()
+        );
         std::fs::create_dir_all(dir)?;
         let path = dir.join(name);
         std::fs::write(&path, &rendered.png)?;
@@ -172,7 +200,10 @@ pub fn render_chart(request: &ChartRequest) -> Result<RenderedChart> {
 }
 
 fn stat(label: &str, value: f64) -> Stat {
-    Stat { label: label.to_owned(), value: compact_usd(value) }
+    Stat {
+        label: label.to_owned(),
+        value: compact_usd(value),
+    }
 }
 
 /// Exponential moving average, seeded on the simple average of the first
@@ -185,7 +216,10 @@ pub fn ema(values: &[f64], period: usize) -> Vec<Option<f64>> {
         return out;
     }
     let k = 2.0 / (period as f64 + 1.0);
-    let mut previous = values[..period].iter().fold(0.0, |total, value| total + value) / period as f64;
+    let mut previous = values[..period]
+        .iter()
+        .fold(0.0, |total, value| total + value)
+        / period as f64;
     out[period - 1] = Some(previous);
     for index in period..values.len() {
         previous = values[index] * k + previous * (1.0 - k);

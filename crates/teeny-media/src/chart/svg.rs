@@ -122,7 +122,7 @@ pub fn render_chart_svg(input: &ChartInput) -> Result<String> {
     let y = |value: f64| price_bottom - ((value - bottom) / or(top - bottom, 1.0)) * price_height;
     let count = candles.len() as f64;
     let slot = plot_width / count;
-    let body_width = (slot * 0.68).min(22.0).max(1.0);
+    let body_width = (slot * 0.68).clamp(1.0, 22.0);
     let x = |index: usize| plot_left + slot * (index as f64 + 0.5);
 
     // The volume panel is scaled to the 95th percentile, not to the maximum.
@@ -132,7 +132,8 @@ pub fn render_chart_svg(input: &ChartInput) -> Result<String> {
     // bar is off the scale.
     let volumes: Vec<f64> = candles.iter().map(|candle| candle.v).collect();
     let volume_cap = or(percentile(&volumes, 0.95) * 1.25, 1.0);
-    let volume_y = |value: f64| volume_bottom - (value.min(volume_cap) / volume_cap) * volume_height;
+    let volume_y =
+        |value: f64| volume_bottom - (value.min(volume_cap) / volume_cap) * volume_height;
 
     let shown_price = input.price_usd.unwrap_or(last.c);
     let change = input.change_pct;
@@ -149,7 +150,12 @@ pub fn render_chart_svg(input: &ChartInput) -> Result<String> {
             h = n(height),
             font = THEME.font,
         ),
-        format!(r#"<rect width="{}" height="{}" fill="{}"/>"#, n(width), n(height), THEME.background),
+        format!(
+            r#"<rect width="{}" height="{}" fill="{}"/>"#,
+            n(width),
+            n(height),
+            THEME.background
+        ),
     ];
 
     // Watermark first, so every later element sits on top of it.
@@ -251,13 +257,21 @@ pub fn render_chart_svg(input: &ChartInput) -> Result<String> {
             n(volume_y(candle.v)),
             n(body_width),
             n(bar_height),
-            if candle.c >= candle.o { THEME.up_volume } else { THEME.down_volume },
+            if candle.c >= candle.o {
+                THEME.up_volume
+            } else {
+                THEME.down_volume
+            },
         ));
     }
 
     // Candles. The wick is drawn first so the body covers its middle.
     for (index, candle) in candles.iter().enumerate() {
-        let colour = if candle.c >= candle.o { THEME.up } else { THEME.down };
+        let colour = if candle.c >= candle.o {
+            THEME.up
+        } else {
+            THEME.down
+        };
         let at = x(index);
         let body_top = y(candle.o.max(candle.c));
         // A doji has a zero-height body, which renders as nothing at all; one
@@ -294,7 +308,11 @@ pub fn render_chart_svg(input: &ChartInput) -> Result<String> {
 
     // The last-price tag on the axis, the one thing everybody actually reads.
     let tag_y = y(last.c);
-    let tag_colour = if last.c >= last.o { THEME.up } else { THEME.down };
+    let tag_colour = if last.c >= last.o {
+        THEME.up
+    } else {
+        THEME.down
+    };
     parts.push(format!(
         r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" stroke-dasharray="3 3" opacity="0.7"/>"#,
         n(plot_left),
@@ -413,7 +431,8 @@ pub fn percentile(values: &[f64], fraction: f64) -> f64 {
 /// Round-ish gridline values inside the range, in the token's own order of
 /// magnitude.
 pub fn price_ticks(low: f64, high: f64, count: usize) -> Vec<f64> {
-    if !(high > low) {
+    // NaN included: a range that is not a range gets one tick.
+    if high.partial_cmp(&low) != Some(std::cmp::Ordering::Greater) {
         return vec![low];
     }
     let raw = (high - low) / count as f64;
@@ -439,17 +458,33 @@ pub fn price_ticks(low: f64, high: f64, count: usize) -> Vec<f64> {
 
 /// `a || b` on numbers: zero and NaN are falsy.
 fn or(value: f64, fallback: f64) -> f64 {
-    if value == 0.0 || value.is_nan() { fallback } else { value }
+    if value == 0.0 || value.is_nan() {
+        fallback
+    } else {
+        value
+    }
 }
 
 /// `Math.max(...)`, NaN poisoning included.
 fn js_max(values: impl Iterator<Item = f64>) -> f64 {
-    values.fold(f64::NEG_INFINITY, |max, value| if value.is_nan() || max.is_nan() { f64::NAN } else { max.max(value) })
+    values.fold(f64::NEG_INFINITY, |max, value| {
+        if value.is_nan() || max.is_nan() {
+            f64::NAN
+        } else {
+            max.max(value)
+        }
+    })
 }
 
 /// `Math.min(...)`, NaN poisoning included.
 fn js_min(values: impl Iterator<Item = f64>) -> f64 {
-    values.fold(f64::INFINITY, |min, value| if value.is_nan() || min.is_nan() { f64::NAN } else { min.min(value) })
+    values.fold(f64::INFINITY, |min, value| {
+        if value.is_nan() || min.is_nan() {
+            f64::NAN
+        } else {
+            min.min(value)
+        }
+    })
 }
 
 /// `string.length`: UTF-16 code units, which is what the layout counted.

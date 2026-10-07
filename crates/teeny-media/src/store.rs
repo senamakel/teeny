@@ -51,7 +51,9 @@ fn parse_id(id: &str) -> Option<(MediaKind, i64)> {
     let stamp = parts.next()?;
     let counter = parts.next()?;
     let well_formed = !stamp.is_empty()
-        && stamp.bytes().all(|byte| byte.is_ascii_digit() || byte.is_ascii_lowercase())
+        && stamp
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || byte.is_ascii_lowercase())
         && !counter.is_empty()
         && counter.bytes().all(|byte| byte.is_ascii_digit())
         && parts.next().is_none();
@@ -199,7 +201,7 @@ impl MediaStore {
                 return Some(found.clone());
             }
         }
-        self.from_disk(id, now)
+        self.read_copy(id, now)
     }
 
     /// Every item still held in memory, oldest first.
@@ -229,7 +231,8 @@ impl MediaStore {
         let path = dir.join(format!("{}.{}", media.id, media.mime_type.extension()));
         // The copy is a convenience. Failing the generation over a full disk
         // would turn a missing file into a missing reply.
-        let written = std::fs::create_dir_all(dir).and_then(|()| std::fs::write(&path, &media.data));
+        let written =
+            std::fs::create_dir_all(dir).and_then(|()| std::fs::write(&path, &media.data));
         match written {
             Ok(()) => Some(path),
             Err(error) => {
@@ -241,7 +244,7 @@ impl MediaStore {
 
     /// The copy a previous process wrote, while it is inside the TTL. The id
     /// is checked against the id shape first, so it cannot name a path.
-    fn from_disk(&self, id: &str, now: i64) -> Option<StoredMedia> {
+    fn read_copy(&self, id: &str, now: i64) -> Option<StoredMedia> {
         let dir = self.output_dir.as_ref()?;
         let (kind, created_at) = parse_id(id)?;
         if created_at < self.cutoff(now) {

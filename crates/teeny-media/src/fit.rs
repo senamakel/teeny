@@ -18,7 +18,8 @@ pub const X_IMAGE_MAX_BYTES: usize = 5 * 1024 * 1024;
 const MIN_WIDTH: u32 = 256;
 
 fn decode(data: &[u8]) -> Result<DynamicImage> {
-    image::load_from_memory(data).map_err(|error| Error::failed(format!("could not read the image: {error}")))
+    image::load_from_memory(data)
+        .map_err(|error| Error::failed(format!("could not read the image: {error}")))
 }
 
 fn jpeg(image: &DynamicImage, quality: u8) -> Result<Vec<u8>> {
@@ -47,7 +48,9 @@ pub fn fit_image_for_x(data: Vec<u8>, mime_type: MimeType) -> Result<(Vec<u8>, M
     let mut width = original.width();
     loop {
         let scaled = if width < original.width() {
-            let height = (f64::from(original.height()) * f64::from(width) / f64::from(original.width())).round();
+            let height = (f64::from(original.height()) * f64::from(width)
+                / f64::from(original.width()))
+            .round();
             original.resize_exact(width, (height as u32).max(1), FilterType::Lanczos3)
         } else {
             original.clone()
@@ -61,7 +64,9 @@ pub fn fit_image_for_x(data: Vec<u8>, mime_type: MimeType) -> Result<(Vec<u8>, M
         // Quality has been spent; halve the side and start again.
         width /= 2;
         if width < MIN_WIDTH {
-            return Err(Error::failed("could not fit the image under X's size limit"));
+            return Err(Error::failed(
+                "could not fit the image under X's size limit",
+            ));
         }
     }
 }
@@ -84,11 +89,19 @@ pub fn crop_to_aspect(image: &GeneratedImage, aspect: f64) -> Result<GeneratedIm
         (width, (f64::from(width) / aspect).round() as u32)
     };
     let (cut_width, cut_height) = (cut_width.clamp(1, width), cut_height.clamp(1, height));
-    let cut = decoded.crop_imm((width - cut_width) / 2, (height - cut_height) / 2, cut_width, cut_height);
+    let cut = decoded.crop_imm(
+        (width - cut_width) / 2,
+        (height - cut_height) / 2,
+        cut_width,
+        cut_height,
+    );
     let mut out = Cursor::new(Vec::new());
     cut.write_to(&mut out, ImageFormat::Png)
         .map_err(|error| Error::failed(format!("could not encode the PNG: {error}")))?;
-    Ok(GeneratedImage { data: out.into_inner(), mime_type: MimeType::Png })
+    Ok(GeneratedImage {
+        data: out.into_inner(),
+        mime_type: MimeType::Png,
+    })
 }
 
 #[cfg(test)]

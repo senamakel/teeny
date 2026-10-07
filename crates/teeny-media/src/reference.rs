@@ -45,7 +45,10 @@ pub fn reference_input(reference: &str) -> Result<ImageInput> {
     }
     let data = std::fs::read(reference)?;
     let by_extension = || {
-        let extension = Path::new(reference).extension()?.to_str()?.to_ascii_lowercase();
+        let extension = Path::new(reference)
+            .extension()?
+            .to_str()?
+            .to_ascii_lowercase();
         match extension.as_str() {
             "png" => Some(MimeType::Png),
             "jpg" | "jpeg" => Some(MimeType::Jpeg),
@@ -55,7 +58,9 @@ pub fn reference_input(reference: &str) -> Result<ImageInput> {
         }
     };
     let Some(mime_type) = sniff(&data).or_else(by_extension) else {
-        return Err(Error::failed(format!("{reference} is not an image this can read")));
+        return Err(Error::failed(format!(
+            "{reference} is not an image this can read"
+        )));
     };
     Ok(ImageInput::Bytes { data, mime_type })
 }
@@ -80,7 +85,11 @@ pub struct OpenAiTextModel {
 impl OpenAiTextModel {
     /// A model on this endpoint at temperature 0.2: the sheet wants the same
     /// answer twice.
-    pub fn new(base_url: impl Into<String>, api_key: impl Into<String>, model: impl Into<String>) -> Self {
+    pub fn new(
+        base_url: impl Into<String>,
+        api_key: impl Into<String>,
+        model: impl Into<String>,
+    ) -> Self {
         Self {
             client: reqwest::Client::new(),
             base_url: base_url.into(),
@@ -122,7 +131,11 @@ impl TextModel for OpenAiTextModel {
                 error_detail(&body)
             )));
         }
-        let text = body.pointer("/choices/0/message/content").and_then(Value::as_str).map(str::trim).unwrap_or("");
+        let text = body
+            .pointer("/choices/0/message/content")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or("");
         if text.is_empty() {
             return Err(Error::failed("the text model returned nothing"));
         }
@@ -191,7 +204,13 @@ impl std::fmt::Debug for ReferenceSheet {
 impl ReferenceSheet {
     /// A sheet from these pictures (paths on disk or https URLs).
     pub fn new(urls: Vec<String>, reader: Arc<dyn ImageReader>, text: Arc<dyn TextModel>) -> Self {
-        Self { urls, reader, text, cache_path: None, built: Mutex::new(Built::default()) }
+        Self {
+            urls,
+            reader,
+            text,
+            cache_path: None,
+            built: Mutex::new(Built::default()),
+        }
     }
 
     /// Where the sheet is cached (`REFERENCE_SHEET_PATH`).
@@ -209,7 +228,11 @@ impl ReferenceSheet {
         }
         match self.build().await {
             Ok((sheet, looks)) => {
-                *built = Built { done: true, sheet: sheet.clone(), looks };
+                *built = Built {
+                    done: true,
+                    sheet: sheet.clone(),
+                    looks,
+                };
                 sheet
             }
             Err(error) => {
@@ -239,13 +262,21 @@ impl ReferenceSheet {
     pub async fn seed(&self, random: f64) -> Option<ReferenceSeed> {
         self.get().await;
         let built = self.built.lock().await;
-        let entries: Vec<(&String, &String)> = built.looks.iter().filter(|(_, look)| !look.trim().is_empty()).collect();
+        let entries: Vec<(&String, &String)> = built
+            .looks
+            .iter()
+            .filter(|(_, look)| !look.trim().is_empty())
+            .collect();
         if entries.is_empty() {
             return None;
         }
-        let index = ((random * entries.len() as f64).floor().max(0.0) as usize).min(entries.len() - 1);
+        let index =
+            ((random * entries.len() as f64).floor().max(0.0) as usize).min(entries.len() - 1);
         let (url, look) = entries[index];
-        Some(ReferenceSeed { url: url.clone(), look: look.clone() })
+        Some(ReferenceSeed {
+            url: url.clone(),
+            look: look.clone(),
+        })
     }
 
     async fn build(&self) -> Result<(Option<String>, BTreeMap<String, String>)> {
@@ -259,7 +290,10 @@ impl ReferenceSheet {
             return Ok((None, BTreeMap::new()));
         }
 
-        if let Some(cached) = self.read_cache().filter(|cached| same_urls(&cached.urls, &urls)) {
+        if let Some(cached) = self
+            .read_cache()
+            .filter(|cached| same_urls(&cached.urls, &urls))
+        {
             tracing::info!(urls = urls.len(), "reference sheet loaded from cache");
             return Ok((Some(cached.sheet), cached.looks));
         }
@@ -280,18 +314,28 @@ impl ReferenceSheet {
                     pictures.push(look.clone());
                     looks.insert(url.clone(), look);
                 }
-                Err(error) => tracing::warn!(url = %url, err = %error, "could not look at a reference image"),
+                Err(error) => {
+                    tracing::warn!(url = %url, err = %error, "could not look at a reference image")
+                }
             }
         }
         if pictures.is_empty() {
-            return Err(Error::failed("none of the reference images could be described"));
+            return Err(Error::failed(
+                "none of the reference images could be described",
+            ));
         }
 
-        let numbered: Vec<String> =
-            pictures.iter().enumerate().map(|(index, look)| format!("PICTURE {}:\n{look}", index + 1)).collect();
+        let numbered: Vec<String> = pictures
+            .iter()
+            .enumerate()
+            .map(|(index, look)| format!("PICTURE {}:\n{look}", index + 1))
+            .collect();
         let sheet = self
             .text
-            .complete(Some(SHEET_SYSTEM), &format!("{SHEET_INSTRUCTION}\n\n{}", numbered.join("\n\n")))
+            .complete(
+                Some(SHEET_SYSTEM),
+                &format!("{SHEET_INSTRUCTION}\n\n{}", numbered.join("\n\n")),
+            )
             .await?;
         let trimmed = sheet.split_whitespace().collect::<Vec<_>>().join(" ");
         if !trimmed.to_lowercase().starts_with("tiny is") {
@@ -303,26 +347,37 @@ impl ReferenceSheet {
             looks: looks.clone(),
             created_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
         });
-        tracing::info!(pictures = pictures.len(), words = trimmed.split(' ').count(), "reference sheet built");
+        tracing::info!(
+            pictures = pictures.len(),
+            words = trimmed.split(' ').count(),
+            "reference sheet built"
+        );
         Ok((Some(trimmed), looks))
     }
 
     fn read_cache(&self) -> Option<CachedSheet> {
         let text = std::fs::read_to_string(self.cache_path.as_ref()?).ok()?;
         // Absent or unreadable: build it again.
-        serde_json::from_str::<CachedSheet>(&text).ok().filter(|cached| !cached.sheet.trim().is_empty())
+        serde_json::from_str::<CachedSheet>(&text)
+            .ok()
+            .filter(|cached| !cached.sheet.trim().is_empty())
     }
 
     fn write_cache(&self, sheet: &CachedSheet) {
         let Some(path) = &self.cache_path else {
             return;
         };
-        let written = serde_json::to_string_pretty(sheet).map_err(std::io::Error::other).and_then(|text| {
-            if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(path, text)
-        });
+        let written = serde_json::to_string_pretty(sheet)
+            .map_err(std::io::Error::other)
+            .and_then(|text| {
+                if let Some(parent) = path
+                    .parent()
+                    .filter(|parent| !parent.as_os_str().is_empty())
+                {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(path, text)
+            });
         if let Err(error) = written {
             tracing::warn!(err = %error, "could not cache the reference sheet");
         }
@@ -351,7 +406,12 @@ pub fn with_reference(sheet: Option<&str>, prompt: &str) -> String {
 /// `max_length` (in UTF-16 units, as the legacy limit was counted) the seed is
 /// the part to lose: the sheet is what makes it Tiny and the scene is what
 /// makes it today.
-pub fn with_seed(sheet: Option<&str>, seed: Option<&ReferenceSeed>, prompt: &str, max_length: Option<usize>) -> String {
+pub fn with_seed(
+    sheet: Option<&str>,
+    seed: Option<&ReferenceSeed>,
+    prompt: &str,
+    max_length: Option<usize>,
+) -> String {
     let Some(seed) = seed else {
         return fit(with_reference(sheet, prompt), max_length);
     };
@@ -366,7 +426,9 @@ pub fn with_seed(sheet: Option<&str>, seed: Option<&ReferenceSeed>, prompt: &str
     parts.push(format!("Scene: {prompt}"));
     let composed = parts.join("\n\n");
     match max_length {
-        Some(max) if max > 0 && composed.encode_utf16().count() > max => fit(with_reference(sheet, prompt), max_length),
+        Some(max) if max > 0 && composed.encode_utf16().count() > max => {
+            fit(with_reference(sheet, prompt), max_length)
+        }
         _ => composed,
     }
 }
@@ -378,7 +440,9 @@ fn fit(prompt: String, max_length: Option<usize>) -> String {
         return prompt;
     };
     let head = &units[..max];
-    let stop = head.windows(2).rposition(|pair| pair == [u16::from(b'.'), u16::from(b' ')]);
+    let stop = head
+        .windows(2)
+        .rposition(|pair| pair == [u16::from(b'.'), u16::from(b' ')]);
     let cut = match stop {
         Some(stop) if stop as f64 > max as f64 * 0.7 => &head[..=stop],
         _ => head,
