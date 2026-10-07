@@ -98,8 +98,9 @@ fn cap_emoji(text: &str, max_emoji: usize) -> String {
     tidy_blanks(&capped).trim().to_owned()
 }
 
-/// The longest prefix of at most `max_units` UTF-16 code units.
-fn prefix_units(text: &str, max_units: usize) -> &str {
+/// The longest prefix of at most `max_units` UTF-16 code units: a JavaScript
+/// `slice(0, n)` that never splits a character.
+pub(crate) fn prefix_units(text: &str, max_units: usize) -> &str {
     let mut units = 0;
     for (index, c) in text.char_indices() {
         units += c.len_utf16();
