@@ -244,6 +244,12 @@ impl Scheduler for HandlersOnly<'_> {
     fn remove(&self, _name: &str) -> anyhow::Result<()> {
         Ok(())
     }
+
+    /// Never: an operator command runs one job by hand, and a second
+    /// scheduler on the store would fire the server's jobs twice.
+    fn start(&self) -> futures::future::BoxFuture<'static, ()> {
+        Box::pin(async {})
+    }
 }
 
 fn describe(schedule: &JobSchedule) -> String {

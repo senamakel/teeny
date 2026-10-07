@@ -4,7 +4,8 @@
 //! On boot, in order: the configuration is cut to this process's role
 //! ([`schedule::for_role`]); the App is built (Mongo, the clients, the
 //! OpenHuman runtime and every agent); the port is bound, so a clash fails
-//! before anything is scheduled; the rota is installed on OpenHuman's cron;
+//! before anything is scheduled; the rota is installed on OpenHuman's cron
+//! (every handler, then every job) and only then is cron started;
 //! the reply worker (`REPLY_MODE=worker`), the activity stream and Telegram
 //! start for the roles that own them; the HTTP server takes requests.
 //!
@@ -120,12 +121,14 @@ pub async fn serve(config: Config, dry_run: bool) -> anyhow::Result<()> {
     if let Some(api) = &telegram_api {
         dispatch = dispatch.with_telegram(api.clone());
     }
-    schedule::install(
+    // Handlers, jobs, prune, then cron starts: nothing fires into nothing.
+    schedule::boot(
         &RuntimeScheduler(&app.runtime),
         &jobs,
         Arc::new(dispatch),
         tokio::runtime::Handle::current(),
-    )?;
+    )
+    .await?;
     for job in &jobs {
         tracing::info!(job = job.name, schedule = ?job.schedule, "cron: scheduled");
     }

@@ -18,6 +18,10 @@
 //! reply worker drains the queue in a loop, so a mention is answered in
 //! seconds (see `serve`).
 //!
+//! **Boot order.** The runtime is built with cron stopped; [`boot`] installs
+//! every handler, upserts the table, prunes the stale jobs, and only then
+//! starts the scheduler, so a job already due at boot runs its handler.
+//!
 //! Every job is `retries(0)` (a retry re-runs a turn that may have posted)
 //! and `single_flight` (a slot that comes due mid-run is skipped and
 //! recorded). A handler's `Err` is the run's recorded error.
@@ -212,10 +216,12 @@ pub trait Scheduler {
     /// Every stored job's name.
     fn names(&self) -> anyhow::Result<Vec<String>>;
     fn remove(&self, name: &str) -> anyhow::Result<()>;
+    /// Starts the scheduler: from here on, due jobs fire.
+    fn start(&self) -> BoxFuture<'static, ()>;
 }
 
 /// The runtime's cron.
-pub struct RuntimeScheduler<'a>(pub &'a Runtime);
+pub struct RuntimeScheduler<'a>(pub &'a Arc<Runtime>);
 
 impl Scheduler for RuntimeScheduler<'_> {
     fn on_job(&self, name: &str, handler: Handler) -> anyhow::Result<()> {
@@ -240,6 +246,10 @@ impl Scheduler for RuntimeScheduler<'_> {
     fn remove(&self, name: &str) -> anyhow::Result<()> {
         self.0.cron().remove(name)?;
         Ok(())
+    }
+
+    fn start(&self) -> BoxFuture<'static, ()> {
+        teeny_agent::runtime::start_services(Arc::clone(self.0)).boxed()
     }
 }
 
@@ -355,6 +365,22 @@ pub fn install(
             scheduler.remove(&stale)?;
         }
     }
+    Ok(())
+}
+
+/// The boot order: [`install`] every handler and job (and prune the stale
+/// ones), and only then start the scheduler. The runtime is built with cron
+/// stopped, so a stored job already due at boot cannot fire before its
+/// handler exists (it would be recorded "ok" without running). A failed
+/// install leaves cron stopped.
+pub async fn boot(
+    scheduler: &dyn Scheduler,
+    jobs: &[JobDef],
+    dispatch: Arc<Dispatch>,
+    handle: tokio::runtime::Handle,
+) -> anyhow::Result<()> {
+    install(scheduler, jobs, dispatch, handle)?;
+    scheduler.start().await;
     Ok(())
 }
 

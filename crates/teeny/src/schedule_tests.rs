@@ -193,11 +193,14 @@ struct FakeScheduler {
     handlers: Mutex<Vec<String>>,
     upserts: Mutex<Vec<JobSpec>>,
     removed: Mutex<Vec<String>>,
+    /// Every call, in order; shared with the start future.
+    events: Arc<Mutex<Vec<String>>>,
 }
 
 impl Scheduler for FakeScheduler {
     fn on_job(&self, name: &str, _handler: Handler) -> anyhow::Result<()> {
         self.handlers.lock().unwrap().push(name.to_owned());
+        self.events.lock().unwrap().push(format!("handler {name}"));
         Ok(())
     }
 
@@ -207,6 +210,10 @@ impl Scheduler for FakeScheduler {
             "a handler is in place before its job can fire"
         );
         self.stored.lock().unwrap().push(spec.name.clone());
+        self.events
+            .lock()
+            .unwrap()
+            .push(format!("upsert {}", spec.name));
         self.upserts.lock().unwrap().push(spec);
         Ok(())
     }
@@ -218,7 +225,13 @@ impl Scheduler for FakeScheduler {
     fn remove(&self, name: &str) -> anyhow::Result<()> {
         self.stored.lock().unwrap().retain(|stored| stored != name);
         self.removed.lock().unwrap().push(name.to_owned());
+        self.events.lock().unwrap().push(format!("remove {name}"));
         Ok(())
+    }
+
+    fn start(&self) -> BoxFuture<'static, ()> {
+        let events = Arc::clone(&self.events);
+        Box::pin(async move { events.lock().unwrap().push("start".into()) })
     }
 }
 
@@ -260,6 +273,67 @@ async fn installs_each_job_once_and_unretried_and_drops_stale_teeny_jobs() {
             .unwrap()
             .contains(&"someone_elses".to_owned())
     );
+}
+
+#[tokio::test]
+async fn boot_starts_cron_only_after_every_handler_job_and_prune() {
+    let scheduler = FakeScheduler::default();
+    scheduler
+        .stored
+        .lock()
+        .unwrap()
+        .push("teeny_calendar_retired".to_owned());
+    let jobs = job_table(&for_role(&config(&[])), None).unwrap();
+    let dispatch = Arc::new(Dispatch::new(Arc::new(JobCtx::fake(Arc::new(
+        ScriptedRunner::new(),
+    )))));
+
+    boot(
+        &scheduler,
+        &jobs,
+        dispatch,
+        tokio::runtime::Handle::current(),
+    )
+    .await
+    .unwrap();
+
+    let mut expected: Vec<String> = jobs
+        .iter()
+        .flat_map(|job| [format!("handler {}", job.name), format!("upsert {}", job.name)])
+        .collect();
+    expected.push("remove teeny_calendar_retired".into());
+    expected.push("start".into());
+    assert_eq!(*scheduler.events.lock().unwrap(), expected);
+}
+
+#[tokio::test]
+async fn a_failed_install_never_starts_cron() {
+    struct Refusing(FakeScheduler);
+    impl Scheduler for Refusing {
+        fn on_job(&self, name: &str, handler: Handler) -> anyhow::Result<()> {
+            self.0.on_job(name, handler)
+        }
+        fn upsert(&self, _spec: JobSpec) -> anyhow::Result<()> {
+            anyhow::bail!("the store is read-only")
+        }
+        fn names(&self) -> anyhow::Result<Vec<String>> {
+            self.0.names()
+        }
+        fn remove(&self, name: &str) -> anyhow::Result<()> {
+            self.0.remove(name)
+        }
+        fn start(&self) -> BoxFuture<'static, ()> {
+            self.0.start()
+        }
+    }
+    let scheduler = Refusing(FakeScheduler::default());
+    let jobs = job_table(&for_role(&config(&[])), None).unwrap();
+    let dispatch = Arc::new(Dispatch::new(Arc::new(JobCtx::fake(Arc::new(
+        ScriptedRunner::new(),
+    )))));
+    let booted = boot(&scheduler, &jobs, dispatch, tokio::runtime::Handle::current()).await;
+    assert!(booted.is_err());
+    assert!(!scheduler.0.events.lock().unwrap().contains(&"start".to_owned()));
 }
 
 #[tokio::test]
@@ -383,6 +457,86 @@ fn installs_on_the_real_runtime_and_runs_a_job_now() {
                     .unwrap()
                     .contains(&"teeny_probe".to_owned())
             );
+            std::fs::remove_dir_all(data_dir).ok();
+        }))
+        .unwrap();
+}
+
+/// The boot-order gap, on the real runtime: a system job that falls due
+/// before cron is started must not be dispatched (nor recorded "ok" with no
+/// handler); once [`boot`] starts cron it fires its handler exactly once.
+#[test]
+#[ignore = "boots the OpenHuman runtime on a temp workspace and waits on cron"]
+fn a_job_due_before_the_scheduler_starts_fires_once_after_boot() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::{Duration, SystemTime};
+
+    use futures::FutureExt as _;
+    use teeny_agent::runtime::{self, RuntimeSettings};
+
+    let executor = runtime::executor();
+    executor
+        .block_on(executor.spawn(async {
+            let data_dir =
+                std::env::temp_dir().join(format!("teeny-boot-order-{}", std::process::id()));
+            let runtime = runtime::global(RuntimeSettings {
+                data_dir: data_dir.clone(),
+                chrome_path: None,
+                unattended_actions: vec![],
+                allowed_domains: vec![],
+                tinycomputer_module: None,
+                backend_url: Some("http://127.0.0.1:9".into()),
+            })
+            .await
+            .expect("the runtime boots");
+
+            let ran = Arc::new(AtomicUsize::new(0));
+            let counter = Arc::clone(&ran);
+            let scheduler = RuntimeScheduler(&runtime);
+            // Stored before its handler exists, as a job from a previous
+            // process is: due one second from now.
+            scheduler
+                .upsert(
+                    JobSpec::system(
+                        "teeny_due_probe",
+                        "teeny_due_probe",
+                        JobSchedule::At {
+                            at: SystemTime::now() + Duration::from_secs(1),
+                        },
+                    )
+                    .retries(0)
+                    .single_flight(true),
+                )
+                .unwrap();
+            // Past due and past a scheduler poll (15 s): nothing may have run it.
+            tokio::time::sleep(Duration::from_secs(20)).await;
+            assert!(
+                runtime.cron().runs("teeny_due_probe", 5).unwrap().is_empty(),
+                "a due job was dispatched before cron was started"
+            );
+
+            scheduler
+                .on_job(
+                    "teeny_due_probe",
+                    Arc::new(move || {
+                        counter.fetch_add(1, Ordering::SeqCst);
+                        async { Ok(()) }.boxed()
+                    }),
+                )
+                .unwrap();
+            assert_eq!(ran.load(Ordering::SeqCst), 0);
+            // What [`boot`] does last.
+            scheduler.start().await;
+
+            for _ in 0..80 {
+                if ran.load(Ordering::SeqCst) > 0 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+            tokio::time::sleep(Duration::from_secs(7)).await;
+            assert_eq!(ran.load(Ordering::SeqCst), 1, "fires exactly once");
+            runtime.stop_services();
             std::fs::remove_dir_all(data_dir).ok();
         }))
         .unwrap();

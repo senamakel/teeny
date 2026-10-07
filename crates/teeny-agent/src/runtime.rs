@@ -16,7 +16,10 @@
 //!   system, voice, media, channels;
 //! - **tool groups**: every group off. No belt names a packed tool, and a
 //!   group that is off is not registered at all;
-//! - **services**: the cron scheduler, and nothing that listens.
+//! - **services**: the cron scheduler, and nothing that listens. Building
+//!   does not start them: `teeny serve` installs every cron handler and job
+//!   first, then calls [`start_services`]; an operator subcommand never
+//!   starts them, so it cannot run a second scheduler beside the server.
 //!
 //! The config overlay ([`openhuman_config`]) pins native tool calling, turns
 //! the autonomy policy on (access tiers are inert without it), sets up the
@@ -113,6 +116,7 @@ pub fn tool_groups() -> ToolGroups {
 }
 
 /// The cron scheduler on top of the one-shot harness init; nothing listens.
+/// Selected here, started by [`start_services`].
 pub fn services() -> ServiceSet {
     ServiceSet {
         harness_init: true,
@@ -256,6 +260,18 @@ pub fn existing() -> Option<Arc<Runtime>> {
     RUNTIME.get().cloned()
 }
 
+/// Starts the services [`services`] selects, the cron scheduler among them,
+/// on the [`executor`], so they outlive the caller's runtime. Idempotent
+/// while they run.
+pub async fn start_services(runtime: Arc<Runtime>) {
+    let started = executor()
+        .spawn(async move { runtime.start_services().await })
+        .await;
+    if let Err(error) = started {
+        tracing::error!(%error, "[runtime] starting the services failed");
+    }
+}
+
 async fn build(settings: RuntimeSettings) -> Result<Arc<Runtime>, BootError> {
     // For the context-less paths that read tool groups (agent builds outside
     // a core context): the same answer as the runtime's.
@@ -266,6 +282,10 @@ async fn build(settings: RuntimeSettings) -> Result<Arc<Runtime>, BootError> {
         .domains(domains())
         .tool_groups(tool_groups())
         .services(services())
+        // Started by the host once every cron handler is in place
+        // ([`start_services`]): a stored job due at boot would otherwise
+        // fire before its handler exists and be recorded "ok" unrun.
+        .defer_services()
         // Every Teeny agent names its own access; one that forgot would get
         // the narrowest tier rather than the supervised default.
         .access(Access::readonly());
