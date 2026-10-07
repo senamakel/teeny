@@ -16,6 +16,8 @@
 
 mod auth;
 pub mod body;
+pub mod article_store;
+mod articles;
 pub mod brain;
 mod feeds;
 mod reply;
@@ -32,6 +34,7 @@ use teeny_x::intake::ActivityIntake;
 
 use crate::mentions::Mentions;
 
+pub use article_store::ArticleStore;
 pub use brain::BrainSource;
 pub use feeds::{BrowserStatus, Mind, MindStatus};
 
@@ -48,6 +51,7 @@ pub struct Services {
     pub mind: Option<Mind>,
     pub ledger: Option<Arc<dyn InferenceLedger>>,
     pub brain: Option<Arc<dyn BrainSource>>,
+    pub articles: Option<Arc<dyn ArticleStore>>,
     /// The browser's state for `/health`; `null` until the browser is wired.
     pub browser: Option<Arc<dyn BrowserStatus>>,
 }
@@ -63,6 +67,7 @@ impl Services {
             mind: None,
             ledger: None,
             brain: None,
+            articles: None,
             browser: None,
         }
     }
@@ -79,6 +84,9 @@ pub fn router(services: Services) -> Router {
         .route("/mind", get(feeds::mind))
         .route("/ledger", get(feeds::ledger))
         .route("/brain", get(feeds::brain))
+        .route("/articles", get(articles::list))
+        .route("/articles/{slug}", get(articles::one))
+        .route("/articles/{slug}/media/{file}", get(articles::media))
         .fallback(reply::not_found)
         .method_not_allowed_fallback(reply::not_found)
         .with_state(Arc::new(services))
