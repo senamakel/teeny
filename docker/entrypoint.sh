@@ -45,7 +45,10 @@ make_layout() {
 
 # copy_once <legacy path> <layout path>, both relative to DATA. Copies through
 # a temporary name so an interrupted boot never leaves a half-copied
-# destination that the next boot would mistake for a finished one.
+# destination that the next boot would mistake for a finished one. Plain
+# `cp -R`, not `-p`: as root without FOWNER, preserving the legacy owner
+# leaves a file root may no longer chmod, and own_layout hands the copy to
+# teeny's uid anyway. Symlinks are copied as links, not followed.
 copy_once() {
   from="$DATA/$1"
   to="$DATA/$2"
@@ -54,7 +57,7 @@ copy_once() {
   fi
   partial="$to.migrating"
   rm -rf "$partial"
-  cp -Rp "$from" "$partial"
+  cp -R "$from" "$partial"
   mv "$partial" "$to"
   log "migrated $1 -> $2"
 }
@@ -103,20 +106,23 @@ clear_chrome_locks() {
   find "$DATA/chrome-profile" -maxdepth 2 -name 'Singleton*' -exec rm -f {} +
 }
 
-make_layout
-migrate_legacy
-clear_chrome_locks
-
 if [ "$(id -u)" -ne 0 ]; then
+  make_layout
+  migrate_legacy
+  clear_chrome_locks
   exec "$TEENY_BIN" "$@"
 fi
 
-# Prove gosu can drop privileges before blaming anything else: without
-# SETUID/SETGID every call fails, and the remedy is a compose change.
+# Prove gosu can drop privileges before touching anything, so a container
+# started without the capabilities says so rather than failing somewhere in
+# the migration: the remedy is a compose change.
 if ! gosu "$TEENY_UID:$TEENY_GID" true 2>/dev/null; then
   log "FATAL cannot drop privileges to $TEENY_UID:$TEENY_GID with gosu"
   log "FATAL with cap_drop: ALL the container needs cap_add: [CHOWN, DAC_OVERRIDE, SETUID, SETGID]"
   exit 1
 fi
+make_layout
+migrate_legacy
 own_layout
+clear_chrome_locks
 exec gosu "$TEENY_UID:$TEENY_GID" "$TEENY_BIN" "$@"

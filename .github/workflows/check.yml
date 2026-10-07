@@ -72,6 +72,10 @@ jobs:
       # dependency, not a member, so its warnings are not ours to fail on.
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
+      # The image builds `--release`, where debug_assertions is off. Items
+      # gated on `cfg(debug_assertions)` upstream have broken that build while
+      # every debug step above stayed green, so check the release graph too.
+      - run: cargo check --release --locked -p teeny
 
   deploy-scripts:
     runs-on: ubuntu-latest
