@@ -42,6 +42,37 @@ async fn recalls_context_and_stores_durable_notes() {
 }
 
 #[tokio::test]
+async fn recalls_about_a_person_by_handle_and_refuses_what_is_not_one() {
+    let memory = Arc::new(InMemoryMemory::default());
+    memory
+        .capture_mention(&teeny_memory::MemoryPost {
+            id: "1".into(),
+            text: "gm from ana".into(),
+            author_id: Some("7".into()),
+            author_username: Some("ana".into()),
+            ..teeny_memory::MemoryPost::default()
+        })
+        .await
+        .unwrap();
+    let tool = recall_memory(memory.clone() as Arc<dyn Memory>);
+    let recalled = call(
+        &tool,
+        json!({ "query": "what did they say", "about": "@ana" }),
+    )
+    .await;
+    assert!(
+        text_of(&recalled).contains("ABOUT @ana:"),
+        "{}",
+        text_of(&recalled)
+    );
+    assert!(
+        call(&tool, json!({ "query": "q", "about": "two words" }))
+            .await
+            .is_error
+    );
+}
+
+#[tokio::test]
 async fn says_so_when_nothing_is_recalled() {
     let memory = Arc::new(InMemoryMemory::default());
     let recalled = call(&recall_memory(memory), json!({ "query": "anything" })).await;

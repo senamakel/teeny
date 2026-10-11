@@ -14,6 +14,8 @@ use super::{Access, HostTool, Tool, ToolResult, failed, parse};
 #[derive(Deserialize)]
 struct RecallArgs {
     query: String,
+    #[serde(default)]
+    about: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -28,7 +30,8 @@ pub fn recall_memory(memory: Arc<dyn Memory>) -> Arc<dyn Tool> {
     HostTool::build(
         "recall_memory",
         "Search CortexDB long-term memory for prior interactions, product facts, tone, and past decisions. \
-         Call this before answering anything about the project or a user the bot has spoken to before.",
+         Call this before answering anything about the project or a user the bot has spoken to before. \
+         Pass `about` with an @handle to search what is known about, and what was said with, that particular person.",
         json!({
             "type": "object",
             "properties": {
@@ -36,6 +39,11 @@ pub fn recall_memory(memory: Arc<dyn Memory>) -> Arc<dyn Tool> {
                     "type": "string",
                     "minLength": 1,
                     "description": "A natural-language question about what should be remembered."
+                },
+                "about": {
+                    "type": "string",
+                    "pattern": "^@?\\w{1,15}$",
+                    "description": "An X handle, e.g. \"@someone\", to focus the search on that person."
                 }
             },
             "required": ["query"],
@@ -49,7 +57,13 @@ pub fn recall_memory(memory: Arc<dyn Memory>) -> Arc<dyn Tool> {
                     Ok(args) => args,
                     Err(refused) => return refused,
                 };
-                match teeny_memory::tools::recall_memory(memory.as_ref(), &args.query).await {
+                match teeny_memory::tools::recall_memory(
+                    memory.as_ref(),
+                    &args.query,
+                    args.about.as_deref(),
+                )
+                .await
+                {
                     Ok(text) => ToolResult::success(text),
                     Err(error) => failed(error),
                 }

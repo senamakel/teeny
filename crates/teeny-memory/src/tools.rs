@@ -5,7 +5,7 @@
 use chrono::Utc;
 use serde_json::json;
 
-use crate::{Memory, MemoryError, Result};
+use crate::{Memory, MemoryError, Person, Result};
 
 /// `recall_memory`'s answer when memory had nothing.
 pub const NOTHING_RECALLED: &str = "No relevant memory was recalled.";
@@ -15,14 +15,26 @@ pub const NOTE_MAX_CHARS: usize = 2_000;
 pub const NOTE_MAX_LABELS: usize = 8;
 
 /// `recall_memory`: search long-term memory for prior interactions, product
-/// facts, tone, and past decisions.
-pub async fn recall_memory(memory: &dyn Memory, query: &str) -> Result<String> {
+/// facts, tone, and past decisions; with `about`, an X handle, what is known
+/// about and was said with that person.
+///
+/// Without `about`, a recall is a search over everything, and a quiet
+/// person's history sinks under general context. With it, memory is asked
+/// about that person the way a turn's own recall asks about whoever is being
+/// answered: by the handle label every exchange with them carries, so the
+/// handle alone finds them.
+pub async fn recall_memory(
+    memory: &dyn Memory,
+    query: &str,
+    about: Option<&str>,
+) -> Result<String> {
     if query.is_empty() {
         return Err(MemoryError::InvalidInput(
             "query must not be empty".to_owned(),
         ));
     }
-    let context = memory.recall(query, None).await?;
+    let person = about.map(Person::handle).transpose()?;
+    let context = memory.recall(query, person.as_ref()).await?;
     let context = context.trim();
     Ok(if context.is_empty() {
         NOTHING_RECALLED.to_owned()

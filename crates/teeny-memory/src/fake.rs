@@ -7,8 +7,8 @@ use async_trait::async_trait;
 use crate::{Content, Experience, Memory, Person, Result, format_recall};
 
 /// Keeps every capture, once per idempotency key, and recalls by plain word
-/// match: what was captured about the person, and what mentions a word of
-/// the query.
+/// match: what was captured about the person (by id or handle label), and
+/// what mentions a word of the query.
 #[derive(Debug, Default)]
 pub struct InMemoryMemory {
     experiences: Mutex<Vec<Experience>>,
@@ -51,11 +51,22 @@ impl Memory for InMemoryMemory {
     async fn recall(&self, query: &str, person: Option<&Person>) -> Result<String> {
         let experiences = self.experiences();
         let about: Vec<String> = match person {
-            Some(person) => experiences
-                .iter()
-                .filter(|experience| experience.observed_actor.as_ref() == Some(&person.id))
-                .map(line)
-                .collect(),
+            // As the store finds a person: by their handle label (in any
+            // case), or by the id the memory was observed about.
+            Some(person) => {
+                let handle = person.handle_label().map(|label| label.to_lowercase());
+                experiences
+                    .iter()
+                    .filter(|experience| {
+                        experience.observed_actor.as_ref() == Some(&person.id)
+                            || experience
+                                .labels
+                                .iter()
+                                .any(|label| Some(label.to_lowercase()) == handle)
+                    })
+                    .map(line)
+                    .collect()
+            }
             None => Vec::new(),
         };
         let terms: Vec<String> = query

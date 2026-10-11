@@ -7,7 +7,7 @@ use crate::{Content, InMemoryMemory, MemoryPost};
 async fn recall_memory_trims_what_came_back_and_says_so_when_nothing_did() {
     let memory = InMemoryMemory::default();
     assert_eq!(
-        recall_memory(&memory, "anything").await.unwrap(),
+        recall_memory(&memory, "anything", None).await.unwrap(),
         "No relevant memory was recalled."
     );
 
@@ -20,11 +20,11 @@ async fn recall_memory_trims_what_came_back_and_says_so_when_nothing_did() {
         .await
         .unwrap();
     assert_eq!(
-        recall_memory(&memory, "chart").await.unwrap(),
+        recall_memory(&memory, "chart", None).await.unwrap(),
         "GENERAL CONTEXT:\n- the chart is hourly"
     );
     assert!(matches!(
-        recall_memory(&memory, "").await,
+        recall_memory(&memory, "", None).await,
         Err(MemoryError::InvalidInput(_))
     ));
 }
@@ -71,4 +71,31 @@ async fn remember_refuses_what_its_schema_refuses() {
             .await
             .is_ok()
     );
+}
+
+#[tokio::test]
+async fn recall_memory_about_a_handle_asks_what_was_said_with_that_person() {
+    let memory = InMemoryMemory::default();
+    memory
+        .capture_mention(&MemoryPost {
+            id: "1".into(),
+            text: "is the serial back?".into(),
+            author_id: Some("7".into()),
+            author_username: Some("ana".into()),
+            ..MemoryPost::default()
+        })
+        .await
+        .unwrap();
+    // By the handle label, with or without the @, whatever the case.
+    for about in ["@ana", "ana", "@Ana"] {
+        let recalled = recall_memory(&memory, "the serial", Some(about))
+            .await
+            .unwrap();
+        assert!(recalled.starts_with("ABOUT @"), "{recalled}");
+        assert!(recalled.contains("is the serial back?"), "{recalled}");
+    }
+    assert!(matches!(
+        recall_memory(&memory, "q", Some("not a handle!")).await,
+        Err(MemoryError::InvalidInput(_))
+    ));
 }

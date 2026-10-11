@@ -6,8 +6,11 @@ use serde_json::Value;
 
 use crate::{Experience, MemoryChatMessage, MemoryPost, Person, Result};
 
-/// The query of the first recall pass, the one about the person.
-pub const ABOUT_QUERY: &str = "Everything known about this person and past exchanges with them.";
+/// The query of the first recall pass, the one about the person. Never
+/// phrased as a subject ("Everything known about this person"): the store
+/// reads that as a request for the entity's dossier, a path that did not
+/// come back on the shared store.
+pub const ABOUT_QUERY: &str = "What has this person said, and what did you say back?";
 
 /// Long-term memory.
 ///
