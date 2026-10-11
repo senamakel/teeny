@@ -20,9 +20,25 @@ pub enum MemoryError {
     /// A tool was called with input its schema refuses.
     #[error("{0}")]
     InvalidInput(String),
+    /// The call outlived its own deadline.
+    #[error("request timed out after {after_ms}ms")]
+    Timeout { after_ms: u128 },
+    /// Recall is off for now; nothing was sent.
+    #[error(transparent)]
+    Paused(#[from] crate::RecallPaused),
 }
 
 impl MemoryError {
+    /// The call gave up at its deadline, its own or the transport's. A
+    /// recall that did leaves a query running on the store.
+    pub fn is_timeout(&self) -> bool {
+        match self {
+            Self::Timeout { .. } => true,
+            Self::Transport(error) => error.is_timeout(),
+            _ => false,
+        }
+    }
+
     /// CortexDB's answer to a key reused with a different body. The record
     /// is already stored, which is not a failure.
     pub fn is_idempotency_conflict(&self) -> bool {

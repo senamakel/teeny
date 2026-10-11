@@ -89,7 +89,7 @@ pub struct LorePipeline {
     /// How many turns the room runs. Absent, the backrooms' own setting.
     pub turns: Option<u32>,
     pub deps: Arc<Deps>,
-    /// The cadence kind, and the post ledger's: `lore` or `lore-evening`.
+    /// The cadence kind, and the post ledger's: `lore`.
     pub kind: String,
     pub random: Mutex<Rng>,
     pub clock: Arc<dyn Clock>,

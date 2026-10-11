@@ -8,11 +8,18 @@
 //! | `teeny_brain_usage` | `BRAIN_USAGE_CRON` (`* * * * *`), with a brain dir | all, ingest |
 //! | `teeny_heat` | `HEAT_CRON` (`*/20 * * * *`), `HEAT_ENABLED` | all, reply |
 //! | `teeny_reply` | `REPLY_CRON`, only with `REPLY_MODE=cron` | all, reply |
-//! | `teeny_morning` | `MORNING_CRON` | all, morning |
-//! | `teeny_afternoon` | the first enabled of `MOON_CRON`, `CHART_CRON`, `LORE_CRON` | all, moon, chart, lore |
-//! | `teeny_quote` | `QUOTE_CRON` | all, quote |
-//! | `teeny_evening` | `EVENING_CRON` | all, narrative, article, lore |
+//! | `teeny_cortex_health` | `CORTEX_HEALTH_CRON` (`17 * * * *`), and once at boot | every role |
+//! | `teeny_learnings` | `LEARNINGS_CRON` (`0 5 * * *`), `LEARNINGS_ENABLED` | all, morning |
+//! | `teeny_morning` | `MORNING_CRON` (`0 7 * * *`) | all, morning |
+//! | `teeny_afternoon` | `AFTERNOON_CRON` (`0 15 * * *`): chart, moon, else lore | all, chart, moon, lore |
+//! | `teeny_evening` | `EVENING_CRON` (`0 23 * * *`): article, serial, else quote | all, article, narrative, quote |
 //! | `teeny_calendar_<item>` | the item's cron, weekdays named | all, calendar |
+//!
+//! The day is three posts on a three-day rota: the morning every day, then
+//! the two slots, each one cron that runs the day's owner and hands the day
+//! to its fallback when the owner is off or does not post
+//! ([`teeny_cadence::slot`]). The per-job crons the four-slot calendar had
+//! (`CHART_CRON`, `MOON_CRON`, `LORE_CRON`, `QUOTE_CRON`) are gone.
 //!
 //! With `REPLY_MODE=worker` (the default) the reply job is not a cron: the
 //! reply worker drains the queue in a loop, so a mention is answered in
@@ -29,8 +36,10 @@
 //! **Roles.** `SERVICE_ROLE` decides which jobs this process owns, as
 //! `legacy/src/index.ts` did: [`for_role`] switches off every publishing job
 //! the role does not run, so the afternoon and evening dispatchers only ever
-//! hand a slot to a job this process owns. A stored `teeny_*` job the table
-//! no longer names is removed.
+//! hand a slot to a job this process owns. The learnings brief has one
+//! writer, the morning's: every process reads the file, and two writers
+//! would race to rewrite it. A stored `teeny_*` job the table no longer names
+//! (`teeny_quote`, since the quote became the evening's fallback) is removed.
 //!
 //! **Time zones.** Every cron is read in `CALENDAR_TZ` (UTC when unset); a
 //! `timezone` in `calendar.json` wins for its items. Numeric weekdays are
@@ -61,9 +70,10 @@ pub enum Work {
     BrainUsage,
     Heat,
     Reply,
+    CortexHealth,
+    Learnings,
     Morning,
     Afternoon,
-    Quote,
     Evening,
     Calendar(Box<CalendarItem>),
 }
@@ -102,6 +112,7 @@ pub fn for_role(config: &Config) -> Config {
     config.article.enabled &= owns(ServiceRole::Article);
     config.calendar.enabled &= owns(ServiceRole::Calendar);
     config.cadence.heat_enabled &= runs_replies(role);
+    config.learnings.enabled &= owns(ServiceRole::Morning);
     config
 }
 
@@ -160,23 +171,23 @@ pub fn job_table(config: &Config, calendar: Option<&Calendar>) -> anyhow::Result
             add("reply", &config.reply.cron, Work::Reply);
         }
     }
+    // The store's own report, in every process: an embedding outage degrades
+    // every recall without failing any of them, so nothing else would say so.
+    add(
+        "cortex_health",
+        &config.cortex.health_cron,
+        Work::CortexHealth,
+    );
+    if config.learnings.enabled {
+        add("learnings", &config.learnings.cron, Work::Learnings);
+    }
     if config.morning.enabled {
         add("morning", &config.morning.cron, Work::Morning);
     }
-    let afternoon = [
-        (config.moon.enabled, &config.moon.cron),
-        (config.chart.enabled, &config.chart.cron),
-        (config.lore.enabled, &config.lore.cron),
-    ]
-    .into_iter()
-    .find(|(enabled, _)| *enabled);
-    if let Some((_, expr)) = afternoon {
-        add("afternoon", expr, Work::Afternoon);
+    if config.chart.enabled || config.moon.enabled || config.lore.enabled {
+        add("afternoon", &config.rota.afternoon_cron, Work::Afternoon);
     }
-    if config.quote.enabled {
-        add("quote", &config.quote.cron, Work::Quote);
-    }
-    if config.narrative.enabled || config.article.enabled || config.lore.enabled {
+    if config.article.enabled || config.narrative.enabled || config.quote.enabled {
         add("evening", &config.rota.evening_cron, Work::Evening);
     }
     if config.calendar.enabled
@@ -281,19 +292,16 @@ impl Dispatch {
             Work::BrainUsage => teeny_jobs::brain_fold::run(ctx).await,
             Work::Heat => teeny_jobs::heat::run(ctx).await,
             Work::Reply => teeny_jobs::reply::run(ctx).await,
-            Work::Morning => teeny_jobs::morning::run(ctx).await,
-            Work::Afternoon => teeny_jobs::afternoon::run(ctx).await,
-            Work::Quote => teeny_jobs::quote::run(ctx).await,
-            Work::Evening => {
-                return match teeny_jobs::evening::run(ctx).await {
-                    Ok(SlotOutcome::Failed { job, error, .. }) => Err(format!("{job}: {error}")),
-                    Ok(outcome) => {
-                        tracing::info!(?outcome, "evening slot done");
-                        Ok(())
-                    }
-                    Err(error) => Err(format!("{error:#}")),
-                };
+            Work::CortexHealth => {
+                teeny_memory::health::report_cortex_health(&ctx.config.cortex.api_url).await;
+                return Ok(());
             }
+            Work::Learnings => teeny_jobs::learnings::run(ctx).await,
+            Work::Morning => teeny_jobs::morning::run(ctx).await,
+            Work::Afternoon => {
+                return slot_done("afternoon", teeny_jobs::afternoon::run(ctx).await);
+            }
+            Work::Evening => return slot_done("evening", teeny_jobs::evening::run(ctx).await),
             Work::Calendar(item) => {
                 let mut job = CalendarJob::from_ctx(ctx);
                 if let Some(telegram) = &self.telegram {
@@ -309,6 +317,27 @@ impl Dispatch {
             }
             Err(error) => Err(format!("{error:#}")),
         }
+    }
+}
+
+/// A slot's run, for cron to record: an error only when the slot's last
+/// word was a failure (an owner's failure its fallback answered is logged,
+/// not raised).
+fn slot_done(label: &str, outcome: anyhow::Result<SlotOutcome>) -> Result<(), String> {
+    match outcome {
+        Err(error) => Err(format!("{error:#}")),
+        Ok(outcome) => match outcome.failure() {
+            Some((job, error)) => Err(format!("{job}: {error}")),
+            None => {
+                tracing::info!(
+                    slot = label,
+                    posted = outcome.posted(),
+                    ?outcome,
+                    "slot done"
+                );
+                Ok(())
+            }
+        },
     }
 }
 

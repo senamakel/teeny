@@ -70,6 +70,56 @@ pub struct CortexConfig {
     pub scope: String,
     /// `CORTEX_TOKEN`, required.
     pub token: Secret,
+    /// `CORTEX_RECALL_TIMEOUT_MS`, 1000..=120000, default 15000. Recall is
+    /// on the turn's critical path, so it gets seconds: a recall that takes
+    /// longer is one the reply should go out without.
+    pub recall_timeout_ms: u64,
+    /// `CORTEX_CAPTURE_TIMEOUT_MS`, 1000..=120000, default 30000. Captures
+    /// run after the turn and can wait.
+    pub capture_timeout_ms: u64,
+    /// `CORTEX_PERSON_RECALL`, default on: the second recall pack, about the
+    /// person being answered, filtered on their `@handle` label.
+    pub person_recall: bool,
+    /// `CORTEX_RECALL_COOLDOWN_MS`, 0..=3600000, default 300000: how long
+    /// recall stays off after one times out, so a stalled store is not handed
+    /// one more abandoned query per reply.
+    pub recall_cooldown_ms: u64,
+    /// `CORTEX_HEALTH_CRON`, default `17 * * * *`: when the store's own
+    /// readiness report is read. A store that cannot embed still answers, by
+    /// keyword alone, so nothing else notices.
+    pub health_cron: String,
+}
+
+/// What a turn is told before it is drafted, read exactly rather than
+/// searched for. Zero turns either source off.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MemoryConfig {
+    /// `MEMORY_EXCHANGES`, 0..=50, default 6: the last answered mentions from
+    /// the person, from the mention queue.
+    pub exchanges: u32,
+    /// `MEMORY_OWN_POSTS_HOURS`, 0..=336, default 72.
+    pub own_posts_hours: u32,
+    /// `MEMORY_OWN_POSTS_LIMIT`, 0..=50, default 8: the account's own posts,
+    /// from the post ledger.
+    pub own_posts_limit: u32,
+}
+
+/// The learnings brief: a short document the account rewrites about itself
+/// once a day, and which every prompt then carries next to SOUL.md and
+/// CONTEXT.md.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LearningsConfig {
+    /// `LEARNINGS_ENABLED`, default on: one model call a day.
+    pub enabled: bool,
+    /// `LEARNINGS_PATH`, default `data/memory/LEARNINGS.md`; earlier briefs
+    /// are kept under `history/` beside it.
+    pub path: String,
+    /// `LEARNINGS_CRON`, default `0 5 * * *`, before the morning post.
+    pub cron: String,
+    /// `LEARNINGS_MAX_CHARS`, 1000..=40000, default 10000.
+    pub max_chars: u32,
+    /// `LEARNINGS_DAYS`, 1..=60, default 7: how far back the record is read.
+    pub days: u32,
 }
 
 /// The chat model, through the ladder gateway.
@@ -155,7 +205,9 @@ pub struct ReplyConfig {
 /// The gap between the account's own posts, and the heat job.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CadenceConfig {
-    /// `POST_MIN_GAP_HOURS`, 0..=48, default 6.
+    /// `POST_MIN_GAP_HOURS`, 0..=48, default 7: three posts a day, eight
+    /// hours apart, less an hour so a slow job that posts late does not cost
+    /// the next slot its turn.
     pub post_min_gap_hours: f64,
     /// `POST_GAP_TOLERANCE_MINUTES`, 0..=120, default 20.
     pub post_gap_tolerance_minutes: f64,

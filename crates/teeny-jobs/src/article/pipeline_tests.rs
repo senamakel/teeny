@@ -718,3 +718,32 @@ fn splits_the_markdown_at_the_section_headings() {
         ["_dek_", "## one\n\na", "## two\n\nb"]
     );
 }
+
+/// Port of "what the critic is shown" (e84e8d7): the critic reads the front
+/// of anything long, cut at a paragraph; a cut mid-sentence was read as the
+/// piece ending mid-sentence.
+#[test]
+fn the_critic_is_shown_the_whole_piece_when_it_fits_and_otherwise_the_paragraphs_that_fit() {
+    assert_eq!(front_of("one\n\ntwo", 100), "one\n\ntwo");
+    let piece = ["a".repeat(40), "b".repeat(40), "c".repeat(40)].join("\n\n");
+    assert_eq!(
+        front_of(&piece, 90),
+        format!("{}\n\n{}", "a".repeat(40), "b".repeat(40))
+    );
+    assert_eq!(front_of(&"x".repeat(50), 20), "x".repeat(20));
+}
+
+#[test]
+fn the_critic_is_told_when_it_reads_only_the_opening() {
+    let piece = ["one two three", "four five six seven"].join("\n\n");
+    assert_eq!(
+        critic_context("a premise", &piece, &piece),
+        "a long-form article from teeny's serial, published as an x article. the premise: a premise"
+    );
+    let front = front_of(&piece, 15);
+    assert_eq!(
+        critic_context("a premise", &front, &piece),
+        "a long-form article from teeny's serial, published as an x article. the premise: a premise\n\
+         this is the opening 3 of its 7 words; the piece goes on past where this text stops, so the stop is not its ending."
+    );
+}

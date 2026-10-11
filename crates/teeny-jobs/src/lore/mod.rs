@@ -8,5 +8,5 @@
 pub mod job;
 pub mod pipeline;
 
-pub use job::{dry_run, run, run_afternoon, run_evening, run_pipeline};
+pub use job::{dry_run, run, run_pipeline};
 pub use pipeline::{LorePipeline, LoreResult, LoreRoom, SeedSource};

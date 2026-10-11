@@ -98,6 +98,7 @@ impl App {
 
         let conversation = Conversation {
             queue: queue.clone(),
+            exchanges: Some(queue.clone()),
             people: Some(Arc::clone(&people)),
             cursor: Arc::new(FileStateStore::new(cursor_path(&config))),
             transcript: Arc::new(MongoChatTranscript::with_collection(

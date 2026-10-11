@@ -28,8 +28,8 @@ pub use inference::{
 };
 pub use journal::{InMemoryJournal, Journal, MongoJournal, Reflection, ReflectionInput};
 pub use mentions::{
-    InMemoryMentionQueue, MentionQueue, MentionStatus, MongoMentionQueue, QueuedMention,
-    QueuedPost, RepliedFilter, Reply, ReplyLane, StatusCounts,
+    Exchange, ExchangeHistory, InMemoryMentionQueue, MentionQueue, MentionStatus,
+    MongoMentionQueue, QueuedMention, QueuedPost, RepliedFilter, Reply, ReplyLane, StatusCounts,
 };
 pub use mongo::connect;
 pub use people::{InMemoryPeople, Interaction, MongoPeople, Observation, People, PersonRecord};

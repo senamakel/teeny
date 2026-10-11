@@ -18,9 +18,9 @@ use teeny_store::{InMemoryJournal, Journal};
 
 use teeny_agent::deps::QueuedXPost;
 use teeny_store::{
-    ChatTranscript, InMemoryChatTranscript, InMemoryLedger, InMemoryMentionQueue, InMemoryPeople,
-    InMemoryPostLedger, InMemoryStateStore, InferenceLedger, MentionQueue, People, PostLedger,
-    StateStore,
+    ChatTranscript, ExchangeHistory, InMemoryChatTranscript, InMemoryLedger, InMemoryMentionQueue,
+    InMemoryPeople, InMemoryPostLedger, InMemoryStateStore, InferenceLedger, MentionQueue, People,
+    PostLedger, StateStore,
 };
 use teeny_x::intake::AccountId;
 
@@ -175,6 +175,9 @@ impl JobReport {
 /// the pacing and the brain cursor live across runs.
 pub struct Conversation {
     pub queue: Arc<dyn MentionQueue<QueuedXPost>>,
+    /// The queue's record of what was said to whom, for the turn context:
+    /// the same queue, read as [`ExchangeHistory`].
+    pub exchanges: Option<Arc<dyn ExchangeHistory>>,
     /// Who interacts most, so a batch answers the regulars first.
     pub people: Option<Arc<dyn People>>,
     /// The mention poll's `since_id` / `lastPolledAt` cursor.
@@ -201,8 +204,10 @@ impl Conversation {
     /// Every part in process: in-memory stores, an account of
     /// [`FAKE_ACCOUNT_ID`], no mentions to poll, and an outlet that records.
     pub fn fake() -> Self {
+        let queue = Arc::new(InMemoryMentionQueue::<QueuedXPost>::default());
         Self {
-            queue: Arc::new(InMemoryMentionQueue::<QueuedXPost>::default()),
+            queue: queue.clone(),
+            exchanges: Some(queue),
             people: Some(Arc::new(InMemoryPeople::default())),
             cursor: Arc::new(InMemoryStateStore::default()),
             transcript: Arc::new(InMemoryChatTranscript::default()),

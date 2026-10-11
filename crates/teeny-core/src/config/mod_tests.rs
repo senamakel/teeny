@@ -388,7 +388,7 @@ mod numbers {
         assert_eq!(config.reply.min_interval_ms, 30_000);
         assert_eq!(config.reply.max_interval_ms, 60_000);
         assert_eq!(config.x.cache_post_ttl_days, 30.0);
-        assert_eq!(config.cadence.post_min_gap_hours, 6.0);
+        assert_eq!(config.cadence.post_min_gap_hours, 7.0);
         assert_eq!(config.narrative.straight_temperature, 0.6);
         assert_eq!(config.backrooms.budget_tokens, 9_000);
     }
@@ -569,18 +569,44 @@ mod rota {
     use super::*;
 
     #[test]
-    fn reads_the_week_from_its_anchor() {
+    fn is_three_days_of_three_posts_eight_hours_apart() {
         let config = load(&[]);
-        assert_eq!(config.rota.days, 7);
+        assert_eq!(config.rota.days, 3);
         assert_eq!(
             config.rota.anchor,
             NaiveDate::from_ymd_opt(2026, 9, 14).unwrap()
         );
-        assert_eq!(config.rota.moon_slot, 0);
-        assert_eq!(config.rota.chart_slot, 3);
-        assert_eq!(config.rota.narrative_slots, [1, 4]);
-        assert_eq!(config.rota.article_slots, [2, 5]);
-        assert_eq!(config.rota.evening_cron, "0 19 * * *");
+        assert_eq!(
+            [
+                config.morning.cron.as_str(),
+                config.rota.afternoon_cron.as_str(),
+                config.rota.evening_cron.as_str(),
+            ],
+            ["0 7 * * *", "0 15 * * *", "0 23 * * *"]
+        );
+        assert_eq!(config.rota.chart_slot, 0);
+        assert_eq!(config.rota.moon_slot, 1);
+        assert_eq!(config.rota.article_slots, [1]);
+        assert_eq!(config.rota.narrative_slots, [2]);
+        // Under the eight hours between slots, so a late post does not cost
+        // the next slot its turn, and more than six with the tolerance off.
+        let gap = &config.cadence;
+        assert!(gap.post_min_gap_hours < 8.0);
+        assert!(gap.post_min_gap_hours * 60.0 - gap.post_gap_tolerance_minutes > 6.0 * 60.0);
+    }
+
+    // Each slot is one cron that runs the day's owner; the per-job crons
+    // legacy dropped are ignored rather than refused, so an old .env boots.
+    #[test]
+    fn ignores_the_old_per_job_crons() {
+        let config = load(&[
+            ("CHART_CRON", "0 13 * * *"),
+            ("MOON_CRON", "0 13 * * *"),
+            ("LORE_CRON", "0 13 * * *"),
+            ("QUOTE_CRON", "0 1 * * *"),
+            ("AFTERNOON_CRON", "0 16 * * *"),
+        ]);
+        assert_eq!(config.rota.afternoon_cron, "0 16 * * *");
     }
 
     #[test]
@@ -730,6 +756,64 @@ mod serve_wiring {
                 .timezone
                 .as_deref(),
             Some("Europe/Berlin")
+        );
+    }
+}
+
+mod memory {
+    use super::*;
+
+    #[test]
+    fn gives_a_recall_seconds_reads_exact_history_by_default_and_keeps_the_brief_on() {
+        let config = load(&[]);
+        assert_eq!(config.cortex.recall_timeout_ms, 15_000);
+        assert_eq!(config.cortex.capture_timeout_ms, 30_000);
+        assert!(config.cortex.person_recall);
+        assert_eq!(config.cortex.recall_cooldown_ms, 300_000);
+        assert_eq!(config.cortex.health_cron, "17 * * * *");
+        assert_eq!(config.memory.exchanges, 6);
+        assert_eq!(config.memory.own_posts_hours, 72);
+        assert_eq!(config.memory.own_posts_limit, 8);
+        assert!(config.learnings.enabled);
+        assert_eq!(config.learnings.path, "data/memory/LEARNINGS.md");
+        assert_eq!(config.learnings.cron, "0 5 * * *");
+        assert_eq!(config.learnings.max_chars, 10_000);
+        assert_eq!(config.learnings.days, 7);
+    }
+
+    #[test]
+    fn turns_a_source_off_at_zero_and_refuses_a_recall_deadline_under_a_second() {
+        let config = load(&[
+            ("MEMORY_EXCHANGES", "0"),
+            ("MEMORY_OWN_POSTS_LIMIT", "0"),
+            ("LEARNINGS_ENABLED", "false"),
+            ("CORTEX_PERSON_RECALL", "false"),
+        ]);
+        assert_eq!(config.memory.exchanges, 0);
+        assert_eq!(config.memory.own_posts_limit, 0);
+        assert!(!config.learnings.enabled);
+        assert!(!config.cortex.person_recall);
+        assert_eq!(
+            keys(&load_err(&[
+                ("CORTEX_RECALL_TIMEOUT_MS", "500"),
+                ("LEARNINGS_MAX_CHARS", "999"),
+            ])),
+            ["CORTEX_RECALL_TIMEOUT_MS", "LEARNINGS_MAX_CHARS"]
+        );
+    }
+}
+
+mod article {
+    use super::*;
+
+    #[test]
+    fn gives_the_article_model_calls_minutes_not_the_seconds_a_caption_gets() {
+        assert_eq!(load(&[]).article.model_timeout_seconds, 360);
+        assert_eq!(
+            load(&[("ARTICLE_MODEL_TIMEOUT_SECONDS", "600")])
+                .article
+                .model_timeout_seconds,
+            600
         );
     }
 }

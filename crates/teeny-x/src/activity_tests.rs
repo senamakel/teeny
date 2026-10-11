@@ -166,45 +166,85 @@ fn lists_entries_under_their_event_type_and_skips_posts_for_memory() {
         None,
     );
     assert!(capturable_entries(&mention).is_empty());
-    let like = event(
-        "like.create",
-        json!({ "id": "905", "author_id": "42" }),
-        None,
-    );
+    // Engagement is counted in the people store, not remembered: two thirds
+    // of memory was raw like, repost and follow payloads crowding out what
+    // people said.
+    for (kind, payload) in [
+        ("like.create", json!({ "id": "905", "author_id": "42" })),
+        (
+            "follow.follow",
+            json!({ "source": { "id": "42" }, "target": { "id": "1" } }),
+        ),
+        (
+            "post.repost.create",
+            json!({ "id": "907", "author_id": "42" }),
+        ),
+    ] {
+        assert!(
+            capturable_entries(&event(kind, payload, None)).is_empty(),
+            "{kind}"
+        );
+    }
+    let dm = event("dm.received", json!({ "id": "908", "text": "hi" }), None);
     assert_eq!(
-        capturable_entries(&like),
+        capturable_entries(&dm),
         vec![ActivityEntry {
-            kind: "like.create".into(),
-            id: "905".into(),
-            payload: json!({ "id": "905", "author_id": "42" })
+            kind: "dm.received".into(),
+            id: "908".into(),
+            payload: json!({ "id": "908", "text": "hi" })
         }]
     );
 }
 
 #[test]
-fn only_non_post_events_of_the_old_shape_reach_memory() {
+fn neither_posts_nor_engagement_of_the_old_shape_reach_memory() {
     let payload = json!({
         "tweet_create_events": [{ "id_str": "123", "text": "hello" }],
         "favorite_events": [{ "id": "456" }],
-        "follow_events": [{ "type": "follow" }]
+        "follow_events": [{ "type": "follow" }],
+        "direct_message_events": [{ "id": "789" }]
     });
-    let mut entries = capturable_entries(&payload);
-    entries.sort_by(|a, b| a.kind.cmp(&b.kind));
     assert_eq!(
-        entries,
-        vec![
-            ActivityEntry {
-                kind: "favorite_events".into(),
-                id: "456".into(),
-                payload: json!({ "id": "456" })
-            },
-            ActivityEntry {
-                kind: "follow_events".into(),
-                id: "0".into(),
-                payload: json!({ "type": "follow" })
-            },
-        ]
+        capturable_entries(&payload),
+        vec![ActivityEntry {
+            kind: "direct_message_events".into(),
+            id: "789".into(),
+            payload: json!({ "id": "789" })
+        }]
     );
+}
+
+#[test]
+fn engagement_is_likes_reposts_follows_blocks_mutes_and_deletions() {
+    for kind in [
+        "like.create",
+        "favorite.create",
+        "post.repost.create",
+        "repost.create",
+        "retweet.create",
+        "follow.follow",
+        "unfollow.unfollow",
+        "block.block",
+        "mute.mute",
+        "tweet_delete.create",
+        "favorite_events",
+        "follow_events",
+        "block_events",
+        "mute_events",
+        "tweet_delete_events",
+        "retweet_events",
+    ] {
+        assert!(is_engagement(kind), "{kind}");
+    }
+    for kind in [
+        "dm.received",
+        "post.mention.create",
+        "direct_message_events",
+        "likes",
+        "followers",
+    ] {
+        assert!(!is_engagement(kind), "{kind}");
+    }
 }
 
 #[test]

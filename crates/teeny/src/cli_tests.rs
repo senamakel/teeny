@@ -46,6 +46,18 @@ mod operator {
     }
 
     #[test]
+    fn reads_learnings_and_its_rehearsal() {
+        let Command::Learnings(args) = parse(&["learnings"]) else {
+            panic!("not learnings");
+        };
+        assert!(!args.dry_run);
+        let Command::Learnings(args) = parse(&["learnings", "--dry-run"]) else {
+            panic!("not learnings");
+        };
+        assert!(args.dry_run);
+    }
+
+    #[test]
     fn reads_auth_x() {
         let Command::AuthX(args) = parse(&["auth-x", "--env-file", ".env"]) else {
             panic!("not auth-x");

@@ -6,15 +6,19 @@
 //! [`Memory`] is the seam: [`CortexMemory`] speaks HTTP, [`InMemoryMemory`]
 //! keeps everything in process for tests.
 
+pub mod breaker;
 mod cortex;
 mod error;
 pub mod experience;
 mod fake;
+pub mod health;
 mod memory;
 mod person;
+pub mod text;
 pub mod tools;
 
-pub use cortex::{CortexMemory, ForgetSelector};
+pub use breaker::{RecallBreaker, RecallPaused};
+pub use cortex::{CortexMemory, CortexOptions, ForgetSelector, RECALL_LABELS, cap_pack};
 pub use error::{MemoryError, Result};
 pub use experience::{CAPTURE_VERSION, Content, Experience, Role};
 pub use fake::InMemoryMemory;

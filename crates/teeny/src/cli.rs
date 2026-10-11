@@ -7,6 +7,7 @@ use crate::cmd::auth_x::AuthXArgs;
 use crate::cmd::cron::CronArgs;
 use crate::cmd::dry_run::DryRunArgs;
 use crate::cmd::forget::ForgetArgs;
+use crate::cmd::learnings::LearningsArgs;
 use crate::cmd::remember::RememberArgs;
 use crate::cmd::unsay::UnsayArgs;
 use crate::cmd::webhook::WebhookArgs;
@@ -40,6 +41,8 @@ pub enum Command {
     DryRun(DryRunArgs),
     /// The registered cron jobs: list them with their last runs, or run one.
     Cron(CronArgs),
+    /// Rewrite the learnings brief now and print it; --dry-run writes nothing.
+    Learnings(LearningsArgs),
     /// Prompt-inject the reply and chat pipelines with DRY_RUN forced on;
     /// exits non-zero on any tool outside the belt, any post, or a leaked
     /// system prompt.

@@ -6,6 +6,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::MemoryError;
+
 /// The human on the other side of a conversation, as CortexDB knows them.
 ///
 /// CortexDB reads the segment before the first colon as the actor type and
@@ -32,8 +34,26 @@ impl Person {
         }
     }
 
+    /// Someone known only by their X handle (`@ana` or `ana`, 1 to 15 word
+    /// characters), for a recall: recall finds a person by the handle label
+    /// their exchanges carry, never by id, so the id here is the handle too.
+    pub fn handle(handle: &str) -> Result<Self, MemoryError> {
+        let name = handle.strip_prefix('@').unwrap_or(handle);
+        let valid = (1..=15).contains(&name.chars().count())
+            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if !valid {
+            return Err(MemoryError::InvalidInput(format!(
+                "{handle:?} is not an X handle"
+            )));
+        }
+        Ok(Self {
+            id: format!("@{name}"),
+            username: Some(name.to_owned()),
+        })
+    }
+
     /// `@handle`, the label a memory about this person carries.
-    pub(crate) fn handle_label(&self) -> Option<String> {
+    pub fn handle_label(&self) -> Option<String> {
         self.username
             .as_ref()
             .map(|username| format!("@{username}"))

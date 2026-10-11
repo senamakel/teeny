@@ -45,6 +45,7 @@ impl CortexMemory {
             ])
             .header("X-Cortex-Actor", &self.actor)
             .bearer_auth(self.bearer.expose())
+            .timeout(super::TIMEOUT)
             .send()
             .await?;
         let status = response.status();
@@ -61,7 +62,9 @@ impl CortexMemory {
     pub async fn forget_preview(&self, selector: &ForgetSelector) -> Result<Value> {
         let body = self.forget_body(selector);
         Ok(serde_json::from_str(
-            &self.post("/v1/forget/preview", &body).await?,
+            &self
+                .post("/v1/forget/preview", &body, super::TIMEOUT)
+                .await?,
         )?)
     }
 
@@ -79,7 +82,7 @@ impl CortexMemory {
             body["from_preview_id"] = json!(preview_id);
         }
         Ok(serde_json::from_str(
-            &self.post("/v1/forget", &body).await?,
+            &self.post("/v1/forget", &body, super::TIMEOUT).await?,
         )?)
     }
 

@@ -48,6 +48,7 @@ fn every_job_of_the_default_role_on_its_configured_cron() {
         ("QUOTE_ENABLED", "true"),
         ("LORE_ENABLED", "true"),
         ("BRAIN_DATA_DIR", "brain"),
+        ("LEARNINGS_ENABLED", "true"),
     ]);
     assert_eq!(
         table(&everything),
@@ -55,10 +56,11 @@ fn every_job_of_the_default_role_on_its_configured_cron() {
             ("teeny_ingest".into(), "*/5 * * * *".into(), None),
             ("teeny_brain_usage".into(), "* * * * *".into(), None),
             ("teeny_heat".into(), "*/20 * * * *".into(), None),
+            ("teeny_cortex_health".into(), "17 * * * *".into(), None),
+            ("teeny_learnings".into(), "0 5 * * *".into(), None),
             ("teeny_morning".into(), "0 7 * * *".into(), None),
-            ("teeny_afternoon".into(), "0 13 * * *".into(), None),
-            ("teeny_quote".into(), "0 1 * * *".into(), None),
-            ("teeny_evening".into(), "0 19 * * *".into(), None),
+            ("teeny_afternoon".into(), "0 15 * * *".into(), None),
+            ("teeny_evening".into(), "0 23 * * *".into(), None),
         ]
     );
 }
@@ -67,17 +69,25 @@ fn every_job_of_the_default_role_on_its_configured_cron() {
 fn the_publishing_jobs_are_off_until_switched_on_and_the_reply_worker_is_not_a_cron() {
     // The defaults: no publishing job is on, the brain is a directory that
     // may be absent (its fold declines then), and REPLY_MODE=worker drains
-    // the queue in a loop rather than on a timer.
+    // the queue in a loop rather than on a timer. The store's health is read
+    // in every process, and the brief is on by default.
     assert_eq!(
-        names(&config(&[])),
-        ["teeny_ingest", "teeny_brain_usage", "teeny_heat"]
+        names(&config(&[("LEARNINGS_ENABLED", "true")])),
+        [
+            "teeny_ingest",
+            "teeny_brain_usage",
+            "teeny_heat",
+            "teeny_cortex_health",
+            "teeny_learnings"
+        ]
     );
     assert_eq!(
         names(&config(&[
             ("BRAIN_DATA_DIR", ""),
-            ("HEAT_ENABLED", "false")
+            ("HEAT_ENABLED", "false"),
+            ("LEARNINGS_ENABLED", "false"),
         ])),
-        ["teeny_ingest"]
+        ["teeny_ingest", "teeny_cortex_health"]
     );
     let cron = table(&config(&[
         ("REPLY_MODE", "cron"),
@@ -94,19 +104,25 @@ fn a_single_role_registers_only_its_own_jobs() {
         ("LORE_ENABLED", "true"),
         ("NARRATIVE_ENABLED", "true"),
         ("QUOTE_ENABLED", "true"),
+        ("LEARNINGS_ENABLED", "true"),
     ];
+    // Every process reads the store's health; the rest is the role's own.
     let role = |role: &'static str| {
         let mut vars = on.to_vec();
         vars.push(("SERVICE_ROLE", role));
-        names(&config(&vars))
+        let mut names = names(&config(&vars));
+        assert!(names.contains(&"teeny_cortex_health".to_owned()), "{role}");
+        names.retain(|name| name != "teeny_cortex_health");
+        names
     };
     assert_eq!(role("ingest"), ["teeny_ingest", "teeny_brain_usage"]);
     assert_eq!(role("reply"), ["teeny_heat"]);
-    assert_eq!(role("morning"), ["teeny_morning"]);
-    assert_eq!(role("quote"), ["teeny_quote"]);
+    // One writer of the brief, the morning's, as every process reads it.
+    assert_eq!(role("morning"), ["teeny_learnings", "teeny_morning"]);
     // The slots are dispatchers; a single role only dispatches to its own job.
+    assert_eq!(role("quote"), ["teeny_evening"]);
     assert_eq!(role("moon"), ["teeny_afternoon"]);
-    assert_eq!(role("lore"), ["teeny_afternoon", "teeny_evening"]);
+    assert_eq!(role("lore"), ["teeny_afternoon"]);
     assert_eq!(role("narrative"), ["teeny_evening"]);
     assert!(role("api").is_empty());
     assert!(role("chart").is_empty(), "the chart is off");
@@ -118,16 +134,28 @@ fn a_single_role_registers_only_its_own_jobs() {
         "the lore role's job, not this process's"
     );
     assert!(!moon.cadence.heat_enabled);
+    assert!(!moon.learnings.enabled, "the morning role writes the brief");
 }
 
 #[test]
-fn the_afternoon_fires_on_the_first_enabled_owners_cron() {
+fn each_slot_is_one_cron_whatever_owns_it_and_the_old_per_job_crons_are_ignored() {
     let chart_first = config(&[
         ("CHART_ENABLED", "true"),
         ("CHART_CRON", "0 14 * * *"),
         ("LORE_ENABLED", "true"),
     ]);
-    assert!(table(&chart_first).contains(&("teeny_afternoon".into(), "0 14 * * *".into(), None)));
+    assert!(table(&chart_first).contains(&("teeny_afternoon".into(), "0 15 * * *".into(), None)));
+    let moved = config(&[
+        ("QUOTE_ENABLED", "true"),
+        ("QUOTE_CRON", "0 1 * * *"),
+        ("AFTERNOON_CRON", "0 16 * * *"),
+        ("EVENING_CRON", "0 22 * * *"),
+        ("MOON_ENABLED", "true"),
+    ]);
+    let moved = table(&moved);
+    assert!(moved.contains(&("teeny_afternoon".into(), "0 16 * * *".into(), None)));
+    assert!(moved.contains(&("teeny_evening".into(), "0 22 * * *".into(), None)));
+    assert!(!moved.iter().any(|(name, _, _)| name == "teeny_quote"));
 }
 
 #[test]
@@ -156,6 +184,7 @@ fn one_job_per_enabled_calendar_item_with_named_weekdays_in_the_calendars_zone()
     let jobs: Vec<_> = job_table(&on, Some(&calendar))
         .unwrap()
         .into_iter()
+        .filter(|job| job.work != Work::CortexHealth)
         .map(|job| (job.name, job.schedule))
         .collect();
     let berlin = |expr: &str| JobSchedule::Cron {

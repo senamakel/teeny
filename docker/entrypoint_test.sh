@@ -32,7 +32,7 @@ run_entrypoint() {
 # --- a volume the legacy service wrote: everything flat at the root ----------
 legacy="$scratch/legacy"
 mkdir -p "$legacy/charts" "$legacy/moon" "$legacy/likeness" "$legacy/backrooms" \
-  "$legacy/media" "$legacy/articles"
+  "$legacy/media" "$legacy/articles" "$legacy/memory/history"
 echo '{"cursor":"1"}' >"$legacy/state.json"
 echo '[]' >"$legacy/quotes.json"
 echo '{"episode":3}' >"$legacy/narrative-state.json"
@@ -43,6 +43,7 @@ echo '{}' >"$legacy/backrooms/run-1.json"
 echo mp4 >"$legacy/media/morning.mp4"
 echo '{"sheet":1}' >"$legacy/media/reference-sheet.json"
 echo md >"$legacy/articles/a.md"
+echo '# Learnings' >"$legacy/memory/LEARNINGS.md"
 
 run_entrypoint "$legacy" serve
 
@@ -54,6 +55,7 @@ check "copies state.json into state/" grep -qs '"cursor":"1"' "$legacy/state/sta
 check "copies quotes.json into state/" test -f "$legacy/state/quotes.json"
 check "copies narrative-state.json into state/" grep -qs episode "$legacy/state/narrative-state.json"
 check "copies backrooms/ into state/" test -f "$legacy/state/backrooms/run-1.json"
+check "copies the learnings brief into state/memory/" grep -qs Learnings "$legacy/state/memory/LEARNINGS.md"
 check "copies charts/ into media/" test -f "$legacy/media/charts/2026-09-30.png"
 check "copies moon/ into media/" test -f "$legacy/media/moon/2026-09-29.png"
 check "copies likeness/ into media/" test -f "$legacy/media/likeness/face.jpg"

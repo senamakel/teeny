@@ -12,7 +12,6 @@
 
 use anyhow::{Result, anyhow};
 use teeny_agent::posture::Belt;
-use teeny_cadence::rota::Rota;
 use teeny_store::ReflectionInput;
 use teeny_store::journal::{Outcome, Tone, Trigger};
 
@@ -62,13 +61,12 @@ pub fn with_memory(task: &str, symbol: &str, history: &str, community: &str) -> 
     .join("\n")
 }
 
-/// The scheduled run: the rota, the guard, the cadence, the turn, the journal.
+/// The scheduled run (the afternoon slot decides the day): the guard, the cadence, the turn, the journal.
 pub async fn run(ctx: &JobCtx) -> Result<JobReport> {
-    let rota = Rota::from_config(&ctx.config.rota)?;
     let gates = Gates {
         job: JOB,
         kind: Some(JOB),
-        rota: Some((rota, ctx.config.rota.chart_slot)),
+        rota: None,
         force: false,
     };
     if let Err(why) = admit(ctx, gates).await {

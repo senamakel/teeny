@@ -1500,7 +1500,12 @@ of the fixed sections is thrown away and yesterday's stays.
 The brief is in every prompt the account writes: replies, Telegram, the agent,
 the chart, morning, moon, quote and lore posts. It is read live, so the brief
 written at five is in the six o'clock reply without a restart. Older briefs are
-kept in `data/memory/history/`. `npm run learnings -- --print` writes one now.
+kept in `data/memory/history/`. `npm run learnings -- --print` writes one now;
+on the Rust bot, `teeny learnings` (`--dry-run` drafts and prints it, writing
+nothing), with the brief on the volume at `state/memory/LEARNINGS.md`. The
+Rust bot also works out what landed and what flopped from the ledger's numbers
+in code (each kind's average, the posts at twice the median or held hot, the
+posts at half or less) and hands the model that reading beside the raw list.
 
 ### Checking that recall works
 
@@ -1520,7 +1525,7 @@ answers every recall, by keyword alone, and nothing else notices: from
 
 The account's own posts -- the morning post, the chart, the moon chart, the
 lore post, the quote post, the calendar items, anything the agent is asked to put on the timeline -- are
-spaced at least `POST_MIN_GAP_HOURS` apart (6), whichever job writes them.
+spaced at least `POST_MIN_GAP_HOURS` apart (7), whichever job writes them.
 Each job used to guard only against running itself twice; none of them knew
 about the others, so a morning post at seven and a chart at eight were two
 well-behaved jobs and one badly paced account. Now every own post is written

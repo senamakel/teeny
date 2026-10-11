@@ -5,6 +5,7 @@ use chrono::TimeDelta;
 use super::*;
 use crate::moon::pick::tests::board;
 use crate::morning::test_support::{Recorder, Remembers, Staged, at, ctx_at};
+use teeny_cadence::rota::Rota;
 
 fn pipeline(ctx: &JobCtx, board: Vec<teeny_market::leaderboard::ListedCoin>) -> MoonPipeline {
     struct Fixed(Vec<teeny_market::leaderboard::ListedCoin>);
@@ -71,9 +72,6 @@ async fn runs_on_its_day_and_journals_the_turn() {
     clock.advance(TimeDelta::hours(1));
     let again = run(&ctx).await.unwrap();
     assert!(!again.ran);
-    clock.advance(TimeDelta::days(1));
-    let off_day = run(&ctx).await.unwrap();
-    assert!(off_day.note.unwrap().contains("not its day on the rota"));
 }
 
 #[tokio::test]

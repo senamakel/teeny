@@ -2,8 +2,8 @@
 //!
 //! Cron cannot say "every third day": a step in the day-of-month field
 //! restarts every month and lands two posts back to back on the 31st and the
-//! 1st. So every job keeps its daily cron and asks the rota whether today is
-//! its turn. Days are counted in UTC from a fixed anchor, so the answer is the
+//! 1st. So each slot of the day keeps one daily cron and asks the rota whose
+//! turn today is ([`crate::slot`]). Days are counted in UTC from a fixed anchor, so the answer is the
 //! same in every process and after every restart.
 //! A port of `legacy/src/jobs/cycle.ts`.
 

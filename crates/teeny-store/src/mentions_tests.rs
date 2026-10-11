@@ -15,6 +15,14 @@ impl QueuedPost for Post {
     fn post_id(&self) -> &str {
         &self.id
     }
+
+    fn author_id(&self) -> Option<&str> {
+        self.author_id.as_deref()
+    }
+
+    fn text(&self) -> &str {
+        &self.text
+    }
 }
 
 fn post(id: &str) -> Post {
@@ -256,8 +264,59 @@ async fn contract(queue: &dyn MentionQueue<Post>) {
     assert_eq!(count(ReplyLane::Called, None, None).await, 0);
 }
 
+/// The exact record of what was said to whom: the last answered mentions
+/// from one author, newest first, the one being answered left out.
+async fn exchange_contract<Q: MentionQueue<Post> + ExchangeHistory>(queue: &Q) {
+    let by = |id: &str, author: &str| Post {
+        id: id.into(),
+        text: format!("question {id}"),
+        author_id: Some(author.into()),
+    };
+    queue
+        .cache(&[
+            by("1", "7"),
+            by("2", "7"),
+            by("3", "8"),
+            by("4", "7"),
+            by("5", "7"),
+        ])
+        .await
+        .unwrap();
+    for id in ["1", "2", "3", "5"] {
+        // A reply's time is when it was marked, so the order is the marking's.
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        queue
+            .mark_replied(id, &reply(&format!("answer {id}")))
+            .await
+            .unwrap();
+    }
+    queue.mark_failed("4", "boom").await.unwrap();
+
+    let exchanges = queue.exchanges_with("7", 6, None).await.unwrap();
+    let pairs: Vec<(&str, &str)> = exchanges
+        .iter()
+        .map(|exchange| (exchange.incoming.as_str(), exchange.reply.as_str()))
+        .collect();
+    assert_eq!(
+        pairs,
+        [
+            ("question 5", "answer 5"),
+            ("question 2", "answer 2"),
+            ("question 1", "answer 1"),
+        ]
+    );
+    assert!(!exchanges[0].at.is_empty());
+    assert_eq!(
+        queue.exchanges_with("7", 1, Some("5")).await.unwrap()[0].incoming,
+        "question 2"
+    );
+    assert!(queue.exchanges_with("7", 0, None).await.unwrap().is_empty());
+    assert!(queue.exchanges_with("9", 6, None).await.unwrap().is_empty());
+}
+
 #[tokio::test]
 async fn the_in_memory_queue_keeps_the_contract() {
+    exchange_contract(&InMemoryMentionQueue::default()).await;
     contract(&InMemoryMentionQueue::default()).await;
     requeue_contract(&InMemoryMentionQueue::default()).await;
     claim_contract(&InMemoryMentionQueue::default()).await;
@@ -355,13 +414,15 @@ async fn the_mongo_queue_keeps_the_contract() {
     requeue_contract(&MongoMentionQueue::<Post>::with_collection(&db, &fresh)).await;
     let claims = crate::mongo::testing::collection("mentions");
     claim_contract(&MongoMentionQueue::<Post>::with_collection(&db, &claims)).await;
+    let exchanges = crate::mongo::testing::collection("mentions");
+    exchange_contract(&MongoMentionQueue::<Post>::with_collection(&db, &exchanges)).await;
     let stale = crate::mongo::testing::collection("mentions");
     stale_claim_contract(
         &MongoMentionQueue::<Post>::with_collection(&db, &stale)
             .with_claim_lease(std::time::Duration::ZERO),
     )
     .await;
-    for name in [&fresh, &claims, &stale] {
+    for name in [&fresh, &claims, &exchanges, &stale] {
         db.collection::<mongodb::bson::Document>(name)
             .drop()
             .await

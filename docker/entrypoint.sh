@@ -12,7 +12,8 @@
 #   chrome-profile/  the browser's persistent profile (logins, cookies)
 #   media/           generated images, video, charts, the reference sheet
 #   articles/        the article store
-#   state/           cursors and logs: state.json, quotes.json, ...
+#   state/           cursors and logs: state.json, quotes.json, ...;
+#                    memory/LEARNINGS.md, the learnings brief, and its history/
 #
 # The TypeScript service mounted the same volume at /app/data and wrote it
 # flat. Its files are COPIED into the layout above, once each, never moved:
@@ -67,6 +68,7 @@ migrate_legacy() {
   copy_once quotes.json state/quotes.json
   copy_once narrative-state.json state/narrative-state.json
   copy_once backrooms state/backrooms
+  copy_once memory state/memory
   copy_once charts media/charts
   copy_once moon media/moon
   copy_once likeness media/likeness

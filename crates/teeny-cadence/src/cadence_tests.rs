@@ -193,7 +193,7 @@ fn reads_the_gap_and_tolerance_from_the_configuration() {
     assert_eq!(
         rules,
         CadenceRules {
-            min_gap: HOUR * 6,
+            min_gap: HOUR * 7,
             tolerance: TimeDelta::minutes(20)
         }
     );

@@ -243,7 +243,7 @@ fn reads_the_allowances_from_the_configuration() {
     let config = config();
     let rules = BudgetRules::from_config(&config);
     assert_eq!((rules.auto_per_post, rules.smart_per_post), (10, 10));
-    assert_eq!(rules.gap, HOUR * 6);
+    assert_eq!(rules.gap, HOUR * 7);
     assert_eq!(rules.bot_username.as_deref(), Some("teenydroid"));
     assert_eq!(rules.thread_window, TimeDelta::days(7));
 }

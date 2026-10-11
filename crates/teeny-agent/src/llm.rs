@@ -27,7 +27,7 @@ use teeny_store::inference::{
     tokens_from_usage,
 };
 
-/// How long one call may take.
+/// How long one call may take unless the client is told otherwise.
 const TIMEOUT: Duration = Duration::from_secs(60);
 /// How much of an answer the ledger keeps.
 const MAX_OUTPUT_CHARS: usize = 4_000;
@@ -94,6 +94,8 @@ pub struct LlmClient {
     /// The ledger's name for plain text calls.
     source: String,
     temperature: f32,
+    /// How long one call may take.
+    timeout: Duration,
     ledger: Option<Arc<dyn InferenceLedger>>,
 }
 
@@ -112,15 +114,13 @@ impl LlmClient {
     /// calls are ledgered as `agent` at temperature 0.2 until told otherwise.
     pub fn new(base_url: impl Into<String>, api_key: Secret, model: impl Into<String>) -> Self {
         Self {
-            http: reqwest::Client::builder()
-                .timeout(TIMEOUT)
-                .build()
-                .unwrap_or_default(),
+            http: reqwest::Client::new(),
             base_url: base_url.into().trim_end_matches('/').to_owned(),
             api_key,
             model: model.into(),
             source: "agent".into(),
             temperature: 0.2,
+            timeout: TIMEOUT,
             ledger: None,
         }
     }
@@ -146,6 +146,18 @@ impl LlmClient {
     pub fn with_temperature(mut self, temperature: f32) -> Self {
         self.temperature = temperature;
         self
+    }
+
+    /// How long one of this client's calls may take: a minute by default,
+    /// plenty for a caption; a step that reads or rewrites a whole article
+    /// on a reasoning model needs minutes (`ARTICLE_MODEL_TIMEOUT_SECONDS`).
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    pub fn timeout(&self) -> Duration {
+        self.timeout
     }
 
     /// The same endpoint and ledger, another model alias (`flash`, `vision`...).
@@ -210,6 +222,7 @@ impl LlmClient {
             .http
             .post(format!("{}/chat/completions", self.base_url))
             .bearer_auth(self.api_key.expose())
+            .timeout(self.timeout)
             .json(&body)
             .send()
             .await?;

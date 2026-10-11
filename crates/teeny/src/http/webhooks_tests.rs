@@ -123,8 +123,12 @@ async fn rejects_unsigned_events_and_captures_signed_activity() {
         SECRET,
         Arc::new(ActivityIntake::new(memory.clone())),
     ));
-    let payload = json!({ "tweet_create_events": [{ "id_str": "123", "text": "hello" }], "favorite_events": [{ "id": "456" }] })
-        .to_string();
+    let payload = json!({
+        "tweet_create_events": [{ "id_str": "123", "text": "hello" }],
+        "favorite_events": [{ "id": "456" }],
+        "direct_message_events": [{ "id": "789" }]
+    })
+    .to_string();
 
     let unsigned = call(&app, delivery_request(&payload, None)).await;
     assert_eq!(unsigned.status, StatusCode::UNAUTHORIZED);
@@ -138,12 +142,16 @@ async fn rejects_unsigned_events_and_captures_signed_activity() {
     let accepted = call(&app, delivery_request(&payload, Some(&signed(&payload)))).await;
     assert_eq!(accepted.status, StatusCode::OK);
     assert_eq!(accepted.json(), json!({ "ok": true }));
-    // Only the non-post event reaches memory; the post goes to the queue.
+    // Only the message reaches memory: the post goes to the queue and is
+    // captured later as a chat turn attributed to its author, and the like is
+    // engagement, counted in the people store and not kept as a raw payload.
     eventually(|| memory.0.lock().unwrap().len() == 1).await;
-    let entry = memory.0.lock().unwrap()[0].clone();
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    let captured = memory.0.lock().unwrap().clone();
+    assert_eq!(captured.len(), 1);
     assert_eq!(
-        (entry.kind.as_str(), entry.id.as_str()),
-        ("favorite_events", "456")
+        (captured[0].kind.as_str(), captured[0].id.as_str()),
+        ("direct_message_events", "789")
     );
 }
 

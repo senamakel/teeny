@@ -668,6 +668,29 @@ async fn still_replies_when_the_journal_is_broken() {
     assert_eq!(it.outlet.replies().len(), 1);
 }
 
+/// Port of "keeps a posted reply marked replied when memory cannot store
+/// the exchange": the reply is on X, and marking it failed would hide it
+/// from the record of what was said to this person, which the next turn
+/// reads its history from.
+#[tokio::test]
+async fn keeps_a_posted_reply_marked_replied_when_memory_cannot_store_the_exchange() {
+    let it = subject(Options {
+        memory: Some(ProbeMemory {
+            fail_reply_capture: true,
+            ..ProbeMemory::default()
+        }),
+        ..Options::default()
+    })
+    .await;
+    run(&it.ctx).await.unwrap();
+    assert_eq!(it.outlet.replies().len(), 1);
+    let row = it.queue.get("10").unwrap();
+    assert_eq!(row.status, MentionStatus::Replied);
+    assert_eq!(row.reply_id.as_deref(), Some("99"));
+    assert_eq!(row.reply_text.as_deref(), Some("reply"));
+    assert!(it.memory.captured_kinds().contains(&"reply".to_owned()));
+}
+
 #[tokio::test]
 async fn an_unusable_draft_fails_the_mention() {
     let it = subject(Options {

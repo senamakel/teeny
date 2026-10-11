@@ -180,11 +180,11 @@ async fn handles_an_event_once_when_both_transports_deliver_it() {
         .deliver(&like("e2"), Source::Webhook)
         .await
         .unwrap();
-    // A like counts once per event, not once per transport.
+    // A like counts once per event, not once per transport...
     assert_eq!(rig.people.0.lock().unwrap().len(), 2);
-    rig.memory.wait_for(2).await;
+    // ...and is counted only: engagement is not written to memory.
     tokio::time::sleep(Duration::from_millis(30)).await;
-    assert_eq!(rig.memory.captured.lock().unwrap().len(), 2);
+    assert!(rig.memory.captured.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -254,7 +254,7 @@ async fn queues_nothing_when_the_account_cannot_be_identified() {
 #[tokio::test]
 async fn an_old_shape_delivery_is_never_a_duplicate() {
     let rig = rig(Account(Ok(Some(BOT))), 10_000);
-    let payload = json!({ "favorite_events": [{ "id": "456" }] });
+    let payload = json!({ "direct_message_events": [{ "id": "456" }] });
     assert!(
         !rig.intake
             .deliver(&payload, Source::Webhook)

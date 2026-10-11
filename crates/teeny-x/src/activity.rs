@@ -311,14 +311,50 @@ pub fn activity_entries(delivery: &Value) -> Vec<ActivityEntry> {
         .collect()
 }
 
-/// The entries memory captures: non-post activity only. Posts reach memory
-/// through the reply harness as a chat turn attributed to their author;
-/// capturing the raw delivery too would store the conversation twice.
+/// Likes, reposts, follows, blocks, mutes and deletions: counted, not
+/// remembered. `like.create`, `post.repost.create`, `follow.follow` and the
+/// old shape's `favorite_events`, `follow_events` and the like.
+pub fn is_engagement(kind: &str) -> bool {
+    const PREFIXES: [&str; 10] = [
+        "like",
+        "favorite",
+        "post.repost",
+        "repost",
+        "retweet",
+        "follow",
+        "unfollow",
+        "block",
+        "mute",
+        "tweet_delete",
+    ];
+    const OLD_SHAPE: [&str; 6] = [
+        "favorite_events",
+        "follow_events",
+        "block_events",
+        "mute_events",
+        "tweet_delete_events",
+        "retweet_events",
+    ];
+    OLD_SHAPE.contains(&kind)
+        || PREFIXES.iter().any(|prefix| {
+            kind.strip_prefix(prefix)
+                .is_some_and(|rest| rest.starts_with(['.', '_']))
+        })
+}
+
+/// The entries memory captures: neither posts nor engagement. Posts reach
+/// memory through the reply harness as a chat turn attributed to their
+/// author; capturing the raw delivery too would store the conversation
+/// twice. Engagement is counted in the people store, which is what decides
+/// who gets answered; stored as raw payloads it was two thirds of memory,
+/// and recall returned JSON about who liked what instead of what anybody said.
 pub fn capturable_entries(delivery: &Value) -> Vec<ActivityEntry> {
     activity_entries(delivery)
         .into_iter()
         .filter(|entry| {
-            entry.kind != "tweet_create_events" && !POST_EVENTS.contains(&entry.kind.as_str())
+            entry.kind != "tweet_create_events"
+                && !POST_EVENTS.contains(&entry.kind.as_str())
+                && !is_engagement(&entry.kind)
         })
         .collect()
 }

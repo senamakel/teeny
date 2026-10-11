@@ -59,6 +59,22 @@ pub enum ReplyLane {
 pub trait QueuedPost: Serialize + DeserializeOwned + Clone + Send + Sync + 'static {
     /// The X id, the queue's key.
     fn post_id(&self) -> &str;
+
+    /// Who wrote it, for [`ExchangeHistory`]; the Mongo queue reads it from
+    /// the stored post's `authorId`.
+    fn author_id(&self) -> Option<&str> {
+        None
+    }
+
+    /// What it said, for [`ExchangeHistory`].
+    fn text(&self) -> &str {
+        ""
+    }
+
+    /// The conversation it sits in, for [`ExchangeHistory`].
+    fn conversation_id(&self) -> Option<&str> {
+        None
+    }
 }
 
 /// One row of the queue.
@@ -130,6 +146,45 @@ pub struct StatusCounts {
 
 fn is_zero(count: &u64) -> bool {
     *count == 0
+}
+
+/// One mention and the answer it got, as the queue kept them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Exchange {
+    /// When the answer went out (or was drafted, on a dry run), ISO.
+    pub at: String,
+    pub incoming: String,
+    pub reply: String,
+    /// The conversation it happened in, so a thread can be told from a new one.
+    pub conversation_id: Option<String>,
+}
+
+/// The exact record of what was said to whom.
+///
+/// Read exactly, not searched for: memory finds a person's history by
+/// meaning and can miss it; this is every answer the queue recorded, so the
+/// last few things said to someone are never a matter of retrieval luck.
+/// Kept apart from [`MentionQueue`] because the turn context reads it, and a
+/// reader should not need the queue's whole surface.
+#[async_trait]
+pub trait ExchangeHistory: Send + Sync {
+    /// The last `limit` answered mentions from X user `author_id`, newest
+    /// first, leaving out `exclude_post_id` (the one being answered).
+    async fn exchanges_with(
+        &self,
+        author_id: &str,
+        limit: usize,
+        exclude_post_id: Option<&str>,
+    ) -> Result<Vec<Exchange>>;
+}
+
+fn exchange<P: QueuedPost>(row: QueuedMention<P>) -> Exchange {
+    Exchange {
+        at: row.updated_at,
+        incoming: row.post.text().to_owned(),
+        reply: row.reply_text.unwrap_or_default(),
+        conversation_id: row.post.conversation_id().map(str::to_owned),
+    }
 }
 
 /// The queue.
@@ -218,6 +273,30 @@ impl<P: QueuedPost> InMemoryMentionQueue<P> {
             }
             None => false,
         }
+    }
+}
+
+#[async_trait]
+impl<P: QueuedPost> ExchangeHistory for InMemoryMentionQueue<P> {
+    async fn exchanges_with(
+        &self,
+        author_id: &str,
+        limit: usize,
+        exclude_post_id: Option<&str>,
+    ) -> Result<Vec<Exchange>> {
+        let mut rows: Vec<QueuedMention<P>> = self
+            .lock()
+            .iter()
+            .filter(|row| {
+                row.status == MentionStatus::Replied
+                    && row.reply_text.is_some()
+                    && row.post.author_id() == Some(author_id)
+                    && Some(row.post_id.as_str()) != exclude_post_id
+            })
+            .cloned()
+            .collect();
+        rows.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        Ok(rows.into_iter().take(limit).map(exchange).collect())
     }
 }
 
@@ -470,11 +549,45 @@ impl<P: QueuedPost> MongoMentionQueue<P> {
                         unique(doc! { "postId": 1 }),
                         index(doc! { "status": 1, "cachedAt": 1 }),
                         index(doc! { "status": 1, "lane": 1, "ownPostId": 1, "updatedAt": 1 }),
+                        index(doc! { "post.authorId": 1, "status": 1, "updatedAt": -1 }),
                     ])
                     .await?;
                 Ok(())
             })
             .await
+    }
+}
+
+#[async_trait]
+impl<P: QueuedPost> ExchangeHistory for MongoMentionQueue<P> {
+    async fn exchanges_with(
+        &self,
+        author_id: &str,
+        limit: usize,
+        exclude_post_id: Option<&str>,
+    ) -> Result<Vec<Exchange>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        self.ready().await?;
+        let mut query = doc! {
+            "post.authorId": author_id,
+            "status": "replied",
+            "replyText": { "$exists": true },
+        };
+        if let Some(excluded) = exclude_post_id {
+            query.insert("postId", doc! { "$ne": excluded });
+        }
+        let rows: Vec<QueuedMention<P>> = self
+            .rows
+            .clone_with_type::<QueuedMention<P>>()
+            .find(query)
+            .sort(doc! { "updatedAt": -1 })
+            .limit(i64::try_from(limit).unwrap_or(i64::MAX))
+            .await?
+            .try_collect()
+            .await?;
+        Ok(rows.into_iter().map(exchange).collect())
     }
 }
 
