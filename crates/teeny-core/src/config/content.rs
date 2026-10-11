@@ -21,23 +21,35 @@ pub const DEFAULT_REFERENCE_IMAGES: [&str; 10] = [
     "assets/tiny/tiny-love.jpg",
 ];
 
-/// The calendar: four slots a day and a week-long rota of who owns each.
+/// The calendar: three slots a day, eight hours apart, and a three-day rota
+/// of who owns each, nine posts a cycle:
+///
+/// - 07:00 the morning post, every day (`MORNING_CRON`);
+/// - 15:00 the afternoon slot (`AFTERNOON_CRON`): the chart, the moon chart,
+///   the lore post on the rest;
+/// - 23:00 the evening slot (`EVENING_CRON`): the article, the serial, the
+///   quote post on the rest.
+///
+/// Each slot is one cron that runs the day's owner. A job that is off, or
+/// that runs and does not post, hands its day to the slot's fallback.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RotaConfig {
-    /// `POST_ROTA_DAYS`, 1..=14, default 7.
+    /// `POST_ROTA_DAYS`, 1..=14, default 3.
     pub days: u32,
-    /// `POST_ROTA_ANCHOR`, `YYYY-MM-DD`, default 2026-09-14 (a Monday, slot 0).
+    /// `POST_ROTA_ANCHOR`, `YYYY-MM-DD`, default 2026-09-14 (slot 0).
     pub anchor: NaiveDate,
-    /// `MOON_ROTA_SLOT`, default 0.
-    pub moon_slot: u32,
-    /// `CHART_ROTA_SLOT`, default 3.
+    /// `AFTERNOON_CRON`, default `0 15 * * *`.
+    pub afternoon_cron: String,
+    /// `CHART_ROTA_SLOT`, default 0.
     pub chart_slot: u32,
-    /// `EVENING_CRON`, default `0 19 * * *`.
+    /// `MOON_ROTA_SLOT`, default 1.
+    pub moon_slot: u32,
+    /// `EVENING_CRON`, default `0 23 * * *`.
     pub evening_cron: String,
-    /// `NARRATIVE_ROTA_SLOTS`, comma separated, default `1,4`.
-    pub narrative_slots: Vec<u32>,
-    /// `ARTICLE_ROTA_SLOTS`, comma separated, default `2,5`.
+    /// `ARTICLE_ROTA_SLOTS`, comma separated, default `1`.
     pub article_slots: Vec<u32>,
+    /// `NARRATIVE_ROTA_SLOTS`, comma separated, default `2`.
+    pub narrative_slots: Vec<u32>,
 }
 
 /// A wallet worth naming when it shows up in the flow.
@@ -54,8 +66,6 @@ pub struct KolWallet {
 pub struct ChartConfig {
     /// `CHART_ENABLED`, default off.
     pub enabled: bool,
-    /// `CHART_CRON`, default `0 13 * * *`.
-    pub cron: String,
     /// `CHART_TOKEN_ADDRESS`, optional, at least 26 characters.
     pub token_address: Option<String>,
     /// `CHART_TOKEN_SYMBOL`, default `TINY`.
@@ -125,8 +135,6 @@ pub struct MorningConfig {
 pub struct MoonConfig {
     /// `MOON_ENABLED`, default off.
     pub enabled: bool,
-    /// `MOON_CRON`, default `0 13 * * *`.
-    pub cron: String,
     /// `MOON_COIN_ID`, default `tiny-humans-ai`.
     pub coin_id: String,
     /// `MOON_CATEGORY`, default `ai-meme-coins`.
@@ -152,8 +160,6 @@ pub struct MoonConfig {
 pub struct LoreConfig {
     /// `LORE_ENABLED`, default off.
     pub enabled: bool,
-    /// `LORE_CRON`, default `0 13 * * *`.
-    pub cron: String,
     /// `LORE_SEEDS`, comma separated, at least one, default `news,forum`.
     pub seeds: Vec<LoreSeed>,
     /// `LORE_TOPICS`, comma separated.
@@ -167,8 +173,6 @@ pub struct LoreConfig {
 pub struct QuoteConfig {
     /// `QUOTE_ENABLED`, default off.
     pub enabled: bool,
-    /// `QUOTE_CRON`, default `0 1 * * *`.
-    pub cron: String,
     /// `QUOTE_QUERY`, X search syntax.
     pub query: String,
     /// `QUOTE_HOURS`, 1..=168, default 48.
@@ -252,6 +256,10 @@ pub struct ArticleConfig {
     pub writer_temperature: f64,
     /// `ARTICLE_MIN_INTERVAL_HOURS`, 1..=168, default 48.
     pub min_interval_hours: f64,
+    /// `ARTICLE_MODEL_TIMEOUT_SECONDS`, 30..=1800, default 360: how long one
+    /// of the article's model calls may take. The editor reads the whole
+    /// piece and the flow pass rewrites all of it on a reasoning model.
+    pub model_timeout_seconds: u32,
 }
 
 /// The content calendar (`calendar.json`).

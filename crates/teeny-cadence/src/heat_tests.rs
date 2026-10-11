@@ -141,7 +141,7 @@ fn reads_its_thresholds_from_the_configuration() {
         HeatRules::from_config(&config().cadence),
         HeatRules {
             lookback: HOUR * 24,
-            gap: HOUR * 6,
+            gap: HOUR * 7,
             impressions_per_hour: 500.0,
             baseline_multiple: 3.0,
             max_hold_slots: 2,

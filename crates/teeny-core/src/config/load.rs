@@ -20,6 +20,8 @@ pub(super) fn load(env: &mut Env) -> Config {
         reply: reply(env),
         x: x(env),
         cortex: cortex(env),
+        memory: memory(env),
+        learnings: learnings(env),
         llm: llm(env),
         agent: agent(env),
         webhook: WebhookConfig {
@@ -99,6 +101,29 @@ fn cortex(env: &mut Env) -> CortexConfig {
         actor: env.name("CORTEX_ACTOR", "agent:teeny"),
         scope: env.name("CORTEX_SCOPE", "agent:teeny"),
         token: env.required_secret("CORTEX_TOKEN"),
+        recall_timeout_ms: u64::from(env.int("CORTEX_RECALL_TIMEOUT_MS", 15_000, 1_000, 120_000)),
+        capture_timeout_ms: u64::from(env.int("CORTEX_CAPTURE_TIMEOUT_MS", 30_000, 1_000, 120_000)),
+        person_recall: env.switch("CORTEX_PERSON_RECALL", true),
+        recall_cooldown_ms: u64::from(env.int("CORTEX_RECALL_COOLDOWN_MS", 300_000, 0, 3_600_000)),
+        health_cron: env.text("CORTEX_HEALTH_CRON", "17 * * * *"),
+    }
+}
+
+fn memory(env: &mut Env) -> MemoryConfig {
+    MemoryConfig {
+        exchanges: env.int("MEMORY_EXCHANGES", 6, 0, 50),
+        own_posts_hours: env.int("MEMORY_OWN_POSTS_HOURS", 72, 0, 24 * 14),
+        own_posts_limit: env.int("MEMORY_OWN_POSTS_LIMIT", 8, 0, 50),
+    }
+}
+
+fn learnings(env: &mut Env) -> LearningsConfig {
+    LearningsConfig {
+        enabled: env.switch("LEARNINGS_ENABLED", true),
+        path: env.text("LEARNINGS_PATH", "data/memory/LEARNINGS.md"),
+        cron: env.text("LEARNINGS_CRON", "0 5 * * *"),
+        max_chars: env.int("LEARNINGS_MAX_CHARS", 10_000, 1_000, 40_000),
+        days: env.int("LEARNINGS_DAYS", 7, 1, 60),
     }
 }
 
@@ -141,7 +166,7 @@ fn safety(env: &mut Env) -> SafetyConfig {
 
 fn cadence(env: &mut Env) -> CadenceConfig {
     CadenceConfig {
-        post_min_gap_hours: env.number("POST_MIN_GAP_HOURS", 6.0, 0.0, 48.0),
+        post_min_gap_hours: env.number("POST_MIN_GAP_HOURS", 7.0, 0.0, 48.0),
         post_gap_tolerance_minutes: env.number("POST_GAP_TOLERANCE_MINUTES", 20.0, 0.0, 120.0),
         heat_enabled: env.flag("HEAT_ENABLED", true),
         heat_cron: env.text("HEAT_CRON", "*/20 * * * *"),
@@ -173,7 +198,6 @@ fn brain(env: &mut Env) -> BrainConfig {
 fn chart(env: &mut Env) -> ChartConfig {
     ChartConfig {
         enabled: env.switch("CHART_ENABLED", false),
-        cron: env.text("CHART_CRON", "0 13 * * *"),
         token_address: env.optional_min("CHART_TOKEN_ADDRESS", 26),
         token_symbol: env.name("CHART_TOKEN_SYMBOL", "TINY"),
         chain: env.name("CHART_CHAIN", "solana"),
@@ -231,20 +255,20 @@ fn morning(env: &mut Env) -> MorningConfig {
 fn rota(env: &mut Env) -> RotaConfig {
     let anchor = NaiveDate::from_ymd_opt(2026, 9, 14).expect("a real date");
     RotaConfig {
-        days: env.int("POST_ROTA_DAYS", 7, 1, 14),
+        days: env.int("POST_ROTA_DAYS", 3, 1, 14),
         anchor: env.date("POST_ROTA_ANCHOR", anchor),
-        moon_slot: env.int("MOON_ROTA_SLOT", 0, 0, NO_MAX),
-        chart_slot: env.int("CHART_ROTA_SLOT", 3, 0, NO_MAX),
-        evening_cron: env.text("EVENING_CRON", "0 19 * * *"),
-        narrative_slots: env.slots("NARRATIVE_ROTA_SLOTS", "1,4"),
-        article_slots: env.slots("ARTICLE_ROTA_SLOTS", "2,5"),
+        afternoon_cron: env.text("AFTERNOON_CRON", "0 15 * * *"),
+        chart_slot: env.int("CHART_ROTA_SLOT", 0, 0, NO_MAX),
+        moon_slot: env.int("MOON_ROTA_SLOT", 1, 0, NO_MAX),
+        evening_cron: env.text("EVENING_CRON", "0 23 * * *"),
+        article_slots: env.slots("ARTICLE_ROTA_SLOTS", "1"),
+        narrative_slots: env.slots("NARRATIVE_ROTA_SLOTS", "2"),
     }
 }
 
 fn moon(env: &mut Env) -> MoonConfig {
     MoonConfig {
         enabled: env.switch("MOON_ENABLED", false),
-        cron: env.text("MOON_CRON", "0 13 * * *"),
         coin_id: env.name("MOON_COIN_ID", "tiny-humans-ai"),
         category: env.name("MOON_CATEGORY", "ai-meme-coins"),
         board_name: env.name("MOON_BOARD_NAME", "AI meme coins"),
@@ -260,7 +284,6 @@ fn moon(env: &mut Env) -> MoonConfig {
 fn lore(env: &mut Env) -> LoreConfig {
     LoreConfig {
         enabled: env.switch("LORE_ENABLED", false),
-        cron: env.text("LORE_CRON", "0 13 * * *"),
         seeds: env.choices("LORE_SEEDS", "news,forum"),
         topics: env.list(
             "LORE_TOPICS",
@@ -273,7 +296,6 @@ fn lore(env: &mut Env) -> LoreConfig {
 fn quote(env: &mut Env) -> QuoteConfig {
     QuoteConfig {
         enabled: env.switch("QUOTE_ENABLED", false),
-        cron: env.text("QUOTE_CRON", "0 1 * * *"),
         query: env.name(
             "QUOTE_QUERY",
             "$TINY OR \"2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump\"",
@@ -332,6 +354,7 @@ fn article(env: &mut Env) -> ArticleConfig {
         humanizer_path: env.text("ARTICLE_HUMANIZER_PATH", "skills/humanizer/SKILL.md"),
         writer_temperature: env.number("ARTICLE_WRITER_TEMPERATURE", 0.8, 0.0, 2.0),
         min_interval_hours: env.number("ARTICLE_MIN_INTERVAL_HOURS", 48.0, 1.0, 168.0),
+        model_timeout_seconds: env.int("ARTICLE_MODEL_TIMEOUT_SECONDS", 360, 30, 1_800),
     }
 }
 

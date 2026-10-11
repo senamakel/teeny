@@ -12,7 +12,9 @@
 //!   `.env.example` documents and what `z.coerce.boolean()` did not do;
 //! - a blank optional value is absent everywhere, including the few legacy
 //!   refused when blank (`EXA_API_KEY`, `AGENT_API_TOKEN`, ...);
-//! - an empty entry in a rota slot list is skipped rather than read as slot 0.
+//! - an empty entry in a rota slot list is skipped rather than read as slot 0;
+//! - the per-job crons legacy dropped with the three-slot rota (`CHART_CRON`,
+//!   `MOON_CRON`, `LORE_CRON`, `QUOTE_CRON`) are ignored, as zod ignored them.
 
 mod content;
 mod env;
@@ -30,8 +32,9 @@ pub use kinds::{
     VideoGenApi,
 };
 pub use service::{
-    AgentConfig, BrainConfig, CadenceConfig, CortexConfig, LlmConfig, OpenHumanConfig, ReplyConfig,
-    SafetyConfig, ServerConfig, StoreConfig, WebhookConfig, XConfig,
+    AgentConfig, BrainConfig, CadenceConfig, CortexConfig, LearningsConfig, LlmConfig,
+    MemoryConfig, OpenHumanConfig, ReplyConfig, SafetyConfig, ServerConfig, StoreConfig,
+    WebhookConfig, XConfig,
 };
 
 use crate::ConfigError;
@@ -45,6 +48,8 @@ pub struct Config {
     pub x: XConfig,
     pub webhook: WebhookConfig,
     pub cortex: CortexConfig,
+    pub memory: MemoryConfig,
+    pub learnings: LearningsConfig,
     pub llm: LlmConfig,
     pub agent: AgentConfig,
     pub safety: SafetyConfig,
