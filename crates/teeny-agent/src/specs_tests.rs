@@ -22,6 +22,7 @@ fn every_belt_has_its_fixed_agent_id() {
             "teeny-room",
             "teeny-operator",
             "teeny-drafter",
+            "teeny-learner",
         ]
     );
 }
@@ -41,24 +42,38 @@ fn a_room_is_its_own_agent_per_persona() {
 }
 
 #[test]
-fn only_the_research_belts_add_the_browser_and_nothing_else_is_built_in() {
+fn only_the_rooms_add_the_browser_and_only_with_the_experiment_on() {
     for belt in Belt::ALL {
         let expected: &[&str] = match belt {
-            Belt::Operator | Belt::Room => &["browser"],
+            Belt::Room => &["browser"],
             _ => &[],
         };
-        assert_eq!(built_ins(belt), expected, "{belt:?}");
+        assert_eq!(built_ins(belt, true), expected, "{belt:?}");
+        assert!(built_ins(belt, false).is_empty(), "{belt:?}: off is off");
+    }
+}
+
+#[test]
+fn the_public_belts_and_the_learner_never_browse() {
+    for belt in [Belt::Reply, Belt::Chat, Belt::Learner, Belt::Operator] {
+        assert!(built_ins(belt, true).is_empty(), "{belt:?}");
     }
 }
 
 #[test]
 fn the_scope_is_the_belt_as_built_plus_its_built_ins() {
     let deps = Deps::fake();
-    for belt in Belt::ALL {
-        let tools = belt.build(&deps);
-        let mut expected: Vec<String> = tools.iter().map(|t| t.name().to_owned()).collect();
-        expected.extend(built_ins(belt).iter().map(|name| (*name).to_owned()));
-        assert_eq!(tool_scope(belt, &tools), expected, "{belt:?}");
+    for browse in [false, true] {
+        for belt in Belt::ALL {
+            let tools = belt.build(&deps);
+            let mut expected: Vec<String> = tools.iter().map(|t| t.name().to_owned()).collect();
+            expected.extend(
+                built_ins(belt, browse)
+                    .iter()
+                    .map(|name| (*name).to_owned()),
+            );
+            assert_eq!(tool_scope(belt, &tools, browse), expected, "{belt:?}");
+        }
     }
 }
 
@@ -120,6 +135,11 @@ fn each_belt_speaks_with_its_legacy_prompt() {
         None,
         "a room speaks with its persona"
     );
+    assert_eq!(
+        belt_prompt(Belt::Learner, &inputs),
+        None,
+        "the learner speaks with the brief's instructions, per call"
+    );
 }
 
 #[test]
@@ -138,6 +158,10 @@ fn the_context_reads_the_ladder_the_model_the_skills_and_the_step_cap() {
     assert!(context.skills_dir.is_absolute());
     assert!(context.skills_dir.ends_with(Path::new("my-skills")));
     assert_eq!(context.max_iterations, 12);
+    assert!(
+        !context.browser_research,
+        "the experiment is off by default"
+    );
 }
 
 #[test]
@@ -150,6 +174,104 @@ fn a_spec_carries_its_belts_id() {
     assert_eq!(spec.id(), "teeny-reply");
 }
 
+/// A fresh directory of this test process's own.
+fn scratch(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("teeny-specs-{}-{name}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+#[test]
+fn a_live_prompt_lives_under_the_workspace_prompts_by_agent_id() {
+    let prompts = LivePrompts::new(Path::new("/w"), "teeny/inst");
+    assert_eq!(prompts.relative(Belt::Reply), "teeny/inst/teeny-reply.md");
+    assert_eq!(
+        prompts.path(Belt::Learner),
+        Path::new("/w/agent/prompts/teeny/inst/teeny-learner.md")
+    );
+}
+
+#[test]
+fn a_live_prompt_is_written_when_it_changes_or_goes_missing() {
+    let dir = scratch("written");
+    let prompts = LivePrompts::new(&dir, "teeny/inst");
+    let path = prompts.path(Belt::Chat);
+    prompts.write(Belt::Chat, "first").unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "first");
+    prompts.write(Belt::Chat, "second").unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "second");
+    std::fs::remove_file(&path).unwrap();
+    prompts.write(Belt::Chat, "second").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "second",
+        "a file pruned from under a live agent is written again"
+    );
+}
+
+/// Two turns refreshing at once: the render and the write happen under one
+/// lock, so the file ends as the later render saw the world, never an
+/// earlier render written over a later one.
+#[test]
+fn a_refresh_renders_under_the_lock_so_an_older_render_never_lands_last() {
+    let dir = scratch("ordered");
+    let prompts = Arc::new(LivePrompts::new(&dir, "teeny/inst"));
+    let brief = Arc::new(Mutex::new("old"));
+    let (rendering, rendered) = std::sync::mpsc::channel::<()>();
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    let slow = {
+        let prompts = Arc::clone(&prompts);
+        let brief = Arc::clone(&brief);
+        std::thread::spawn(move || {
+            prompts
+                .refresh(Belt::Reply, || {
+                    let text = brief.lock().unwrap().to_owned();
+                    rendering.send(()).unwrap();
+                    released.recv().unwrap();
+                    text
+                })
+                .unwrap();
+        })
+    };
+    rendered.recv().unwrap();
+    *brief.lock().unwrap() = "new";
+    let fast = {
+        let prompts = Arc::clone(&prompts);
+        let brief = Arc::clone(&brief);
+        std::thread::spawn(move || {
+            prompts
+                .refresh(Belt::Reply, || brief.lock().unwrap().to_owned())
+                .unwrap();
+        })
+    };
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    release.send(()).unwrap();
+    slow.join().unwrap();
+    fast.join().unwrap();
+    assert_eq!(
+        std::fs::read_to_string(prompts.path(Belt::Reply)).unwrap(),
+        "new"
+    );
+}
+
+#[test]
+fn stale_instance_prompts_are_pruned_and_live_ones_kept() {
+    let dir = scratch("pruned");
+    let prompts = LivePrompts::new(&dir, "teeny/mine");
+    prompts.write(Belt::Reply, "mine").unwrap();
+    let other = LivePrompts::new(&dir, "teeny/other");
+    other.write(Belt::Reply, "theirs").unwrap();
+    prompts.prune(std::time::Duration::from_secs(3600));
+    assert!(other.path(Belt::Reply).exists(), "fresh, kept");
+    prompts.prune(std::time::Duration::ZERO);
+    assert!(!other.path(Belt::Reply).exists(), "stale, pruned");
+    assert!(
+        prompts.path(Belt::Reply).exists(),
+        "our own is never pruned"
+    );
+}
+
 #[test]
 fn every_agent_keeps_its_own_turns_under_the_one_shared_memory_root() {
     let deps = Deps::fake();
@@ -157,15 +279,36 @@ fn every_agent_keeps_its_own_turns_under_the_one_shared_memory_root() {
     vars.push(("TEENY_MEMORY_ROOT", "team:teeny-shadow"));
     let context = SpecContext::from_config(&teeny_core::Config::from_vars(vars).unwrap());
     assert_eq!(context.memory_root, "team:teeny-shadow");
-    for belt in [Belt::Reply, Belt::Chart, Belt::Operator] {
-        let tools = Arc::new(belt.build(&deps));
-        let spec = belt_spec(belt, tools, "prompt".into(), &context);
-        let expected = MemoryBinding::new(agent_id(belt)).root("team:teeny-shadow");
+    let bound = |id: &str, spec: AgentSpec| {
+        let expected = MemoryBinding::new(id).root("team:teeny-shadow");
         assert!(
             format!("{spec:?}").contains(&format!("{:?}", Some(&expected))),
             "{spec:?}"
         );
+    };
+    for belt in [Belt::Reply, Belt::Chart, Belt::Operator] {
+        let tools = Arc::new(belt.build(&deps));
+        bound(
+            agent_id(belt),
+            belt_spec(belt, tools, "prompt".into(), &context),
+        );
     }
+    // The fixed belts register on a live prompt file, the learner too.
+    for belt in [Belt::Drafter, Belt::Learner] {
+        let tools = Arc::new(belt.build(&deps));
+        bound(
+            agent_id(belt),
+            live_spec(belt, tools, "teeny/x/prompt.md".into(), &context),
+        );
+    }
+    // A room, the researcher included, under its persona's id.
+    let researcher = room_id("researcher").unwrap();
+    assert_eq!(researcher, "teeny-room-researcher");
+    let tools = Arc::new(Belt::Room.build(&deps));
+    bound(
+        &researcher,
+        spec_as(&researcher, Belt::Room, tools, "prompt".into(), &context),
+    );
     let room = memory_binding("teeny-room-gm", &context);
     assert_eq!(room.agent_id(), "teeny-room-gm");
     assert_eq!(room.root_namespace(), Some("team:teeny-shadow"));
@@ -217,7 +360,7 @@ fn the_deny_rules_refuse_every_denied_family_and_admit_the_belts() {
     }
     let deps = Deps::fake();
     for belt in Belt::ALL {
-        for name in tool_scope(belt, &belt.build(&deps)) {
+        for name in tool_scope(belt, &belt.build(&deps), true) {
             assert!(!refused(&name), "{belt:?}: {name}");
         }
     }

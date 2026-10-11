@@ -5,9 +5,21 @@
 //! | `teeny-reply` | public (read-only) | Reply, its reads only | none |
 //! | `teeny-chat` | public (read-only) | Chat, its reads only | none |
 //! | `teeny-chart` | `full` | Chart | none |
-//! | `teeny-operator` | `full` | Operator | `browser` |
+//! | `teeny-operator` | `full` | Operator | none |
 //! | `teeny-drafter` | `full` | Drafter | none |
-//! | `teeny-room-<persona>` | `full` | Room | `browser` |
+//! | `teeny-learner` | `full` | Learner | none |
+//! | `teeny-room-<persona>` | `full` | Room | `browser`, with `BROWSER_RESEARCH` |
+//!
+//! **Live prompts.** A fixed belt's system prompt is a file under
+//! `<workspace>/agent/prompts/teeny/<instance>/` (OpenHuman's
+//! `PromptSource::File`, read when each turn's session is built), and
+//! [`TeenyAgents::belt`] renders the prompt again before handing the agent
+//! out, rewriting the file when it changed. So the learnings brief written
+//! after boot is in the next turn's system prompt with no re-registration;
+//! a room re-registers on a new persona prompt, and the learner's file is
+//! written with each call's instructions ([`TeenyAgents::learner`]). The
+//! instance directory is per process, so an operator subcommand running
+//! beside `teeny serve` never rewrites the server's prompts.
 //!
 //! The lockdown is built from OpenHuman's own mechanisms, each enough on its
 //! own for what it covers:
@@ -52,12 +64,13 @@
 //! [`SharedTool`]: crate::shared_tool::SharedTool
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use openhuman_core::agent::HostOnlyToolPolicy;
 use openhuman_core::agent::harness::definition::{
-    AgentDefinition, AgentDefinitionRegistry, ToolScope,
+    AgentDefinition, AgentDefinitionRegistry, PromptSource, ToolScope,
 };
 use openhuman_core::agent::tool_policy::ToolPolicy;
 use openhuman_core::inference::tokenjuice::{RECOVERY_TOOL_NAMES, REPL_TOOL_NAMES};
@@ -94,6 +107,7 @@ pub fn agent_id(belt: Belt) -> &'static str {
         Belt::Room => "teeny-room",
         Belt::Operator => "teeny-operator",
         Belt::Drafter => "teeny-drafter",
+        Belt::Learner => "teeny-learner",
     }
 }
 
@@ -111,11 +125,14 @@ pub fn room_id(persona: &str) -> Result<String, SpecError> {
     }
 }
 
-/// The OpenHuman built-ins `belt` holds beside its own tools.
-pub fn built_ins(belt: Belt) -> &'static [&'static str] {
+/// The OpenHuman built-ins `belt` holds beside its own tools: the browser
+/// on a room (the backrooms personas and the research step), and only
+/// while `BROWSER_RESEARCH` (`browse`) is on. Never a public belt, never the
+/// learner, never the operator.
+pub fn built_ins(belt: Belt, browse: bool) -> &'static [&'static str] {
     match belt {
-        Belt::Operator | Belt::Room => &[BROWSER],
-        Belt::Reply | Belt::Chat | Belt::Chart | Belt::Drafter => &[],
+        Belt::Room if browse => &[BROWSER],
+        _ => &[],
     }
 }
 
@@ -142,11 +159,15 @@ pub fn handed(belt: Belt, tools: &[Arc<dyn Tool>]) -> Vec<Arc<dyn Tool>> {
 }
 
 /// The named scope: `tools` by name, in order, then the built-ins.
-pub fn tool_scope(belt: Belt, tools: &[Arc<dyn Tool>]) -> Vec<String> {
+pub fn tool_scope(belt: Belt, tools: &[Arc<dyn Tool>], browse: bool) -> Vec<String> {
     tools
         .iter()
         .map(|tool| tool.name().to_owned())
-        .chain(built_ins(belt).iter().map(|name| (*name).to_owned()))
+        .chain(
+            built_ins(belt, browse)
+                .iter()
+                .map(|name| (*name).to_owned()),
+        )
         .collect()
 }
 
@@ -231,6 +252,8 @@ pub struct SpecContext {
     pub max_iterations: usize,
     /// `TEENY_MEMORY_ROOT`: the memory root every agent is bound to.
     pub memory_root: String,
+    /// `BROWSER_RESEARCH`, effective ([`runtime::browser_research`]).
+    pub browser_research: bool,
 }
 
 impl SpecContext {
@@ -243,6 +266,7 @@ impl SpecContext {
             skills_dir: std::path::absolute(&skills).unwrap_or(skills),
             max_iterations: config.agent.max_steps as usize,
             memory_root: config.memory.root.clone(),
+            browser_research: runtime::browser_research(&config.openhuman),
         }
     }
 
@@ -290,7 +314,8 @@ impl PromptInputs {
 }
 
 /// The system prompt `belt` speaks with; `None` for a room, which speaks
-/// with its persona's.
+/// with its persona's, and for the learner, which speaks with the brief's
+/// instructions, handed over per call.
 pub fn belt_prompt(belt: Belt, inputs: &PromptInputs) -> Option<String> {
     let options = inputs.options();
     Some(match belt {
@@ -300,7 +325,7 @@ pub fn belt_prompt(belt: Belt, inputs: &PromptInputs) -> Option<String> {
         Belt::Chart => prompt::chart_prompt(&options, &inputs.token_symbol),
         // The calendar's task names the channels; X is the default.
         Belt::Drafter => prompt::content_prompt(&options, &["x"]),
-        Belt::Room => return None,
+        Belt::Room | Belt::Learner => return None,
     })
 }
 
@@ -323,22 +348,58 @@ pub fn spec_as(
     system_prompt: String,
     context: &SpecContext,
 ) -> AgentSpec {
+    spec_with(
+        id,
+        belt,
+        tools,
+        PromptSource::Inline(system_prompt),
+        context,
+    )
+}
+
+/// The spec for `belt`, under its own id, speaking with the prompt file at
+/// `prompt_file` under the workspace's `agent/prompts/` ([`LivePrompts`]).
+pub fn live_spec(
+    belt: Belt,
+    tools: Arc<Vec<Arc<dyn Tool>>>,
+    prompt_file: String,
+    context: &SpecContext,
+) -> AgentSpec {
+    spec_with(
+        agent_id(belt),
+        belt,
+        tools,
+        PromptSource::File { path: prompt_file },
+        context,
+    )
+}
+
+fn spec_with(
+    id: &str,
+    belt: Belt,
+    tools: Arc<Vec<Arc<dyn Tool>>>,
+    prompt: PromptSource,
+    context: &SpecContext,
+) -> AgentSpec {
     let tools = handed(belt, &tools);
-    let scope = tool_scope(belt, &tools);
+    let browse = context.browser_research;
+    let scope = tool_scope(belt, &tools, browse);
     let policy = belt_policy(&scope);
-    let definition =
-        AgentDefinitionSpec::from_base(DefinitionBase::Custom(Box::new(base_definition())))
-            .system_prompt(system_prompt)
-            .display_name(id)
-            .tools(ToolScopeSpec::Named(scope))
-            .disallow_tools(DENY.iter().filter(|name| !name.ends_with('*')).copied())
-            .tool_rules(deny_rules())
-            .max_iterations(context.max_iterations);
+    let mut base = base_definition();
+    // Set on the base rather than through the spec, which only takes text:
+    // a spec without a prompt of its own keeps the base's.
+    base.system_prompt = prompt;
+    let definition = AgentDefinitionSpec::from_base(DefinitionBase::Custom(Box::new(base)))
+        .display_name(id)
+        .tools(ToolScopeSpec::Named(scope))
+        .disallow_tools(DENY.iter().filter(|name| !name.ends_with('*')).copied())
+        .tool_rules(deny_rules())
+        .max_iterations(context.max_iterations);
     AgentSpec::new(id)
         .definition(definition)
         .provider(context.provider())
         .access(access(belt))
-        .domains(runtime::agent_domains(!built_ins(belt).is_empty()))
+        .domains(runtime::agent_domains(!built_ins(belt, browse).is_empty()))
         .tool_groups(ToolGroups::none())
         .skills_dir(&context.skills_dir)
         .include_user_skills(false)
@@ -355,11 +416,119 @@ pub fn memory_binding(id: &str, context: &SpecContext) -> MemoryBinding {
     MemoryBinding::new(id).root(&context.memory_root)
 }
 
+/// How long another process's prompt directory may sit untouched before a
+/// new process prunes it. A live one that was pruned is written again on
+/// its next turn ([`LivePrompts::write`]).
+const STALE_PROMPTS: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+
+/// The fixed belts' system prompts as files OpenHuman reads per turn.
+#[derive(Debug)]
+pub struct LivePrompts {
+    /// `<workspace>/agent/prompts`: OpenHuman's root for a file prompt.
+    root: PathBuf,
+    /// This process's directory under it: `teeny/<instance>`.
+    dir: String,
+    /// What each file was last written with.
+    written: Mutex<HashMap<Belt, String>>,
+}
+
+impl LivePrompts {
+    /// Under `<workspace>/agent/prompts/<dir>`.
+    pub fn new(workspace: &Path, dir: &str) -> Self {
+        Self {
+            root: workspace.join("agent").join("prompts"),
+            dir: dir.to_owned(),
+            written: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// `teeny/<pid>-<millis>`: one directory per process.
+    pub fn instance_dir() -> String {
+        let millis = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_millis())
+            .unwrap_or_default();
+        format!("teeny/{}-{millis}", std::process::id())
+    }
+
+    /// The path a definition names, relative to the prompts root.
+    pub fn relative(&self, belt: Belt) -> String {
+        format!("{}/{}.md", self.dir, agent_id(belt))
+    }
+
+    /// The file itself.
+    pub fn path(&self, belt: Belt) -> PathBuf {
+        self.root.join(self.relative(belt))
+    }
+
+    /// Writes `text` as `belt`'s prompt when it differs from what was last
+    /// written or the file has gone; atomically, so a turn never reads half.
+    pub fn write(&self, belt: Belt, text: &str) -> std::io::Result<()> {
+        self.refresh(belt, || text.to_owned())
+    }
+
+    /// [`write`](Self::write) with the prompt rendered under the same lock,
+    /// so a render that read an older brief can never land after a newer
+    /// one: renders and writes are ordered, and a turn reads what the last
+    /// render saw.
+    pub fn refresh(&self, belt: Belt, render: impl FnOnce() -> String) -> std::io::Result<()> {
+        let path = self.path(belt);
+        let mut written = self.written.lock().unwrap_or_else(|e| e.into_inner());
+        let text = render();
+        let text = text.as_str();
+        if written.get(&belt).is_some_and(|last| last == text) && path.is_file() {
+            return Ok(());
+        }
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let staging = path.with_extension("md.tmp");
+        std::fs::write(&staging, text)?;
+        std::fs::rename(&staging, &path)?;
+        written.insert(belt, text.to_owned());
+        tracing::debug!(agent = agent_id(belt), "[specs] system prompt written");
+        Ok(())
+    }
+
+    /// Removes other processes' directories untouched for `stale`.
+    pub fn prune(&self, stale: Duration) {
+        let mine = self.root.join(&self.dir);
+        let Some(parent) = mine.parent() else {
+            return;
+        };
+        let Ok(entries) = std::fs::read_dir(parent) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path == mine || !path.is_dir() {
+                continue;
+            }
+            let old = entry
+                .metadata()
+                .and_then(|meta| meta.modified())
+                .ok()
+                .and_then(|modified| modified.elapsed().ok())
+                .is_some_and(|age| age >= stale);
+            if old && std::fs::remove_dir_all(&path).is_ok() {
+                tracing::debug!(dir = %path.display(), "[specs] pruned stale prompts");
+            }
+        }
+    }
+}
+
+/// The learner's prompt until its first call writes the brief's
+/// instructions over it.
+const LEARNER_PROMPT: &str =
+    "You write this account's learnings brief from the record you are given.";
+
 /// Registering an agent failed.
 #[derive(Debug, thiserror::Error)]
 pub enum SpecError {
     #[error("persona id {0:?} must be 1 to 48 of [a-z0-9_-]")]
     Persona(String),
+    #[error("could not write a system prompt: {0}")]
+    Prompt(std::io::Error),
     /// Boxed: an agent error is large, and this is returned by value.
     #[error(transparent)]
     Agent(Box<AgentError>),
@@ -385,6 +554,8 @@ struct Room {
 pub struct TeenyAgents {
     runtime: Arc<Runtime>,
     context: SpecContext,
+    inputs: PromptInputs,
+    prompts: LivePrompts,
     belts: HashMap<Belt, Agent>,
     room_tools: Arc<Vec<Arc<dyn Tool>>>,
     rooms: Mutex<HashMap<String, Room>>,
@@ -398,27 +569,76 @@ impl TeenyAgents {
         context: SpecContext,
     ) -> Result<Self, SpecError> {
         let inputs = PromptInputs::from_deps(deps);
+        let dir = LivePrompts::instance_dir();
+        let mut prompts: Option<LivePrompts> = None;
         let mut belts = HashMap::new();
         for belt in Belt::ALL {
-            let Some(prompt) = belt_prompt(belt, &inputs) else {
-                continue;
+            let text = match (belt, belt_prompt(belt, &inputs)) {
+                (_, Some(text)) => text,
+                (Belt::Learner, None) => LEARNER_PROMPT.to_owned(),
+                _ => continue,
             };
             let tools = Arc::new(belt.build(deps));
-            let agent = runtime.agent(belt_spec(belt, tools, prompt, &context))?;
+            let relative = format!("{dir}/{}.md", agent_id(belt));
+            let agent = runtime.agent(live_spec(belt, tools, relative, &context))?;
+            let live = prompts.get_or_insert_with(|| {
+                let live = LivePrompts::new(agent.workspace_dir(), &dir);
+                live.prune(STALE_PROMPTS);
+                live
+            });
+            live.write(belt, &text).map_err(SpecError::Prompt)?;
             belts.insert(belt, agent);
         }
         Ok(Self {
             runtime,
             room_tools: Arc::new(Belt::Room.build(deps)),
+            prompts: prompts.expect("Belt::ALL has fixed belts"),
             context,
+            inputs,
             belts,
             rooms: Mutex::new(HashMap::new()),
         })
     }
 
-    /// The agent for a fixed belt; `None` for [`Belt::Room`].
+    /// The agent for a fixed belt; `None` for [`Belt::Room`]. Its prompt is
+    /// rendered again first, so a turn on it speaks with the persona as it
+    /// is now (the learnings brief included). A prompt that cannot be
+    /// written leaves the last one in place.
     pub fn belt(&self, belt: Belt) -> Option<&Agent> {
-        self.belts.get(&belt)
+        let agent = self.belts.get(&belt)?;
+        if matches!(belt, Belt::Room | Belt::Learner) {
+            return Some(agent);
+        }
+        let refreshed = self.prompts.refresh(belt, || {
+            belt_prompt(belt, &self.inputs).expect("a fixed belt has a prompt")
+        });
+        if let Err(error) = refreshed {
+            tracing::warn!(%error, agent = agent_id(belt), "[specs] could not refresh the system prompt");
+        }
+        Some(agent)
+    }
+
+    /// The learner, speaking with `system_prompt` for its next turn. One
+    /// writer (the morning role's learnings job), so turns do not race.
+    pub fn learner(&self, system_prompt: &str) -> Result<Agent, SpecError> {
+        self.prompts
+            .write(Belt::Learner, system_prompt)
+            .map_err(SpecError::Prompt)?;
+        Ok(self
+            .belts
+            .get(&Belt::Learner)
+            .cloned()
+            .expect("the learner is registered with the belts"))
+    }
+
+    /// Where `belt`'s live prompt file is.
+    pub fn prompt_path(&self, belt: Belt) -> PathBuf {
+        self.prompts.path(belt)
+    }
+
+    /// Whether the browser experiment is on for these agents.
+    pub fn browses(&self) -> bool {
+        self.context.browser_research
     }
 
     /// The agent for `persona`, speaking with `system_prompt`. Registered on

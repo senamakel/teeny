@@ -49,9 +49,10 @@ fn settings(module: Option<&str>) -> RuntimeSettings {
         data_dir: PathBuf::from("/data"),
         chrome_path: Some("/usr/bin/chromium".into()),
         unattended_actions: vec!["click".into(), "press".into(), "teleport".into()],
-        allowed_domains: vec![],
+        allowed_domains: vec!["dexscreener.com".into()],
         tinycomputer_module: module.map(PathBuf::from),
         backend_url: None,
+        browser_research: true,
         memory: Default::default(),
     }
 }
@@ -63,6 +64,8 @@ async fn reports_the_browsers_configuration_without_launching_it() {
         on.status().await,
         json!({
             "configured": true,
+            "research": true,
+            "allowedHosts": ["dexscreener.com"],
             "launched": false,
             "module": "/opt/tinycomputer/libtinycomputer.so",
             "chromePath": "/usr/bin/chromium",
@@ -74,4 +77,10 @@ async fn reports_the_browsers_configuration_without_launching_it() {
     );
     let off = BrowserState::from_settings(&settings(None));
     assert_eq!(off.status().await["configured"], false);
+    let mut experiment_off = settings(Some("/opt/tinycomputer/libtinycomputer.so"));
+    experiment_off.browser_research = false;
+    let status = BrowserState::from_settings(&experiment_off).status().await;
+    assert_eq!(status["configured"], false, "BROWSER_RESEARCH is off");
+    assert_eq!(status["research"], false);
+    assert_eq!(status["allowedHosts"], json!([]));
 }

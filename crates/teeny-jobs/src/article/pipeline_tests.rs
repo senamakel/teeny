@@ -204,6 +204,7 @@ async fn harness(model: Arc<ScriptedText>, tune: impl FnOnce(&mut Deps)) -> Harn
     let pipeline = ArticlePipeline {
         rooms: rooms.clone(),
         seed: Arc::new(Wire(Some(Seed {
+            url: None,
             kind: SeedKind::News,
             title: Some("a car pulled up".into()),
             text: "a car pulled up outside a lab".into(),

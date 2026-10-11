@@ -49,18 +49,22 @@ impl AgentRunner for OperatorAgent {
 /// The research browser as the runtime was configured with it, read once at
 /// boot. Nothing here launches Chrome: the browser is a module that starts
 /// on a turn's first browse. It counts as configured when the module that
-/// carries it (`TINYCOMPUTER_MODULE_PATH`) is set.
+/// carries it (`TINYCOMPUTER_MODULE_PATH`) is set and `BROWSER_RESEARCH` is
+/// on.
 pub struct BrowserState(Value);
 
 impl BrowserState {
     pub fn from_settings(settings: &RuntimeSettings) -> Self {
-        let browser = openhuman_config(settings).browser;
+        let config = openhuman_config(settings);
+        let browser = config.browser;
         let module = settings
             .tinycomputer_module
             .as_ref()
             .map(|path| path.to_string_lossy().into_owned());
         Self(json!({
             "configured": browser.enabled && module.is_some(),
+            "research": settings.browser_research,
+            "allowedHosts": config.http_request.allowed_domains,
             "launched": false,
             "module": module,
             "chromePath": browser.chrome_path,

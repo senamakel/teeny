@@ -694,8 +694,50 @@ mod openhuman {
         assert_eq!(config.data_dir, "data");
         assert_eq!(config.chrome_path, None);
         assert_eq!(config.unattended_actions, ["click", "press"]);
-        assert!(config.allowed_domains.is_empty(), "browsing is opt-in");
+        assert!(!config.browser_research, "the browser experiment is opt-in");
         assert_eq!(config.tinycomputer_module_path, None);
+    }
+
+    #[test]
+    fn the_default_hosts_are_news_and_research_plus_x_and_dexscreener() {
+        let hosts = load(&[]).openhuman.allowed_domains;
+        for host in [
+            "reuters.com",
+            "techcrunch.com",
+            "coindesk.com",
+            "arxiv.org",
+            "x.com",
+            "dexscreener.com",
+        ] {
+            assert!(hosts.iter().any(|h| h == host), "{host} in {hosts:?}");
+        }
+        assert!(!hosts.iter().any(|h| h == "*"), "never every host");
+        assert_eq!(hosts, super::env::split_list(DEFAULT_BROWSER_HOSTS));
+    }
+
+    #[test]
+    fn browser_research_turns_on_and_the_hosts_are_replaced() {
+        let config = load(&[
+            ("BROWSER_RESEARCH", "true"),
+            ("BROWSER_ALLOWED_HOSTS", "dexscreener.com, x.com"),
+        ])
+        .openhuman;
+        assert!(config.browser_research);
+        assert_eq!(config.allowed_domains, ["dexscreener.com", "x.com"]);
+    }
+
+    #[test]
+    fn the_older_host_variable_is_read_when_the_new_one_is_unset() {
+        let config = load(&[("BROWSE_ALLOWED_DOMAINS", "coingecko.com")]).openhuman;
+        assert_eq!(config.allowed_domains, ["coingecko.com"]);
+        let config = load(&[
+            ("BROWSE_ALLOWED_DOMAINS", "coingecko.com"),
+            ("BROWSER_ALLOWED_HOSTS", "arxiv.org"),
+        ])
+        .openhuman;
+        assert_eq!(config.allowed_domains, ["arxiv.org"]);
+        let config = load(&[("BROWSER_ALLOWED_HOSTS", "")]).openhuman;
+        assert!(config.allowed_domains.is_empty(), "blank opens nothing");
     }
 
     #[test]

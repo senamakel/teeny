@@ -811,6 +811,7 @@ impl ArticlePipeline {
     async fn find_seed(&self, engine: Option<&str>, problems: &mut Vec<String>) -> Seed {
         if let Some(text) = &self.seed_text {
             return Seed {
+                url: None,
                 kind: SeedKind::Text,
                 title: None,
                 text: text.clone(),
@@ -834,6 +835,7 @@ impl ArticlePipeline {
             Err(error) => problems.push(format!("the wire failed for \"{topic}\": {error}; the room opened on the engine alone")),
         }
         Seed {
+            url: None,
             kind: SeedKind::Text,
             title: None,
             text: engine.unwrap_or("the lab at night").to_owned(),

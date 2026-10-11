@@ -9,9 +9,10 @@
 //! | Reply | X mentions, public | memory recall, X reads, the web, the market, GIFs, eyes |
 //! | Chat | Telegram, public | the same as Reply |
 //! | Chart | the chart post, cron, no posting | market, `render_chart`, `x_critique`, community, X reads, the web, news |
-//! | Room | backrooms personas, cron, no posting | `recall_memory`, `web_search`, `x_search_posts` |
+//! | Room | backrooms personas and the research step, cron, no posting | `recall_memory`, `web_search`, `x_search_posts` (and OpenHuman's `browser` with `BROWSER_RESEARCH`) |
 //! | Operator | `/agent/run` only, bearer | Reply's, plus `x_post`, `remember`, `x_critique` and the generators |
 //! | Drafter | pipelines that post host-side, cron, no posting | the Operator's, less `x_post` and `remember` |
+//! | Learner | the learnings brief, cron, no posting | `recall_memory` |
 //!
 //! Every belt but the Operator reads text a third party wrote (posts, pages,
 //! news, GIF titles, memory of what people said) and can be started by a
@@ -134,6 +135,10 @@ pub enum Belt {
     /// draft that could also be posted by the agent would be posted twice,
     /// and the pipeline remembers what actually went out.
     Drafter,
+    /// `teeny-learner`: writes the learnings brief from a record host code
+    /// has already read. Trusted, read-only: one memory read, no posting, no
+    /// browser, no X; host code writes the brief to disk.
+    Learner,
 }
 
 const MARKET: [&str; 10] = [
@@ -157,13 +162,14 @@ const WEB: [&str; 4] = [
 ];
 
 impl Belt {
-    pub const ALL: [Belt; 6] = [
+    pub const ALL: [Belt; 7] = [
         Self::Reply,
         Self::Chat,
         Self::Chart,
         Self::Room,
         Self::Operator,
         Self::Drafter,
+        Self::Learner,
     ];
 
     /// Whether only the operator, behind the bearer, may start this belt's
@@ -229,6 +235,7 @@ impl Belt {
                 names.push("crypto_news");
             }
             Self::Room => names.extend(["recall_memory", "web_search", "x_search_posts"]),
+            Self::Learner => names.push("recall_memory"),
         }
         names.into_iter().map(str::to_owned).collect()
     }
@@ -302,6 +309,7 @@ impl Belt {
                     deps.settings.search_limit,
                 ));
             }
+            Self::Learner => tools.push(recall_memory(Arc::clone(&deps.memory))),
         }
         tools
     }

@@ -273,6 +273,15 @@ pub struct BrainConfig {
     pub usage_cron: String,
 }
 
+/// The hosts the research browser may open unless `BROWSER_ALLOWED_HOSTS`
+/// says otherwise: wire services and tech and crypto news, research and
+/// code hosts, X (read without a login: the browser never signs in), and the
+/// two market pages the chart and moon posts are about.
+pub const DEFAULT_BROWSER_HOSTS: &str = "reuters.com,apnews.com,bbc.com,theverge.com,techcrunch.com,\
+arstechnica.com,wired.com,venturebeat.com,technologyreview.com,coindesk.com,theblock.co,decrypt.co,\
+cointelegraph.com,news.ycombinator.com,arxiv.org,github.com,huggingface.co,wikipedia.org,x.com,\
+dexscreener.com,coingecko.com";
+
 /// The embedded OpenHuman runtime: where it keeps its state, and its
 /// research browser. None of these are legacy variables.
 #[derive(Debug, Clone, PartialEq)]
@@ -286,9 +295,15 @@ pub struct OpenHumanConfig {
     /// the gated browser actions a trusted scheduled turn may take without an
     /// approval it cannot get. Blank allows none.
     pub unattended_actions: Vec<String>,
-    /// `BROWSE_ALLOWED_DOMAINS`, comma separated, default none: the hosts the
-    /// browser may open. X is never among them, whatever is listed: the
-    /// account reaches X through its own API only.
+    /// `BROWSER_RESEARCH`, default `false`: the browser experiment. Off, no
+    /// agent holds OpenHuman's `browser` and the runtime does not enable it;
+    /// on, the backrooms rooms and the morning and lore research step do.
+    pub browser_research: bool,
+    /// `BROWSER_ALLOWED_HOSTS` (the older `BROWSE_ALLOWED_DOMAINS` is still
+    /// read when it is unset), comma separated, default
+    /// [`DEFAULT_BROWSER_HOSTS`]: the hosts, with their subdomains, the
+    /// browser may open. Anything else is refused by OpenHuman before a page
+    /// loads.
     pub allowed_domains: Vec<String>,
     /// `TINYCOMPUTER_MODULE_PATH`, optional: a locally built
     /// `libtinycomputer.so` loaded in place of the pinned release.

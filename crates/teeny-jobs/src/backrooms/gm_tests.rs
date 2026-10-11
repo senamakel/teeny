@@ -151,6 +151,7 @@ async fn keeps_the_draft_when_the_rankers_rewrite_loses_the_lab_twice() {
 #[tokio::test]
 async fn sends_a_post_back_once_when_nothing_in_it_is_recognisably_about_the_wire() {
     let seed = Seed {
+        url: None,
         kind: SeedKind::News,
         title: Some("UN panel calls for stronger safeguards as AI agents advance".into()),
         text: "experts warned that current firewalls are unravelling after agents breached a platform.".into(),
@@ -250,6 +251,7 @@ fn lore_thought() -> Thought {
 fn lore_run() -> crate::backrooms::BackroomsRun {
     let mut run = run();
     run.seed = Seed {
+        url: None,
         kind: SeedKind::News,
         title: Some("AI agents now file taxes".into()),
         text: "A startup says its agents filed a return unsupervised.".into(),

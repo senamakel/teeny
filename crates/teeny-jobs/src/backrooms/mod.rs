@@ -78,6 +78,10 @@ pub struct Seed {
     /// Where it came from: a url, a handle, a board.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    /// The page it was read from, when it was one. Never shown in a prompt
+    /// (`source` carries the host); the research step opens it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
 }
 
 impl Seed {
@@ -87,6 +91,7 @@ impl Seed {
             title: None,
             text: text.into(),
             source: None,
+            url: None,
         }
     }
 

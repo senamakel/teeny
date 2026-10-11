@@ -432,6 +432,7 @@ fn installs_on_the_real_runtime_and_runs_a_job_now() {
                 allowed_domains: vec![],
                 tinycomputer_module: None,
                 backend_url: Some("http://127.0.0.1:9".into()),
+                browser_research: false,
                 memory: Default::default(),
             })
             .await
@@ -545,6 +546,7 @@ fn a_job_due_before_the_scheduler_starts_fires_once_after_boot() {
                 allowed_domains: vec![],
                 tinycomputer_module: None,
                 backend_url: Some("http://127.0.0.1:9".into()),
+                browser_research: false,
                 memory: Default::default(),
             })
             .await

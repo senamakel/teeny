@@ -198,6 +198,19 @@ pub fn asks(request: &Request, needle: &str) -> bool {
         })
 }
 
+/// A request's system messages, joined.
+pub fn system_prompt(request: &Request) -> String {
+    body(request)["messages"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .filter(|m| m["role"] == "system")
+        .filter_map(|m| m["content"].as_str().map(str::to_owned))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// The tool results a request handed back to the model.
 pub fn tool_results(request: &Request) -> String {
     body(request)["messages"]
@@ -227,6 +240,8 @@ pub struct Booted {
     pub agents: Arc<TeenyAgents>,
     pub server: MockServer,
     pub data_dir: PathBuf,
+    /// The learnings brief the agents' persona reads live.
+    pub learnings: PathBuf,
 }
 
 static BOOTED: OnceLock<Booted> = OnceLock::new();
@@ -259,6 +274,7 @@ async fn boot() -> Booted {
         tinycomputer_module: None,
         backend_url: Some(server.uri()),
         memory: runtime::MemorySettings::default(),
+        browser_research: true,
     };
     let runtime = runtime::global(settings)
         .await
@@ -270,12 +286,25 @@ async fn boot() -> Booted {
         skills_dir: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../skills"),
         max_iterations: 4,
         memory_root: teeny_memory::DEFAULT_ROOT.into(),
+        browser_research: true,
     };
-    let agents = TeenyAgents::register(runtime, &Deps::fake(), context)
-        .expect("every Teeny agent registers");
+    // A brief a test can rewrite between turns: the persona reads it live.
+    let learnings = data_dir.join("LEARNINGS.md");
+    let _ = std::fs::remove_file(&learnings);
+    let mut deps = Deps::fake();
+    // A soul, since the persona (and the brief in it) is rendered only
+    // with one.
+    let mut persona = deps.persona.clone().with_learnings(&learnings);
+    persona
+        .soul
+        .get_or_insert_with(|| "You are Teeny.".to_owned());
+    deps.persona = persona;
+    let agents =
+        TeenyAgents::register(runtime, &deps, context).expect("every Teeny agent registers");
     Booted {
         agents: Arc::new(agents),
         server,
         data_dir,
+        learnings,
     }
 }

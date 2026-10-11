@@ -32,8 +32,8 @@ pub use kinds::{
     VideoGenApi,
 };
 pub use service::{
-    AgentConfig, BrainConfig, CadenceConfig, CortexConfig, LearningsConfig, LlmConfig,
-    MemoryConfig, OpenHumanConfig, ReplyConfig, SafetyConfig, ServerConfig, StoreConfig,
+    AgentConfig, BrainConfig, CadenceConfig, CortexConfig, DEFAULT_BROWSER_HOSTS, LearningsConfig,
+    LlmConfig, MemoryConfig, OpenHumanConfig, ReplyConfig, SafetyConfig, ServerConfig, StoreConfig,
     WebhookConfig, XConfig,
 };
 

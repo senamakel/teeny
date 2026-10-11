@@ -129,3 +129,40 @@ async fn refuses_an_agent_it_does_not_know() {
         .unwrap_err();
     assert!(error.to_string().contains("no such backrooms agent: ghost"));
 }
+
+/// With the browser experiment on, every persona that has tools is told it
+/// has the browser too; off, nobody is.
+#[tokio::test]
+async fn the_rooms_are_told_of_the_browser_only_when_they_hold_it() {
+    for browse in [false, true] {
+        let runner = Arc::new(
+            ScriptedRunner::new()
+                .reply("a")
+                .reply("b")
+                .reply("c")
+                .reply("d"),
+        );
+        let editor = Arc::new(ScriptedText::new(|_, _| THOUGHT.to_owned()));
+        let rooms = backrooms(runner.clone(), editor, None).with_browser(browse);
+        rooms
+            .run(
+                &seed(),
+                &RunOptions {
+                    rng: Some(42),
+                    ..RunOptions::default()
+                },
+            )
+            .await
+            .unwrap();
+        for turn in runner.seen() {
+            let AgentKey::Room { system_prompt, .. } = &turn.agent else {
+                panic!("{:?}", turn.agent);
+            };
+            assert_eq!(
+                system_prompt.contains("browser"),
+                browse,
+                "{browse}: {system_prompt}"
+            );
+        }
+    }
+}

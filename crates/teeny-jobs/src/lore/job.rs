@@ -17,6 +17,7 @@ use crate::backrooms::tokens::{Random, Rng};
 use crate::ctx::{JobCtx, JobReport};
 use crate::journal_glue::record_quietly;
 use crate::morning::job::{Gates, admit, day_id, journal_failure};
+use crate::research::{BrowserResearch, BrowsingSeeds};
 
 /// The page's name: its journal kind, its guard, its ledger kind.
 pub const AFTERNOON: &str = "lore";
@@ -89,6 +90,21 @@ pub fn build(ctx: &JobCtx, name: &str) -> LorePipeline {
                         memory: Arc::clone(&ctx.deps.memory) as Arc<dyn Memory>,
                     }),
                 ),
+            }
+        })
+        .map(|(source, finder)| -> (SeedSource, Arc<dyn SeedFinder>) {
+            // The browser experiment: a seed from a page carries the page.
+            if config.openhuman.browser_research {
+                let research = BrowserResearch::new(Arc::clone(&ctx.runner), "lore.research");
+                (
+                    source,
+                    Arc::new(BrowsingSeeds {
+                        inner: finder,
+                        research,
+                    }),
+                )
+            } else {
+                (source, finder)
             }
         })
         .collect();

@@ -32,7 +32,7 @@ fn scratch(name: &str) -> std::path::PathBuf {
 }
 
 #[tokio::test]
-async fn asks_its_own_room_agent_on_a_scheduled_turn_and_writes_the_brief() {
+async fn asks_the_learner_on_a_scheduled_turn_and_writes_the_brief() {
     let path = scratch("run");
     let runner = Arc::new(ScriptedRunner::new().reply(answer()));
     let ctx = ctx(runner.clone(), &path);
@@ -50,11 +50,7 @@ async fn asks_its_own_room_agent_on_a_scheduled_turn_and_writes_the_brief() {
 
     let turn = &runner.seen()[0];
     match &turn.agent {
-        AgentKey::Room {
-            persona,
-            system_prompt,
-        } => {
-            assert_eq!(persona, PERSONA);
+        AgentKey::Learner { system_prompt } => {
             assert!(system_prompt.contains("You maintain LEARNINGS.md"));
         }
         other => panic!("{other:?}"),

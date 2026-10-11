@@ -26,10 +26,15 @@
 //!   beside the server.
 //!
 //! The config overlay ([`openhuman_config`]) pins native tool calling, turns
-//! the autonomy policy on (access tiers are inert without it), sets up the
-//! research browser on the data volume, and limits browsing to
-//! `BROWSE_ALLOWED_DOMAINS` less X: the account reaches X through its own
-//! API, never a browser.
+//! the autonomy policy on (access tiers are inert without it), and, only
+//! with `BROWSER_RESEARCH` on, sets up the research browser on the data
+//! volume and limits it to `BROWSER_ALLOWED_HOSTS`. OpenHuman's browser
+//! checks every URL it opens, and every URL a page lands on, against
+//! `http_request.allowed_domains` (`modules::browser::BrowserClient::
+//! check_url`), and refuses everything with an empty list. A scheduled turn
+//! may only click and press on its own; typing, choosing and the
+//! autonomous task step, what a login or a post is made of, are never
+//! unattended ([`READ_ONLY_ACTIONS`]).
 //!
 //! **Memory.** Every agent shares one TinyMemory store: the dedicated
 //! CortexDB at `TEENY_MEMORY_URL`, installed as the runtime's memory engine
@@ -56,9 +61,13 @@ use teeny_core::config::{MemoryConfig, OpenHumanConfig};
 use tinymemory_integrations::cortex::{CortexCredential, CortexEngine};
 use tokio::sync::OnceCell;
 
-/// Hosts no browser turn may open, with their subdomains: X, and the
-/// shortener that redirects into it.
-pub const NEVER_BROWSED: [&str; 3] = ["x.com", "twitter.com", "t.co"];
+/// The gated browser actions a scheduled turn may take without an approval:
+/// the ones that read. Anything listed beyond these is dropped.
+pub const READ_ONLY_ACTIONS: [&str; 3] = ["click", "double_click", "press"];
+
+/// OpenHuman's switch that lets the browser open any host, the allow list
+/// notwithstanding. Set, the experiment stays off.
+const ALLOW_ALL: &str = "OPENHUMAN_BROWSER_ALLOW_ALL";
 
 /// The module id the browser loads from.
 const TINYCOMPUTER: &str = "tinycomputer";
@@ -72,7 +81,7 @@ pub struct RuntimeSettings {
     pub chrome_path: Option<String>,
     /// `BROWSE_UNATTENDED_ACTIONS`, as configured.
     pub unattended_actions: Vec<String>,
-    /// `BROWSE_ALLOWED_DOMAINS`, as configured; X is removed when applied.
+    /// `BROWSER_ALLOWED_HOSTS`, as configured; normalised when applied.
     pub allowed_domains: Vec<String>,
     /// `TINYCOMPUTER_MODULE_PATH`.
     pub tinycomputer_module: Option<PathBuf>,
@@ -80,6 +89,8 @@ pub struct RuntimeSettings {
     /// OpenHuman's default; a test points it at a stub so nothing leaves
     /// the machine.
     pub backend_url: Option<String>,
+    /// `BROWSER_RESEARCH`, effective: see [`browser_research`].
+    pub browser_research: bool,
     /// The shared memory.
     pub memory: MemorySettings,
 }
@@ -209,6 +220,7 @@ impl RuntimeSettings {
             allowed_domains: config.allowed_domains.clone(),
             tinycomputer_module: config.tinycomputer_module_path.as_ref().map(PathBuf::from),
             backend_url: None,
+            browser_research: browser_research(config),
             memory: MemorySettings::default(),
         }
     }
@@ -228,6 +240,25 @@ impl RuntimeSettings {
     pub fn workspace_dir(&self) -> PathBuf {
         self.data_dir.join("openhuman").join("workspace")
     }
+}
+
+/// Whether the browser experiment is on: `BROWSER_RESEARCH`, unless
+/// OpenHuman's allow-all switch is set in the environment, which would let
+/// the browser past the host list.
+pub fn browser_research(config: &OpenHumanConfig) -> bool {
+    if config.browser_research && browser_allow_all_set() {
+        tracing::error!(
+            "[runtime] {ALLOW_ALL} is set, which voids BROWSER_ALLOWED_HOSTS; the browser stays off"
+        );
+        return false;
+    }
+    config.browser_research
+}
+
+/// Whether OpenHuman's allow-all browser switch is on in this process.
+pub fn browser_allow_all_set() -> bool {
+    std::env::var(ALLOW_ALL)
+        .is_ok_and(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
 }
 
 /// The domain families the runtime registers. Agents can only narrow these.
@@ -297,7 +328,7 @@ pub fn openhuman_config(settings: &RuntimeSettings) -> OhConfig {
 
     let data = &settings.data_dir;
     let browser = &mut config.browser;
-    browser.enabled = true;
+    browser.enabled = settings.browser_research;
     browser.headless = true;
     browser.profile_mode = "persistent".into();
     browser.profile_path = Some(path_text(&data.join("chrome-profile")));
@@ -308,11 +339,18 @@ pub fn openhuman_config(settings: &RuntimeSettings) -> OhConfig {
         .unattended_actions
         .iter()
         .filter_map(|action| browser.unattended_kind(action))
+        .filter(|kind| READ_ONLY_ACTIONS.contains(kind))
         .map(str::to_owned)
         .collect();
     browser.unattended_actions = known;
 
-    config.http_request.allowed_domains = browsable_domains(&settings.allowed_domains);
+    // Never OpenHuman's default `["*"]`: off, the list is empty, which the
+    // browser reads as no host at all.
+    config.http_request.allowed_domains = if settings.browser_research {
+        browsable_domains(&settings.allowed_domains)
+    } else {
+        Vec::new()
+    };
 
     if let Some(path) = &settings.tinycomputer_module {
         config.modules.overrides.push(ModuleOverride {
@@ -323,25 +361,22 @@ pub fn openhuman_config(settings: &RuntimeSettings) -> OhConfig {
     config
 }
 
-/// `listed`, less anything that would open X: an entry naming X or one of
-/// its subdomains, and an entry broad enough to cover X (`*`, `com`), since
-/// OpenHuman matches an entry's subdomains too. Entries are trimmed,
-/// lowercased and stripped to their host.
+/// `listed` as hosts: trimmed, lowercased, stripped of scheme, path, port
+/// and `*.`, without duplicates, and less any entry that would open every
+/// host or a whole top-level domain (`*`, `com`), since OpenHuman matches
+/// an entry's subdomains too.
 pub fn browsable_domains(listed: &[String]) -> Vec<String> {
-    listed
-        .iter()
-        .filter_map(|entry| host_of(entry))
-        .filter(|host| {
-            let opens_x = host == "*"
-                || NEVER_BROWSED
-                    .iter()
-                    .any(|never| within(never, host) || within(host, never));
-            if opens_x {
-                tracing::warn!(entry = %host, "[runtime] dropped a browse domain that opens X");
-            }
-            !opens_x
-        })
-        .collect()
+    let mut hosts: Vec<String> = Vec::new();
+    for host in listed.iter().filter_map(|entry| host_of(entry)) {
+        if host == "*" || !host.contains('.') {
+            tracing::warn!(entry = %host, "[runtime] dropped a browse host that opens too much");
+            continue;
+        }
+        if !hosts.contains(&host) {
+            hosts.push(host);
+        }
+    }
+    hosts
 }
 
 /// The host an allow-list entry names: no scheme, path, port or `*.`.
@@ -354,11 +389,6 @@ fn host_of(entry: &str) -> Option<String> {
     let host = host.split(':').next().unwrap_or_default();
     let host = host.trim_start_matches("*.").trim_matches('.');
     (!host.is_empty()).then(|| host.to_owned())
-}
-
-/// Whether `host` is `domain` or one of its subdomains.
-fn within(host: &str, domain: &str) -> bool {
-    host == domain || host.ends_with(&format!(".{domain}"))
 }
 
 fn path_text(path: &Path) -> String {

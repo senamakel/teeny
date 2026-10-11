@@ -29,6 +29,7 @@ fn the_hosts_captures_land_at_the_shared_root_and_are_recalled_from_it() {
         tinycomputer_module: None,
         // Nothing leaves the machine.
         backend_url: Some("http://127.0.0.1:9".into()),
+        browser_research: false,
         memory: MemorySettings {
             engine: Some(HostEngine(engine.clone())),
             ..MemorySettings::default()

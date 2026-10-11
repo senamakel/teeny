@@ -417,3 +417,116 @@ fn a_public_turn_runs_only_on_a_public_agent() {
     });
     assert!(matches!(room, Err(RunError::Failed(_))), "{room:?}");
 }
+
+#[test]
+fn a_learner_turn_runs_on_the_learner_with_its_instructions() {
+    let ledger = Arc::new(InMemoryLedger::default());
+    let runner = runner(&ledger);
+    let outcome = testkit::run(async move {
+        runner
+            .run(turn(
+                AgentKey::Learner {
+                    system_prompt: "LEARNER-RUNNER-INSTRUCTIONS".into(),
+                },
+                Origin::Scheduled { once: true },
+                "write the brief (learner runner)",
+                "learnings",
+            ))
+            .await
+    })
+    .expect("the learner runs");
+    assert_eq!(outcome.reply, FINAL_REPLY);
+    let request = testkit::run(async {
+        chat_requests(&booted().server)
+            .await
+            .into_iter()
+            .find(|request| testkit::asks(request, "(learner runner)"))
+            .unwrap()
+    });
+    assert!(testkit::system_prompt(&request).contains("LEARNER-RUNNER-INSTRUCTIONS"));
+    let public = testkit::run(async move {
+        OhRunner::new(Arc::clone(&booted().agents))
+            .run(turn(
+                AgentKey::Learner {
+                    system_prompt: "x".into(),
+                },
+                Origin::Public,
+                "hi",
+                "probe",
+            ))
+            .await
+    });
+    assert!(matches!(public, Err(RunError::Failed(_))), "{public:?}");
+}
+
+/// The experiment is judged from the record: a browser call on a room is
+/// in the turn's tool calls, and in the ledger by name under the run's label.
+#[test]
+fn a_browser_call_is_recorded_and_attributed_in_the_ledger() {
+    let ledger = Arc::new(InMemoryLedger::default());
+    let runner = runner(&ledger);
+    let (outcome, rows) = testkit::run({
+        let ledger = Arc::clone(&ledger);
+        async move {
+            let outcome = runner
+                .run(turn(
+                    AgentKey::Room {
+                        persona: "researcher-probe".into(),
+                        system_prompt: "You read pages.".into(),
+                    },
+                    Origin::Scheduled { once: true },
+                    &(call(
+                        "browser",
+                        json!({"action": "open", "url": "https://dexscreener.com"}),
+                    ) + " (browser ledger)"),
+                    "morning.research",
+                ))
+                .await
+                .expect("the turn runs");
+            (outcome, rows(&ledger).await)
+        }
+    });
+    assert!(
+        outcome.tool_calls.iter().any(|call| call.name == "browser"),
+        "{:?}",
+        outcome.tool_calls
+    );
+    assert!(rows.iter().all(|row| row.source == "morning.research"));
+    let messages: Vec<_> = rows
+        .iter()
+        .flat_map(|row| row.input.clone().unwrap_or_default())
+        .collect();
+    let browser: Vec<_> = messages
+        .iter()
+        .filter(|m| {
+            m.role == teeny_store::inference::Role::Tool && m.tool.as_deref() == Some("browser")
+        })
+        .collect();
+    assert!(
+        !browser.is_empty(),
+        "the browser call is named: {messages:?}"
+    );
+    assert!(
+        browser
+            .iter()
+            .any(|m| m.text.contains("https://dexscreener.com")),
+        "what it opened is visible: {browser:?}"
+    );
+}
+
+#[test]
+fn ledger_messages_name_each_tool_result_and_show_each_call() {
+    let input = json!([
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "go"},
+        {"role": "assistant", "content": null, "tool_calls": [
+            {"id": "c1", "type": "function", "function": {"name": "browser", "arguments": "{\"url\":\"https://x.com\"}"}}
+        ]},
+        {"role": "tool", "tool_call_id": "c1", "content": "page text"},
+    ]);
+    let messages = ledger_messages(&input);
+    assert_eq!(messages.len(), 3, "no system prompt");
+    assert!(messages[1].text.contains("browser") && messages[1].text.contains("https://x.com"));
+    assert_eq!(messages[2].tool.as_deref(), Some("browser"));
+    assert_eq!(messages[2].text, "page text");
+}

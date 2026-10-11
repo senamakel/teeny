@@ -126,6 +126,39 @@ The legacy service's `NODE_OPTIONS=--dns-result-order=ipv4first` is gone with
 Node; the same problem (api.telegram.org's AAAA record, no v6 route) is
 handled by disabling IPv6 inside the bot's container (`sysctls`).
 
+### The browser experiment
+
+Off by default. To try it, in the bot's `.env`:
+
+```sh
+BROWSER_RESEARCH=true
+# optional; unset is the default news/research set plus x.com, dexscreener.com, coingecko.com
+BROWSER_ALLOWED_HOSTS=reuters.com,techcrunch.com,coindesk.com,arxiv.org,x.com,dexscreener.com
+```
+
+then recreate the bot (`docker compose -f compose.prod.yaml up -d bot`). Who
+browses: the backrooms room agents, and `teeny-room-researcher`, which reads
+the morning post's chosen article and the lore seed's page. Never reply,
+chat, the learner, the operator, the chart agent or the drafter. Turning it
+off again is the same variable and a recreate; nothing else changes.
+
+What to watch:
+
+- `GET /health`: `browser.research` true, `browser.configured` true (the
+  module is in the image), `browser.allowedHosts` the list in force.
+- `GET /ledger` (and `/mind`): rows with source `morning.research` and
+  `lore.research`, and backrooms rows, carry each tool call by name; a
+  `browser` row shows what was opened and what came back or failed.
+- The log: `[oh_runner] tool calls` lines name the label, the agent and the
+  tools of every turn; `research: read` gives the URL, how many browser
+  calls it took and how much came back. `research: the browser turn failed`
+  means the morning fell back to Exa and the lore seed went as it was.
+- Cost and time: each reading is a full agent turn (up to the runner's ten
+  minutes), on top of the post's own model calls. A morning that starts
+  arriving late, or ledger spend on `*.research` out of proportion with what
+  the post gained, is the reason to turn it off.
+- `/data/chrome-profile` should never hold a login: nothing types unattended.
+
 ## Moving to the Rust bot
 
 Three steps, each reversible: a shadow run, the cutover, and the clean-up.

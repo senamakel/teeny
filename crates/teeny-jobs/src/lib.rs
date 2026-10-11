@@ -27,6 +27,7 @@ pub mod narrative;
 pub mod oh_runner;
 pub mod quote;
 pub mod reply;
+pub mod research;
 pub mod runner;
 pub mod slot;
 pub mod turn_context;

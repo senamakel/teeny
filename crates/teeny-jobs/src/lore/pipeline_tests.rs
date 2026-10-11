@@ -15,6 +15,7 @@ use crate::backrooms::{BackroomsRun, RunResult, SeedKind};
 
 pub(crate) fn seed() -> Seed {
     Seed {
+        url: None,
         kind: SeedKind::News,
         title: Some("AI agents now file taxes".into()),
         text: "A startup says its agents filed a return unsupervised.".into(),
