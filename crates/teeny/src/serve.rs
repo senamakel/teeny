@@ -5,8 +5,9 @@
 //! ([`schedule::for_role`]); the App is built (Mongo, the clients, the
 //! OpenHuman runtime and every agent); the port is bound, so a clash fails
 //! before anything is scheduled; the rota is installed on OpenHuman's cron
-//! (every handler, then every job) and only then is cron started;
-//! the reply worker (`REPLY_MODE=worker`), the activity stream and Telegram
+//! (every handler, then every job) and only then is cron started; the
+//! store's health is read once (and then hourly, on cron), and the first
+//! learnings brief is written when there is none yet; the reply worker (`REPLY_MODE=worker`), the activity stream and Telegram
 //! start for the roles that own them; the HTTP server takes requests.
 //!
 //! On shutdown: the cron scheduler and the runtime's services stop, then
@@ -132,6 +133,8 @@ pub async fn serve(config: Config, dry_run: bool) -> anyhow::Result<()> {
     for job in &jobs {
         tracing::info!(job = job.name, schedule = ?job.schedule, "cron: scheduled");
     }
+    log_slots(&app.ctx, &jobs);
+    at_boot(&app.ctx, &jobs);
 
     let worker = (runs_replies(role) && config.reply.mode == ReplyMode::Worker)
         .then(|| ReplyWorker::for_replies(Arc::clone(&app.ctx)).start());
@@ -188,6 +191,49 @@ pub async fn serve(config: Config, dry_run: bool) -> anyhow::Result<()> {
         after_server,
     )
     .await
+}
+
+/// Who owns each day of the two rota slots, for the startup log.
+fn log_slots(ctx: &teeny_jobs::ctx::JobCtx, jobs: &[schedule::JobDef]) {
+    let scheduled = |work: &schedule::Work| jobs.iter().any(|job| &job.work == work);
+    if scheduled(&schedule::Work::Afternoon) {
+        match teeny_jobs::afternoon::describe(ctx) {
+            Ok(owners) => tracing::info!(
+                cron = ctx.config.rota.afternoon_cron,
+                owners,
+                "slot: afternoon"
+            ),
+            Err(error) => tracing::warn!(%error, "slot: the afternoon rota cannot be read"),
+        }
+    }
+    if scheduled(&schedule::Work::Evening) {
+        match teeny_jobs::evening::describe(ctx) {
+            Ok(owners) => {
+                tracing::info!(cron = ctx.config.rota.evening_cron, owners, "slot: evening")
+            }
+            Err(error) => tracing::warn!(%error, "slot: the evening rota cannot be read"),
+        }
+    }
+}
+
+/// What does not wait for its cron: the store's health, read at boot so an
+/// embedding outage is in the log from the first minute, and the first
+/// learnings brief, which should not wait for tomorrow's five o'clock. Both
+/// in the background; neither can stop the service starting.
+fn at_boot(ctx: &Arc<teeny_jobs::ctx::JobCtx>, jobs: &[schedule::JobDef]) {
+    let api_url = ctx.config.cortex.api_url.clone();
+    tokio::spawn(async move {
+        teeny_memory::health::report_cortex_health(&api_url).await;
+    });
+    let writes_learnings = jobs.iter().any(|job| job.work == schedule::Work::Learnings);
+    if writes_learnings && teeny_jobs::learnings::needs_first_brief(ctx) {
+        let ctx = Arc::clone(ctx);
+        tokio::spawn(async move {
+            if let Err(error) = teeny_jobs::learnings::run(&ctx).await {
+                tracing::warn!(error = %format!("{error:#}"), "learnings: the first brief could not be written");
+            }
+        });
+    }
 }
 
 /// Everything the routes reach.

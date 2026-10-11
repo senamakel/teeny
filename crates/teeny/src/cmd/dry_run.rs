@@ -29,9 +29,9 @@ use crate::app::App;
 pub enum DryRunJob {
     /// The good-morning post: reads, draws, films, captions.
     Morning,
-    /// Today's afternoon slot (moon, chart or lore, by the rota).
+    /// Today's afternoon slot (the chart, the moon chart or lore, by the rota).
     Afternoon,
-    /// Today's evening slot (the serial, an article or lore, by the rota).
+    /// Today's evening slot (an article, the serial or the quote, by the rota).
     Evening,
     /// The moon chart: read the board, draw, caption.
     Moon,
