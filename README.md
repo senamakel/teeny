@@ -39,7 +39,8 @@ crates/
   teeny-core          config (the legacy env surface, typed), shared types, errors
   teeny-store         Mongo repositories and file-state cursors
   teeny-x             X API client, X tools, the Publisher guard
-  teeny-memory        CortexDB client, recall_memory / remember tools
+  teeny-memory        the shared memory (TinyMemory), the legacy CortexDB client
+                      and import, recall_memory / remember tools
   teeny-market        market data, technical analysis, market tools
   teeny-media         GIFs, vision, image/video generation, chart rendering
   teeny-safety        lexicon, link allowlist, LLM judge, holds, house style
@@ -68,11 +69,21 @@ After bumping `vendor/openhuman`, re-check the root `[patch]` tables against
 **Which OpenHuman.** The submodule pins branch `teeny-vendor` of the fork
 `senamakel/openhuman`: upstream `tinyhumansai/openhuman` `main` plus the vendor
 patches Teeny still needs, each on its own `embed-<topic>` branch off upstream
-`main` with an upstream PR open. Today that is one:
+`main` with an upstream PR open:
 
 | Patch | Why Teeny needs it | Upstream PR |
 |---|---|---|
-| `embed-defer-services`: `RuntimeBuilder::defer_services` | `teeny serve` registers its cron system-job handlers and upserts the rota before the scheduler starts; without it a job already due at boot is recorded `ok` without running | [#7477](https://github.com/tinyhumansai/openhuman/pull/7477) |
+| `embed-defer-services`: `RuntimeBuilder::defer_services` | `teeny serve` registers its cron system-job handlers and upserts the rota before the scheduler starts; without it a job already due at boot is recorded `ok` without running | [#7477](https://github.com/tinyhumansai/openhuman/pull/7477) (merged) |
+| `embed-memory-store`: `memory::Memory::store` and `memory::Memory::search` | the account files its own captures (mentions, replies, chat, posts) in the shared memory as conversations and documents with their labels, key and person, and reads back only the labels it recalls from; the facade could only `learn` | [#7486](https://github.com/tinyhumansai/openhuman/pull/7486) |
+
+**Memory.** Every agent shares one memory: OpenHuman's TinyMemory, on a
+CortexDB of the bot's own (`TEENY_MEMORY_URL`, `TEENY_MEMORY_TOKEN`), every
+agent bound to the root `TEENY_MEMORY_ROOT` (`team:teeny`) with its own turns
+at its node below. The account's captures and recalls go through the same
+root (`teeny_memory::TinyMemory`, over `teeny_agent::shared_memory`), with
+the legacy labels, keys, person and recall breaker. `teeny memory import`
+copies the TypeScript service's CortexDB scope in; `deploy/README.md`, "The
+shared memory", has the store, the import and when to run it.
 
 `.gitmodules` points at the fork because the pinned SHA only exists there.
 Point it back at `tinyhumansai/openhuman` once every patch has merged and

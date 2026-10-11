@@ -156,7 +156,7 @@ else
   [ -f .env ] || die ".env is missing. Copy .env.example and fill it in (the X and agent credentials)."
 fi
 
-for required in MONGO_ROOT_PASSWORD CORTEX_API_KEY LADDER_API_KEY OPENCOMPANY_IMAGE BRAIN_ADMIN_EMAIL; do
+for required in MONGO_ROOT_PASSWORD CORTEX_API_KEY TEENY_CORTEX_API_KEY LADDER_API_KEY OPENCOMPANY_IMAGE BRAIN_ADMIN_EMAIL; do
   [ -n "$(cfg "$required" deploy/.env)" ] || die "$required is empty in deploy/.env"
 done
 BRAIN_DIR="$(cfg BRAIN_DIR deploy/.env)"; BRAIN_DIR="${BRAIN_DIR:-/home/droid/brain}"

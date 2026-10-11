@@ -6,9 +6,11 @@
 #
 # The stack: the agent in one container -- X ingest, the webhook, the reply
 # worker, the scheduled posts, Telegram and /agent/run, one Rust process on
-# the OpenHuman harness -- over a Mongo mention cache, plus the landing page. CortexDB
-# for long-term memory is shared and lives outside this file, and the ladder
-# is a container this project does not own. Neither is on this network:
+# the OpenHuman harness -- over a Mongo mention cache, plus the landing page.
+# Its memory is `teeny-cortexdb`, a CortexDB of its own that every agent shares
+# through OpenHuman's TinyMemory. The legacy service's memory, the shared
+# CortexDB, lives outside this file (`teeny memory import` copies it across),
+# and the ladder is a container this project does not own. Neither is on this network:
 # both publish on the host's docker0 address (172.17.0.1, what compose calls
 # `host-gateway`), and `extra_hosts` below pins `ladder` and `cortexdb` to it,
 # so the names resolve from /etc/hosts and survive either container being
@@ -54,6 +56,13 @@ services:
     # containers through extra_hosts -- and none is published where a browser
     # could get to it.
     environment:
+      # The shared memory every agent reads and writes: this stack's own
+      # CortexDB, over the compose network. OpenHuman's engine refuses
+      # cleartext to anything but loopback, so the bot relays to it from
+      # 127.0.0.1 inside its own container (teeny-agent memory_relay.rs).
+      TEENY_MEMORY_URL: http://teeny-cortexdb:3141
+      TEENY_MEMORY_TOKEN: ${TEENY_CORTEX_API_KEY:?set TEENY_CORTEX_API_KEY in deploy/.env}
+      # The legacy store: only `teeny memory import` reads it.
       CORTEX_API_URL: http://cortexdb:3141
       LLM_BASE_URL: ${LADDER_URL:-http://ladder:6969/v1}
       LLM_API_KEY: ${LADDER_API_KEY:?set LADDER_API_KEY in deploy/.env}
@@ -109,6 +118,11 @@ services:
     depends_on:
       mongo:
         condition: service_healthy
+      # Started, not healthy: the bot boots without its memory and says so
+      # (MEMORY WAS UNAVAILABLE in a turn, the hourly health line), rather
+      # than sitting in Created while the store warms up.
+      teeny-cortexdb:
+        condition: service_started
     healthcheck:
       test: ["CMD", "teeny", "healthcheck"]
       interval: 15s
@@ -279,6 +293,72 @@ services:
       opencompany:
         condition: service_started
 
+  # The Rust bot's memory: a CortexDB of its own, the one store every Teeny
+  # agent shares through OpenHuman's TinyMemory (deploy/README.md, "The
+  # shared memory"). Not the legacy store: that is the shared `cortex`
+  # container (below, and outside this file), which `teeny memory import`
+  # reads from. Mirrors `cortexdb` below, less the document pipeline (nothing
+  # here ingests files, so no tika), always up, and on this stack's network
+  # only: the bot reaches it by name, and the loopback port is for an
+  # operator on the box.
+  teeny-cortexdb:
+    image: ${TEENY_CORTEX_IMAGE:-cortexdb/cortexdb:latest}
+    restart: unless-stopped
+    environment:
+      CORTEX_DEPLOYMENT_PRESET: on_prem_enterprise
+      CORTEX_API_KEY: ${TEENY_CORTEX_API_KEY:?set TEENY_CORTEX_API_KEY in deploy/.env}
+      CORTEX_BIND_ALL: "1"
+      CORTEX_V1_MINTER_ENABLE: "1"
+      CORTEX_V1_LAYERS_AUTO: "1"
+
+      CORTEX_LLM_URL: ${LADDER_URL:-http://ladder:6969/v1}
+      CORTEX_LLM_MODEL: ${CORTEX_LLM_MODEL:-flash}
+      OPENAI_API_KEY: ${LADDER_API_KEY}
+      LLM_API_KEY: ${LADDER_API_KEY}
+
+      # Pinned on first ingest and irreversible after it. robot1 has no
+      # Venice key, so the fleet's `vectors` tier (BGE-M3) does not embed
+      # there; `vectors-oai3` (Surplus) is what the shared store was moved to
+      # on 2026-10-05. Check the dimension against the tier before the first
+      # import: changing either later orphans the corpus.
+      CORTEX_EMBEDDING_PROVIDER: ""
+      CORTEX_EMBEDDING_URL: ${LADDER_URL:-http://ladder:6969/v1}
+      CORTEX_EMBEDDING_MODEL: ${TEENY_CORTEX_EMBEDDING_MODEL:-vectors-oai3}
+      CORTEX_EMBEDDING_DIMS: ${TEENY_CORTEX_EMBEDDING_DIMS:-3072}
+
+      CORTEX_ENRICHMENT_URL: ${LADDER_URL:-http://ladder:6969/v1}
+      CORTEX_ENRICHMENT_MODEL: ${CORTEX_ENRICHMENT_MODEL:-flash}
+      CORTEX_ENRICHMENT_API_KEY: ${LADDER_API_KEY}
+      CORTEX_ENRICHMENT_CONCURRENCY: "2"
+      CORTEX_ENRICHMENT_DELAY_SECONDS: "60"
+
+      CORTEX_ANSWER_PROVIDER: openai
+      CORTEX_ANSWER_URL: ${LADDER_URL:-http://ladder:6969/v1}
+      CORTEX_ANSWER_MODEL: ${CORTEX_ANSWER_MODEL:-reasoning}
+      CORTEX_ANSWER_API_KEY: ${LADDER_API_KEY}
+      CORTEX_ANSWER_MAX_TOKENS: "1500"
+      CORTEX_VERIFIER_URL: ${LADDER_URL:-http://ladder:6969/v1}
+      CORTEX_VERIFIER_MODEL: ${CORTEX_VERIFIER_MODEL:-reasoning}
+      CORTEX_VERIFIER_API_KEY: ${LADDER_API_KEY}
+
+      CORTEX_ENTITY_GRAPH: "1"
+      CORTEX_ENTITY_GROUNDING: "1"
+      CORTEX_FACT_JOIN_MULTIHOP: "1"
+      CORTEX_BITEMPORAL_MODE: enforce
+      CORTEX_HYBRID_RERANK: "1"
+    extra_hosts:
+      - "${LADDER:-ladder}:host-gateway"
+    volumes:
+      - teeny-cortexdb-data:/data
+    ports:
+      - "127.0.0.1:${TEENY_CORTEX_PORT:-3143}:3141"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3141/v1/admin/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
   # Long-term memory. Every model call it makes goes to the same ladder the
   # agent uses, so there is one egress path and one set of provider keys on the
   # box rather than a second copy living inside a database.
@@ -405,3 +485,7 @@ volumes:
   # cron jobs.db live here).
   bot-data:
   cortexdb-data:
+  # The shared memory every Teeny agent reads and writes (teeny-cortexdb).
+  # Not derived data once the bot is live: it holds everything the account
+  # remembered since the import. Migrate it, never recreate it.
+  teeny-cortexdb-data:

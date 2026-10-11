@@ -46,7 +46,8 @@ the legacy service's checks run in CI, from `legacy/`.
 | `teeny-bot-1`      | the agent (Rust, the root `Dockerfile`): X ingest, the webhook, `/agent/run`, replies, the scheduled posts, Telegram, the browser | `127.0.0.1:3110`  |
 | `teeny-legacy-bot-1` | the TypeScript agent it replaces, `legacy` profile only: the shadow run and the rollback | `127.0.0.1:3111`  |
 | `teeny-web-1`      | the landing page, teeny.enamakel.com       | `127.0.0.1:3120`  |
-| `cortex`           | long-term memory, **not this stack's**: the shared CortexDB, reached as `cortexdb` | `127.0.0.1:3141`, `172.17.0.1:3141` |
+| `teeny-teeny-cortexdb-1` | the Rust bot's memory: its own CortexDB, the one TinyMemory store every agent shares ("The shared memory" below) | `127.0.0.1:3143` |
+| `cortex`           | the legacy service's memory, **not this stack's**: the shared CortexDB, reached as `cortexdb`; the Rust bot only imports from it | `127.0.0.1:3141`, `172.17.0.1:3141` |
 | `teeny-mongo-1`    | the mention queue                          | `127.0.0.1:27020` |
 | `ladder`           | the model endpoint, owned by no project    | `127.0.0.1:6969`, `172.17.0.1:6969` |
 | `teeny-opencompany-1` | the brain: the OpenCompany host + console over the public brain checkout | `127.0.0.1:3130` |
@@ -159,6 +160,19 @@ on the same `bot-data` volume and the Rust bot on the shadow volume, and
 gates on both answering. The Rust bot's ingest reads X on its own, so the
 shadow run pays for every X read twice: keep it to the days it takes.
 
+The shadow bot remembers under a root of its own in `teeny-cortexdb`
+(`TEENY_MEMORY_ROOT=team:teeny-shadow`, from `compose.shadow.yaml`), so its
+dry-run captures never reach the root the live bot will use. Give it the
+account's memory before judging its drafts: import the legacy store into
+that root, once the stack is up, and again whenever its recall looks stale:
+
+```sh
+ssh droid@174.138.35.76 'docker exec -u teeny teeny-bot-1 teeny memory import --dry-run'
+ssh droid@174.138.35.76 'docker exec -u teeny teeny-bot-1 teeny memory import'
+```
+
+"The shared memory" below has what the import carries and how it resumes.
+
 Diff the drafts against what legacy did with the same input:
 
 ```sh
@@ -194,6 +208,23 @@ port, and proves it healthy and able to reach the ladder. The account is
 quiet only between the stop and the health check. Browser logins made during
 the shadow run are on `bot-shadow-data`; copy its `chrome-profile/` across
 with a throwaway container if they are worth keeping.
+
+Then import the legacy store again, now into the live root (`team:teeny`,
+the bot's own environment): the legacy service has stopped writing, so
+this copy is the whole of it.
+
+```sh
+ssh droid@174.138.35.76 'docker exec -u teeny teeny-bot-1 teeny memory import'
+```
+
+To have most of it in place already, run the same import into the live
+root a day or so before the cutover, from the shadow container
+(`docker exec -u teeny -e TEENY_MEMORY_ROOT=team:teeny teeny-bot-1 teeny
+memory import`). The run at the cutover then stores only what legacy wrote
+since; it still reads the whole scope, because its cursor file is on the
+live volume and the earlier one was on the shadow's, and everything already
+stored is a replay. Until it finishes, recall in the live bot comes back
+thin, not wrong.
 
 ### Rolling back
 
@@ -377,9 +408,68 @@ The page reads its live reflection feed from `MIND_FEED_URL` (deploy/.env)
 and shows labelled samples while that is unset. A bad site build never fails
 the agent's deploy: the health step reports the page rather than gating on it.
 
+## The shared memory
+
+The Rust bot remembers in one TinyMemory store that every agent shares
+through OpenHuman: `teeny-cortexdb`, a CortexDB of this stack's own, its data
+in the `teeny-cortexdb-data` volume (migrate it, never recreate it). The
+runtime installs it as OpenHuman's memory engine; every agent is bound to the
+root `TEENY_MEMORY_ROOT` (`team:teeny`), so the learnings and beliefs there
+are shared, each agent's own turns are logged at its node below it, and what
+the account captures itself (mentions, replies, chat, its posts, notes) is
+stored at the root with the labels, keys and person it always had.
+
+- **Reaching it.** The bot gets `TEENY_MEMORY_URL=http://teeny-cortexdb:3141`
+  and `TEENY_MEMORY_TOKEN=$TEENY_CORTEX_API_KEY` from compose; the key lives
+  only in `deploy/.env`, and `deploy.sh` refuses to deploy without it.
+  OpenHuman's engine sends that key only over HTTPS or to loopback, so the bot
+  relays to the store from `127.0.0.1` inside its own container: the key goes
+  over the stack's private network, as the legacy key always has. An
+  operator on the box reaches the store on `127.0.0.1:3143`.
+- **Health.** `teeny_cortex_health` (hourly, and at boot) reads this store's
+  `/v1/admin/ready` now, not the legacy one's.
+- **Embeddings.** Pinned on the first ingest like the legacy store's:
+  `TEENY_CORTEX_EMBEDDING_MODEL` (default `vectors-oai3`, the Surplus tier
+  robot1 can reach) and `TEENY_CORTEX_EMBEDDING_DIMS` (default 3072). Check
+  the dimension the tier returns before the first import; changing either
+  afterwards orphans everything stored.
+- **Off.** Without `TEENY_MEMORY_TOKEN` memory is off: every recall reads as
+  unavailable and nothing is captured, and the bot still runs.
+
+### Importing the legacy memory
+
+```sh
+teeny memory import [--dry-run] [--since <date|timestamp>] [--cursor <file>]
+```
+
+It reads the legacy scope (`CORTEX_API_URL`, `CORTEX_SCOPE`, as
+`CORTEX_ACTOR` with `CORTEX_TOKEN`) through the one listing that store always
+answered fast: `GET /v1/events` with `view=local` and the label filter
+`x,telegram` (every capture the account made carries one), 200 a page, never
+a recall, a heavy view or a person filter (see the quirks in "The memory tier
+is external" below). Each request has a 30-second deadline and is retried
+four times with doubling backoff on a timeout, a 429 or a 5xx; the writes go
+two at a time.
+
+Every event is turned back into the capture it came from and stored exactly
+as the bot stores a live one: its text (a message) or JSON (an activity), its
+labels as tags, its time, its person, and its idempotency key
+(`x:<kind>:2:<id>`, or `cortex:<event id>` when the listing does not carry
+one). TinyMemory derives an item's identity from that, so a rerun stores
+nothing twice, and neither does a mention the bot already captured itself.
+`--since` leaves out what was observed before it; `--dry-run` reads and
+counts everything and writes nothing.
+
+The cursor file (`/data/state/memory-import-<root>.json` by default) records
+the listing's next page after every page, so an import that stops goes on
+from there when run again; a finished run records the newest event it read,
+and the next run stops when it reaches it. The report counts what was read,
+stored, already there and skipped, per kind (`mention`, `reply`, `message`,
+and each activity's own kind: `chart_post`, `like`, ...).
+
 ## The memory tier is external
 
-Teeny's memory lives in the shared CortexDB on the box: the container named
+The legacy service's memory lives in the shared CortexDB on the box: the container named
 `cortex`, published on `127.0.0.1:3141` and `172.17.0.1:3141`, with its data
 in the `cortex-data` volume. It is nobody's compose project here and it is
 not this stack's to start or stop. The agent reaches it as
@@ -461,7 +551,8 @@ local file can never wipe a working one on the box.
 `CORTEX_API_KEY` (deploy/.env) and `CORTEX_TOKEN` (.env) are the same secret
 from two sides — the service's own key, and the client's copy of it. They are
 checked against each other before every deploy, because a mismatch fails at the
-first recall rather than at boot.
+first recall rather than at boot. `TEENY_CORTEX_API_KEY` (deploy/.env) is the
+Rust bot's own store's key, and only there: compose hands it to the bot.
 
 `CORTEX_ACTOR` and `CORTEX_SCOPE` are `agent:tiny-x-bot` and must stay that
 way: everything Tiny remembers is filed under that scope, and changing it does

@@ -24,6 +24,10 @@ services:
       # live database that would hide mentions from the legacy service.
       MONGO_URI: mongodb://${MONGO_ROOT_USERNAME:-teeny}:${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD}@mongo:27017/${SHADOW_MONGO_DATABASE:-teeny_shadow}?authSource=admin
       MONGO_DATABASE: ${SHADOW_MONGO_DATABASE:-teeny_shadow}
+      # Its own memory root in teeny-cortexdb: the shadow's dry-run captures
+      # and its agents' turns stay out of the root the live bot will use.
+      # Import into it before the shadow run (deploy/README.md).
+      TEENY_MEMORY_ROOT: ${SHADOW_MEMORY_ROOT:-team:teeny-shadow}
     volumes:
       # Same target as compose.prod.yaml's bot-data:/data, so it replaces it:
       # the live volume stays legacy's alone.
