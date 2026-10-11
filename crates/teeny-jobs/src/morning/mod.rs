@@ -34,8 +34,9 @@ use teeny_store::journal::{Outcome, Tone, ToolCall, Trigger};
 
 use crate::ctx::{JobCtx, JobReport};
 use crate::journal_glue::record_quietly;
+use crate::research::{BrowserResearch, BrowsingNews};
 use job::{Gates, admit, day_id, journal_failure, roll};
-use news::ExaNewsSource;
+use news::{ExaNewsSource, NewsSource};
 use pipeline::{Mode, MorningPipeline, MorningResult, Reference};
 use post::XOwnPoster;
 use prompts::with_skills;
@@ -68,8 +69,19 @@ pub fn build(ctx: &JobCtx) -> Result<MorningPipeline> {
             ctx.now(),
         )) as Arc<dyn TimelineSource>
     });
+    let exa: Arc<dyn NewsSource> = Arc::new(ExaNewsSource::new(exa));
+    // The browser experiment: the article behind the pick is read in the
+    // browser, Exa when it gets nothing.
+    let news: Arc<dyn NewsSource> = if ctx.config.openhuman.browser_research {
+        Arc::new(BrowsingNews {
+            inner: exa,
+            research: BrowserResearch::new(Arc::clone(&ctx.runner), "morning.research"),
+        })
+    } else {
+        exa
+    };
     Ok(MorningPipeline {
-        news: Arc::new(ExaNewsSource::new(exa)),
+        news,
         timeline,
         timeline_queries: parse_timeline_queries(&morning.x_queries),
         timeline_hours: morning.x_hours,

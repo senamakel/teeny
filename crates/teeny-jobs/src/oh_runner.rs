@@ -1,8 +1,11 @@
 //! [`AgentRunner`] over the embedded OpenHuman agents.
 //!
-//! - **Who**: [`AgentKey::Belt`] is that belt's agent; [`AgentKey::Room`] is
-//!   the persona's own agent, registered on first use
-//!   ([`TeenyAgents::room`]).
+//! - **Who**: [`AgentKey::Belt`] is that belt's agent, its system prompt
+//!   rendered again for the turn (so the learnings brief is the current
+//!   one); [`AgentKey::Room`] is the persona's own agent, registered on
+//!   first use ([`TeenyAgents::room`]); [`AgentKey::Learner`] is
+//!   `teeny-learner`, speaking with the turn's instructions
+//!   ([`TeenyAgents::learner`]).
 //! - **With what authority** ([`turn_origin`]): a public turn runs as the
 //!   `public` external channel (`specs::public_origin`), and only on
 //!   `teeny-reply` or `teeny-chat`, whose access refuses a write at once (a
@@ -29,7 +32,11 @@
 //!   progress channel drained beside the turn, every tool call and every
 //!   model call. Each model call is one inference-ledger row (the legacy
 //!   row shape, lane `mascot`, source the run's label); a turn that reported
-//!   no model call but did report usage gets one row for the turn.
+//!   no model call but did report usage gets one row for the turn. In a
+//!   row, every tool call the model made and every result it was handed
+//!   carries the tool's name, so a `browser` call is attributable to the
+//!   run that made it; each finished turn's tool calls are also logged by
+//!   name under its label and agent.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -105,6 +112,10 @@ impl OhRunner {
                 .agents
                 .room(persona, system_prompt)
                 .map_err(|error| RunError::Failed(error.to_string())),
+            AgentKey::Learner { system_prompt } => self
+                .agents
+                .learner(system_prompt)
+                .map_err(|error| RunError::Failed(error.to_string())),
         }
     }
 
@@ -158,6 +169,14 @@ impl OhRunner {
             })
         });
         let model = progress.model().or_else(|| run.model.clone());
+        let tools: Vec<&str> = progress
+            .calls
+            .iter()
+            .map(|call| call.name.as_str())
+            .collect();
+        if !tools.is_empty() {
+            tracing::info!(label = %run.label, agent = agent.id(), ?tools, "[oh_runner] tool calls");
+        }
         self.record(run, &progress, Some(&outcome.reply), usage, started)
             .await;
         Ok(AgentOutcome {
@@ -198,7 +217,9 @@ impl OhRunner {
                 run.model.as_deref().unwrap_or("agent"),
                 tokens(usage),
             );
-            row.input = Some(prompt);
+            let mut messages = prompt;
+            messages.extend(tool_messages(&progress.calls));
+            row.input = Some(messages);
             row.output = reply.map(|reply| cut(reply, MAX_MESSAGE_CHARS));
             row.duration_ms = Some(millis(started.elapsed()));
             record_quietly(Some(ledger.as_ref()), row).await;
@@ -212,7 +233,16 @@ impl OhRunner {
                     .as_ref()
                     .map(ledger_messages)
                     .filter(|messages| !messages.is_empty())
-                    .unwrap_or_else(|| prompt.clone()),
+                    .unwrap_or_else(|| {
+                        // Content not captured: the last row carries the
+                        // turn's tool calls, so each is still on the record
+                        // under the run's label, by name.
+                        let mut messages = prompt.clone();
+                        if index == last {
+                            messages.extend(tool_messages(&progress.calls));
+                        }
+                        messages
+                    }),
             );
             row.output = call
                 .output
@@ -428,8 +458,33 @@ fn millis(elapsed: Duration) -> i64 {
     i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX)
 }
 
-/// Captured request messages as ledger messages: no system prompt, the tail.
+/// A turn's tool calls as ledger messages: one `tool` message each, named,
+/// with the arguments and what came back (or the failure).
+fn tool_messages(calls: &[ToolCallRecord]) -> Vec<LedgerMessage> {
+    calls
+        .iter()
+        .map(|call| {
+            let outcome = if call.is_error { "failed" } else { "returned" };
+            LedgerMessage {
+                role: Role::Tool,
+                tool: Some(call.name.clone()),
+                text: cut(
+                    &format!(
+                        "{} {} {outcome}: {}",
+                        call.name, call.arguments, call.result
+                    ),
+                    MAX_MESSAGE_CHARS,
+                ),
+            }
+        })
+        .collect()
+}
+
+/// Captured request messages as ledger messages: no system prompt, the
+/// tail. An assistant message that called tools shows the calls and names
+/// them; a tool result names the tool it answers, matched by call id.
 fn ledger_messages(input: &Value) -> Vec<LedgerMessage> {
+    let mut called: HashMap<String, String> = HashMap::new();
     let messages: Vec<LedgerMessage> = input
         .as_array()
         .into_iter()
@@ -441,10 +496,45 @@ fn ledger_messages(input: &Value) -> Vec<LedgerMessage> {
                 "tool" => Role::Tool,
                 _ => return None,
             };
+            let mut text = value_text(&message["content"]);
+            let mut tool = message["name"].as_str().map(str::to_owned);
+            if role == Role::Assistant {
+                let calls: Vec<(String, String)> = message["tool_calls"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|call| {
+                        let name = call.pointer("/function/name")?.as_str()?.to_owned();
+                        if let Some(id) = call["id"].as_str() {
+                            called.insert(id.to_owned(), name.clone());
+                        }
+                        let arguments = value_text(&call["function"]["arguments"]);
+                        Some((name, arguments))
+                    })
+                    .collect();
+                if !calls.is_empty() {
+                    let shown: Vec<String> = calls
+                        .iter()
+                        .map(|(name, arguments)| format!("-> {name} {arguments}"))
+                        .collect();
+                    text = [text, shown.join("\n")]
+                        .into_iter()
+                        .filter(|part| !part.is_empty())
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    let names: Vec<&str> = calls.iter().map(|(name, _)| name.as_str()).collect();
+                    tool = Some(names.join(","));
+                }
+            }
+            if role == Role::Tool && tool.is_none() {
+                tool = message["tool_call_id"]
+                    .as_str()
+                    .and_then(|id| called.get(id).cloned());
+            }
             Some(LedgerMessage {
                 role,
-                tool: message["name"].as_str().map(str::to_owned),
-                text: cut(&value_text(&message["content"]), MAX_MESSAGE_CHARS),
+                tool,
+                text: cut(&text, MAX_MESSAGE_CHARS),
             })
         })
         .collect();

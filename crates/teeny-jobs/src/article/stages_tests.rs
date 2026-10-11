@@ -7,6 +7,7 @@ pub(crate) fn run() -> BackroomsRun {
         started_at: "2026-09-21T12:00:00.000Z".into(),
         finished_at: None,
         seed: Seed {
+            url: None,
             kind: SeedKind::News,
             title: Some("a car pulled up".into()),
             text: "a car pulled up outside a lab at 3am and nobody got out".into(),

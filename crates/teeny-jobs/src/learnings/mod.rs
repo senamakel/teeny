@@ -8,9 +8,9 @@
 //! `legacy/src/learnings/reflect.ts` and `legacy/src/scripts/learnings.ts`.
 //!
 //! The model call goes through the runner like every other pipeline's: a
-//! scheduled turn on its own room agent (`AgentKey::Room`, persona
-//! [`PERSONA`]), whose system prompt is the brief's instructions and whose
-//! belt cannot post. The answer is a fixed shape, one list per section;
+//! scheduled turn on its own agent, `teeny-learner` (`AgentKey::Learner`),
+//! whose system prompt is the brief's instructions and whose belt is one
+//! memory read: it cannot post, browse or reach X. The answer is a fixed shape, one list per section;
 //! the markdown, the six headings and the length are host code's. One
 //! writer, the morning role's: every process reads the file, and two
 //! writers would race to rewrite it.
@@ -31,15 +31,12 @@ use crate::ctx::{JobCtx, JobReport};
 use crate::runner::{AgentKey, AgentRun, AgentRunner, Origin};
 
 const JOB: &str = "learnings";
-/// The room agent the brief is written by.
-pub const PERSONA: &str = "learnings";
 
 /// A [`TextModel`] over the runner: each completion is one scheduled turn
-/// on the persona's room agent, with the call's system prompt as the
-/// agent's. Run once: the stage around it decides on a second try.
+/// on the learner, with the call's system prompt as the agent's. Run once:
+/// the stage around it decides on a second try.
 pub struct RunnerText {
     pub runner: Arc<dyn AgentRunner>,
-    pub persona: &'static str,
     pub label: &'static str,
 }
 
@@ -49,8 +46,7 @@ impl TextModel for RunnerText {
         let outcome = self
             .runner
             .run(AgentRun {
-                agent: AgentKey::Room {
-                    persona: self.persona.to_owned(),
+                agent: AgentKey::Learner {
                     system_prompt: system.unwrap_or_default().to_owned(),
                 },
                 origin: Origin::Scheduled { once: true },
@@ -88,7 +84,6 @@ pub async fn dry_run(ctx: &JobCtx) -> anyhow::Result<JobReport> {
 async fn reflect_with(ctx: &JobCtx, mode: Mode) -> anyhow::Result<ReflectResult> {
     let text = RunnerText {
         runner: Arc::clone(&ctx.runner),
-        persona: PERSONA,
         label: JOB,
     };
     let conversation = ctx.conversation.as_deref();

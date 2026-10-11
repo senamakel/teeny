@@ -436,7 +436,11 @@ fn openhuman(env: &mut Env) -> OpenHumanConfig {
         data_dir: env.text("TEENY_DATA", "data"),
         chrome_path: env.optional("BROWSER_CHROME_PATH"),
         unattended_actions: env.list("BROWSE_UNATTENDED_ACTIONS", "click,press"),
-        allowed_domains: env.list("BROWSE_ALLOWED_DOMAINS", ""),
+        browser_research: env.flag("BROWSER_RESEARCH", false),
+        allowed_domains: {
+            let legacy = env.raw_list("BROWSE_ALLOWED_DOMAINS", DEFAULT_BROWSER_HOSTS);
+            env.list("BROWSER_ALLOWED_HOSTS", &legacy)
+        },
         tinycomputer_module_path: env.optional("TINYCOMPUTER_MODULE_PATH"),
     }
 }

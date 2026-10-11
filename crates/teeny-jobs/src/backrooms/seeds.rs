@@ -71,6 +71,7 @@ impl SeedFinder for NewsSeeds {
                     title: Some(title.to_owned()),
                     text: excerpt,
                     source: Some(safe_host(&hit.url)),
+                    url: Some(hit.url.clone()),
                 }));
             }
         }
@@ -104,6 +105,7 @@ impl SeedFinder for NewsSeeds {
             .filter(|d| !d.is_empty())
             .map_or_else(|| item.title.clone(), str::to_owned);
         Ok(Some(Seed {
+            url: None,
             kind: SeedKind::News,
             title: Some(item.title),
             text,
@@ -136,6 +138,7 @@ impl SeedFinder for ForumSeeds {
             .index(posts.len());
         let post = posts.swap_remove(at);
         Ok(Some(Seed {
+            url: None,
             kind: SeedKind::Forum,
             title: post.title,
             text: post.text,
@@ -177,6 +180,7 @@ impl SeedFinder for MemorySeeds {
             return Ok(None);
         }
         Ok(Some(Seed {
+            url: None,
             kind: SeedKind::Memory,
             title: Some(topic.to_owned()),
             text: head(text, 1_200),
@@ -201,6 +205,7 @@ pub async fn seed_from_mention(x: &dyn XReads, bot_username: &str) -> anyhow::Re
         .into_iter()
         .find(|post| admissible(&post.text))
         .map(|post| Seed {
+            url: None,
             kind: SeedKind::Mention,
             text: post.text,
             title: None,

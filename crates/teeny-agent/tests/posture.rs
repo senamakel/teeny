@@ -73,7 +73,7 @@ fn agents() -> Vec<(String, Belt, Agent)> {
 /// What `belt` holds by construction, plus its built-ins.
 fn belt_set(belt: Belt) -> BTreeSet<String> {
     let tools = belt.build(&Deps::fake());
-    specs::tool_scope(belt, &tools).into_iter().collect()
+    specs::tool_scope(belt, &tools, true).into_iter().collect()
 }
 
 /// The harness's discovery bridge. OpenHuman's `browser` is a deferred
@@ -95,7 +95,7 @@ fn advertised_set(belt: Belt) -> BTreeSet<String> {
 /// public belt.
 fn handed_set(belt: Belt) -> BTreeSet<String> {
     let tools = specs::handed(belt, &belt.build(&Deps::fake()));
-    specs::tool_scope(belt, &tools).into_iter().collect()
+    specs::tool_scope(belt, &tools, true).into_iter().collect()
 }
 
 /// The writes on `belt`'s tools.
@@ -182,9 +182,9 @@ fn every_agent_reaches_exactly_its_belt_under_its_own_origin() {
 }
 
 #[test]
-fn the_research_belts_hold_the_browser_and_no_other_agent_does() {
+fn with_the_experiment_on_only_the_rooms_hold_the_browser() {
     for (id, belt, agent) in agents() {
-        let research = matches!(belt, Belt::Operator | Belt::Room);
+        let research = belt == Belt::Room;
         // Reaching the tool is reaching its argument check; anything else is
         // told there is no such tool.
         let tag = format!("(browser {id})");
@@ -202,12 +202,119 @@ fn the_research_belts_hold_the_browser_and_no_other_agent_does() {
     }
 }
 
+/// With `BROWSER_RESEARCH` off, a room is not handed the browser: it is
+/// not advertised, discovery is not offered, and a call by name finds no
+/// such tool.
+#[test]
+fn with_the_experiment_off_no_room_reaches_the_browser() {
+    let runtime = teeny_agent::runtime::existing().unwrap_or_else(|| {
+        booted();
+        teeny_agent::runtime::existing().expect("booted")
+    });
+    let off = SpecContext {
+        browser_research: false,
+        ..context()
+    };
+    let room = runtime
+        .agent(specs::spec_as(
+            "teeny-room-posture-off",
+            Belt::Room,
+            Arc::new(Belt::Room.build(&Deps::fake())),
+            "You are a skeptic in the backrooms.".into(),
+            &off,
+        ))
+        .expect("the probe registers");
+    let reached = effective(&room, None);
+    assert!(
+        !reached.contains(BROWSER) && !reached.contains(DISCOVERY),
+        "{reached:?}"
+    );
+    let tag = "(browser off)";
+    let message = call(BROWSER, json!({})) + &format!(" {tag}");
+    let turn = room.clone();
+    testkit::run(async move { turn.run(message).await }).expect("the turn completes");
+    assert!(!results_for(tag).contains("arguments for tool `browser`"));
+}
+
+/// The learner reaches its one read and nothing else: no browser, no X,
+/// no posting, no memory write, under every origin.
+#[test]
+fn the_learner_is_read_only_and_never_browses() {
+    let learner = booted().agents.belt(Belt::Learner).unwrap().clone();
+    for origin in std::iter::once(None).chain(origins().into_iter().map(|(_, o)| Some(o))) {
+        let reached = effective(&learner, origin.as_ref());
+        assert_eq!(
+            reached,
+            BTreeSet::from(["recall_memory".to_owned()]),
+            "{origin:?}"
+        );
+    }
+}
+
+/// The request whose user message carries `tag`.
+fn request_for(tag: &str) -> wiremock::Request {
+    let tag = tag.to_owned();
+    testkit::run(async move {
+        chat_requests(&booted().server)
+            .await
+            .into_iter()
+            .find(|request| testkit::asks(request, &tag))
+            .expect("the turn reached the provider")
+    })
+}
+
+/// A brief written after the agents registered is in the very next turn's
+/// system prompt, on every fixed belt that speaks with the persona; a
+/// rewrite replaces it.
+#[test]
+fn a_brief_written_after_boot_reaches_the_next_turn_of_every_belt() {
+    let booted = booted();
+    for round in ["first", "second"] {
+        let brief = format!("BRIEF-{round}-{}", std::process::id());
+        std::fs::write(&booted.learnings, format!("# Learnings\n\n{brief}\n")).unwrap();
+        for belt in [
+            Belt::Reply,
+            Belt::Chat,
+            Belt::Chart,
+            Belt::Operator,
+            Belt::Drafter,
+        ] {
+            let agent = booted.agents.belt(belt).unwrap().clone();
+            let tag = format!("(brief {round} {belt:?})");
+            let message = format!("hello {tag}");
+            testkit::run(async move { agent.run(message).await }).expect("the turn completes");
+            let system = testkit::system_prompt(&request_for(&tag));
+            assert!(system.contains(&brief), "{belt:?} {round}: {system}");
+            if round == "second" {
+                assert!(
+                    !system.contains("BRIEF-first"),
+                    "{belt:?}: the old brief stays"
+                );
+            }
+        }
+    }
+}
+
+/// The learner speaks with each call's instructions.
+#[test]
+fn the_learner_speaks_with_each_calls_instructions() {
+    for round in ["one", "two"] {
+        let instructions = format!("LEARNER-INSTRUCTIONS-{round}");
+        let learner = booted().agents.learner(&instructions).unwrap();
+        let tag = format!("(learner {round})");
+        let message = format!("write the brief {tag}");
+        testkit::run(async move { learner.run(message).await }).expect("the turn completes");
+        let system = testkit::system_prompt(&request_for(&tag));
+        assert!(system.contains(&instructions), "{round}: {system}");
+    }
+}
+
 /// Discovery on a browsing agent finds the browser and nothing else: a
 /// search for every forbidden family turns up none of them.
 #[test]
 fn discovery_on_a_research_belt_finds_the_browser_and_nothing_forbidden() {
     for (id, belt, agent) in agents() {
-        if !matches!(belt, Belt::Operator | Belt::Room) {
+        if belt != Belt::Room {
             continue;
         }
         for (n, query) in [
@@ -331,6 +438,7 @@ fn context() -> SpecContext {
         model: MODEL.into(),
         skills_dir: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../skills"),
         max_iterations: 4,
+        browser_research: true,
     }
 }
 
@@ -667,6 +775,7 @@ mod redteam {
             (Belt::Chat, &public),
             (Belt::Chart, &cron),
             (Belt::Drafter, &cron),
+            (Belt::Learner, &cron),
         ] {
             let agent = booted().agents.belt(belt).unwrap().clone();
             let reachable = effective(&agent, Some(origin));

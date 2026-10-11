@@ -264,6 +264,7 @@ fn agent_name(agent: &AgentKey) -> String {
     match agent {
         AgentKey::Belt(belt) => agent_id(*belt).to_owned(),
         AgentKey::Room { persona, .. } => format!("teeny-room-{persona}"),
+        AgentKey::Learner { .. } => agent_id(Belt::Learner).to_owned(),
     }
 }
 

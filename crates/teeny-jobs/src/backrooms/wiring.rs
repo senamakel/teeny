@@ -116,6 +116,10 @@ pub struct Backrooms {
 
 use super::AgentSpec;
 
+/// How the personas are told of the browser; the name the belt gives it.
+const BROWSER_TOOL: &str =
+    "browser (open a page on an allowed site and read it: never log in, type or post)";
+
 impl Backrooms {
     pub fn new(
         runner: Arc<dyn AgentRunner>,
@@ -143,6 +147,19 @@ impl Backrooms {
     /// The editor's standing instructions, from `narrative/EDITOR.md`.
     pub fn with_editor_prompt(mut self, prompt: Option<String>) -> Self {
         self.editor_prompt = prompt;
+        self
+    }
+
+    /// Whether the personas hold OpenHuman's browser (`BROWSER_RESEARCH`):
+    /// each one with tools is told it has it, so it is used.
+    pub fn with_browser(mut self, browse: bool) -> Self {
+        if browse {
+            for spec in self.presets.values_mut() {
+                if !spec.tools.is_empty() && !spec.tools.iter().any(|tool| tool == BROWSER_TOOL) {
+                    spec.tools.push(BROWSER_TOOL.to_owned());
+                }
+            }
+        }
         self
     }
 
@@ -230,6 +247,7 @@ impl Backrooms {
             Arc::clone(&ctx.clock),
         )
         .with_editor_prompt(editor_prompt)
+        .with_browser(config.openhuman.browser_research)
         .with_store_dir(Some(PathBuf::from(&config.backrooms.dir)))
     }
 

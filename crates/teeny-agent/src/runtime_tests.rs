@@ -17,6 +17,7 @@ fn settings() -> RuntimeSettings {
         allowed_domains: vec!["dexscreener.com".into()],
         tinycomputer_module: Some(PathBuf::from("/opt/tinycomputer/libtinycomputer.so")),
         backend_url: None,
+        browser_research: true,
     }
 }
 
@@ -47,6 +48,31 @@ fn settings_come_from_the_teeny_config_with_an_absolute_data_dir() {
         Some(Path::new("/opt/tc.so"))
     );
     assert_eq!(settings.backend_url, None);
+    assert!(
+        !settings.browser_research,
+        "the experiment is off by default"
+    );
+}
+
+#[test]
+fn browser_research_comes_from_the_config() {
+    let mut vars = crate::deps::fake_vars();
+    vars.push(("BROWSER_RESEARCH", "true"));
+    let config = teeny_core::Config::from_vars(vars).unwrap();
+    assert_eq!(
+        RuntimeSettings::from_config(&config.openhuman).browser_research,
+        !browser_allow_all_set(),
+        "on, unless OpenHuman's allow-all switch would void the host list"
+    );
+}
+
+#[test]
+fn with_the_experiment_off_the_browser_is_off_and_opens_nothing() {
+    let mut settings = settings();
+    settings.browser_research = false;
+    let config = openhuman_config(&settings);
+    assert!(!config.browser.enabled);
+    assert!(config.http_request.allowed_domains.is_empty());
 }
 
 #[test]
@@ -124,7 +150,9 @@ fn the_overlay_pins_native_tools_autonomy_and_cron() {
 
 #[test]
 fn the_overlay_configures_a_persistent_headless_browser_on_the_volume() {
-    let browser = openhuman_config(&settings()).browser;
+    let config = openhuman_config(&settings());
+    assert_eq!(config.http_request.allowed_domains, ["dexscreener.com"]);
+    let browser = config.browser;
     assert!(browser.enabled && browser.headless);
     assert_eq!(browser.profile_mode, "persistent");
     assert_eq!(
@@ -140,19 +168,29 @@ fn the_overlay_configures_a_persistent_headless_browser_on_the_volume() {
 }
 
 #[test]
-fn unattended_actions_keep_known_kinds_only() {
+fn unattended_actions_keep_the_read_only_kinds_only() {
     let mut settings = settings();
     settings.unattended_actions = vec![
         " Click ".into(),
         "scroll".into(),
         "fill".into(),
+        "type".into(),
+        "select".into(),
+        "check".into(),
+        "task_step".into(),
+        "double_click".into(),
         "press".into(),
         "teleport".into(),
     ];
     let browser = openhuman_config(&settings).browser;
     // `scroll` is not a gated action kind (it never needed approval), so it
-    // has nothing to allow and is dropped with the typo.
-    assert_eq!(browser.unattended_actions, ["click", "fill", "press"]);
+    // has nothing to allow and is dropped with the typo. Typing, choosing
+    // and the autonomous task step are what a login or a post is made of,
+    // so a scheduled turn never gets them, whatever is listed.
+    assert_eq!(
+        browser.unattended_actions,
+        ["click", "double_click", "press"]
+    );
 }
 
 #[test]
@@ -171,31 +209,32 @@ fn the_overlay_loads_tinycomputer_from_the_local_build_when_set() {
 }
 
 #[test]
-fn x_and_twitter_are_never_browsable() {
+fn hosts_are_normalised_and_an_entry_that_opens_everything_is_dropped() {
     let listed: Vec<String> = [
         "dexscreener.com",
-        "x.com",
         "X.COM",
         "https://twitter.com/teenydroid",
-        "mobile.twitter.com",
-        "*.x.com",
-        "api.x.com",
-        "t.co",
+        "*.arxiv.org",
         "*",
         "com",
-        "coingecko.com",
+        ".",
+        "coingecko.com:443",
         "",
     ]
     .map(str::to_owned)
     .into();
-    assert_eq!(
-        browsable_domains(&listed),
-        ["dexscreener.com", "coingecko.com"]
-    );
+    let expected = [
+        "dexscreener.com",
+        "x.com",
+        "twitter.com",
+        "arxiv.org",
+        "coingecko.com",
+    ];
+    assert_eq!(browsable_domains(&listed), expected);
     let mut settings = settings();
     settings.allowed_domains = listed;
     let allowed = openhuman_config(&settings).http_request.allowed_domains;
-    assert_eq!(allowed, ["dexscreener.com", "coingecko.com"]);
+    assert_eq!(allowed, expected);
 }
 
 #[test]
@@ -207,6 +246,6 @@ fn an_empty_list_browses_nothing_rather_than_everything() {
             .http_request
             .allowed_domains
             .is_empty(),
-        "OpenHuman's default is [\"*\"], which includes X"
+        "OpenHuman's default is [\"*\"], every host"
     );
 }

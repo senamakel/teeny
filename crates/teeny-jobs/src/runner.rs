@@ -7,7 +7,8 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use teeny_agent::posture::Belt;
 
-/// Who drafts: one of the fixed belts, or a named backrooms persona.
+/// Who drafts: one of the fixed belts, a named backrooms persona, or the
+/// learner.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AgentKey {
     /// A fixed agent with its belt's tools.
@@ -17,6 +18,12 @@ pub enum AgentKey {
         /// Stable persona id (`[a-z0-9_-]`, at most 48 chars), e.g. `skeptic`.
         persona: String,
         /// The persona's system prompt.
+        system_prompt: String,
+    },
+    /// `teeny-learner`: the learnings brief, read-only, never browsing,
+    /// speaking with the brief's instructions for this turn.
+    Learner {
+        /// The instructions this turn speaks with.
         system_prompt: String,
     },
 }

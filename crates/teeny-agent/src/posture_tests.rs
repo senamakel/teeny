@@ -1,6 +1,6 @@
 //! Port of legacy/test/capabilities.test.ts. A prompt rule asks the model not
 //! to do something; this asserts it cannot. Untrusted turns (Reply, Chat,
-//! Room) hold no posting tool and no write at all; no belt that reads text a
+//! Room) and the learner hold no posting tool and no write at all; no belt that reads text a
 //! third party wrote and can run from a cron or the public holds a posting
 //! tool or `remember`, so only the Operator posts or remembers; no belt holds
 //! an OpenHuman built-in from the deny list or anything shaped like a wallet.
@@ -129,6 +129,7 @@ fn each_belt_is_the_exact_tool_list() {
         ),
         (Belt::Operator, operator_set()),
         (Belt::Drafter, drafter_set()),
+        (Belt::Learner, set(["recall_memory"])),
     ];
     for (belt, names) in expected {
         let built = built(belt, &deps);
@@ -210,7 +211,7 @@ fn every_belt_but_the_operator_reads_third_party_text() {
 #[test]
 fn an_untrusted_turn_holds_no_write_at_all() {
     let deps = Deps::fake();
-    for belt in [Belt::Reply, Belt::Chat, Belt::Room] {
+    for belt in [Belt::Reply, Belt::Chat, Belt::Room, Belt::Learner] {
         for tool in belt.build(&deps) {
             assert_eq!(
                 tool.permission_level(),
