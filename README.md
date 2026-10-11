@@ -95,6 +95,40 @@ docker/entrypoint_test.sh    # the entrypoint's volume layout and legacy migrati
 `deploy/README.md`, "The bot image", has the layout, and "Moving to the Rust
 bot" the shadow run, the cutover and the way back.
 
+**Live prompts and the learner.** Every fixed agent's system prompt is a
+file OpenHuman reads per turn (`PromptSource::File`, under
+`<workspace>/agent/prompts/teeny/<pid>-<ms>/`), rendered again before each
+turn, so a learnings brief written after boot is in the next reply, chat,
+chart, operator and drafter turn without a restart; the backrooms rooms were
+already rendered per run. The brief itself is written by its own agent,
+`teeny-learner`: a scheduled turn whose belt is one memory read
+(`recall_memory`), no posting, no browser, no X, no shell, files or cron,
+proven in `crates/teeny-agent/tests/posture.rs`.
+
+**The browser experiment** (`BROWSER_RESEARCH`, off by default). On, the
+backrooms room agents hold OpenHuman's built-in `browser` (TinyComputer and
+the image's Chromium, headless, profile at `/data/chrome-profile`), and so
+does the research step of the morning post and the lore post: a room agent of
+its own, `teeny-room-researcher`, reads the morning's chosen article (Exa
+when the browser gets nothing) and the lore seed's page. Reply, chat, the
+learner, the operator, the chart agent and the drafter never get it, on or
+off. It is read-only by construction: OpenHuman refuses any host off
+`BROWSER_ALLOWED_HOSTS` (wire services, tech and crypto news, arXiv, GitHub,
+Hugging Face, Wikipedia, `x.com`, `dexscreener.com`, `coingecko.com` by
+default; `*` and bare top-level domains are dropped), a scheduled turn may
+only click and press (typing, choosing and the autonomous task step, what a
+login or a post is made of, are never unattended, whatever
+`BROWSE_UNATTENDED_ACTIONS` lists), and the researcher is told never to sign
+in or post. `OPENHUMAN_BROWSER_ALLOW_ALL` in the environment keeps the
+experiment off. The chart is still drawn by the native SVG renderer: there
+is no screenshot path in the Rust port, and DEX Screener's embed serves no
+chart data to a headless browser (see "Rendering" below).
+
+```text
+BROWSER_RESEARCH=false
+BROWSER_ALLOWED_HOSTS=        # unset: the default set; blank: no host at all
+```
+
 ## Setup
 
 Requirements: Node.js 20+, an X developer app with read/write access, a CortexDB
