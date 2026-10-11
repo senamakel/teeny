@@ -7,6 +7,7 @@ use teeny_agent::posture::Belt;
 use super::*;
 use crate::morning::test_support::{Remembers, at, ctx_with};
 use crate::runner::{AgentKey, AgentOutcome, Origin, ScriptedRunner, ToolCallRecord};
+use teeny_cadence::rota::Rota;
 
 fn posted(text: &str) -> AgentOutcome {
     AgentOutcome {

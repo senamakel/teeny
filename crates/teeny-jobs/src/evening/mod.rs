@@ -1,21 +1,24 @@
-//! The evening slot, one cron (`EVENING_CRON`): the serial on its days
-//! (`NARRATIVE_ROTA_SLOTS`, default 1 and 4), the article on its
-//! (`ARTICLE_ROTA_SLOTS`, default 2 and 5), and the evening lore page on
-//! every day nobody has. A job switched off hands its days to the lore; with
-//! the lore off too, those days are quiet. Each job keeps its own guards.
-//! A port of the evening dispatch in `legacy/src/jobs/slot.ts`.
+//! The evening slot, one cron (`EVENING_CRON`, `0 23 * * *`): the article
+//! on its days (`ARTICLE_ROTA_SLOTS`, default 1), the serial on its
+//! (`NARRATIVE_ROTA_SLOTS`, default 2), and the quote post, the fallback, on
+//! every other day and on an owner's day when the owner did not post (the
+//! article rehearsed, the serial had no seed, either failed). A job switched
+//! off hands its days to the quote; with the quote off too, those days are
+//! quiet. Each job keeps its own guards. A port of the evening dispatch in
+//! `legacy/src/jobs/slot.ts` and `legacy/src/index.ts`.
 
 use teeny_cadence::rota::Rota;
-use teeny_cadence::slot::SlotOutcome;
+use teeny_cadence::slot::{SlotJob, SlotOutcome};
 
 use crate::ctx::{JobCtx, JobReport};
+use crate::slot::{JobFn, job, slot};
 
 /// Who posts in the evening slot on a given day.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EveningJob {
     Narrative,
     Article,
-    Lore,
+    Quote,
 }
 
 impl EveningJob {
@@ -23,13 +26,52 @@ impl EveningJob {
         match self {
             Self::Narrative => "narrative",
             Self::Article => "article",
-            Self::Lore => "lore",
+            Self::Quote => "quote",
         }
     }
 }
 
-/// The owner of rota day `day`, by the enabled jobs and their slots, the
-/// first listed winning; the lore takes the rest.
+/// The evening's jobs, so a test can stand in for them.
+pub struct EveningJobs {
+    pub narrative: JobFn,
+    pub article: JobFn,
+    pub quote: JobFn,
+}
+
+/// The production jobs.
+pub const JOBS: EveningJobs = EveningJobs {
+    narrative: |ctx| Box::pin(crate::narrative::run(ctx)),
+    article: |ctx| Box::pin(crate::article::run(ctx)),
+    quote: |ctx| Box::pin(crate::quote::run(ctx)),
+};
+
+/// The slot over `ctx`: the enabled owners on their days, the quote behind
+/// them. The serial registers first, so on a day both claim it is the
+/// serial's, as `legacy/src/index.ts` registered them.
+pub fn build<'a>(ctx: &'a JobCtx, jobs: &EveningJobs) -> anyhow::Result<SlotJob<'a>> {
+    let config = &ctx.config;
+    let mut evening = slot(ctx, "evening")?;
+    if config.narrative.enabled {
+        evening = evening.owner(
+            "narrative",
+            config.rota.narrative_slots.iter().copied(),
+            job(ctx, jobs.narrative),
+        );
+    }
+    if config.article.enabled {
+        evening = evening.owner(
+            "article",
+            config.rota.article_slots.iter().copied(),
+            job(ctx, jobs.article),
+        );
+    }
+    if config.quote.enabled {
+        evening = evening.fallback("quote", job(ctx, jobs.quote));
+    }
+    Ok(evening)
+}
+
+/// Who runs first on rota day `day`: the day's owner, else the quote.
 pub fn owner_of(ctx: &JobCtx, day: u32) -> Option<EveningJob> {
     let config = &ctx.config;
     if config.narrative.enabled && config.rota.narrative_slots.contains(&day) {
@@ -38,136 +80,36 @@ pub fn owner_of(ctx: &JobCtx, day: u32) -> Option<EveningJob> {
     if config.article.enabled && config.rota.article_slots.contains(&day) {
         return Some(EveningJob::Article);
     }
-    config.lore.enabled.then_some(EveningJob::Lore)
+    config.quote.enabled.then_some(EveningJob::Quote)
 }
 
-/// Who owns each day of the rota, for the startup log: `0:lore 1:narrative ...`.
+/// Who owns each day of the rota, for the startup log: `0:quote 1:article 2:narrative`.
 pub fn describe(ctx: &JobCtx) -> anyhow::Result<String> {
-    let rota =
-        Rota::from_config(&ctx.config.rota).map_err(|error| anyhow::anyhow!(error.to_string()))?;
-    Ok((0..rota.days())
-        .map(|day| format!("{day}:{}", owner_of(ctx, day).map_or("-", EveningJob::name)))
-        .collect::<Vec<_>>()
-        .join(" "))
+    Ok(build(ctx, &JOBS)?.describe())
 }
 
-/// Fires the slot: runs the day's owner, or nobody. An owner's failure is
-/// logged and reported, never raised: the slot carries on.
+/// Fires the slot: the day's owner, then the quote when it did not post. A
+/// job's failure is logged and reported in the outcome, never raised.
 pub async fn run(ctx: &JobCtx) -> anyhow::Result<SlotOutcome> {
-    let rota =
-        Rota::from_config(&ctx.config.rota).map_err(|error| anyhow::anyhow!(error.to_string()))?;
-    let day = rota.slot(ctx.now());
-    let Some(owner) = owner_of(ctx, day) else {
-        tracing::info!(slot = "evening", day, "slot: nobody has today; quiet");
-        return Ok(SlotOutcome::Quiet { day });
-    };
-    tracing::info!(
-        slot = "evening",
-        day,
-        job = owner.name(),
-        "slot: running the day's job"
-    );
-    let ran: anyhow::Result<JobReport> = match owner {
-        EveningJob::Narrative => crate::narrative::run(ctx).await,
-        EveningJob::Article => crate::article::run(ctx).await,
-        EveningJob::Lore => crate::lore::run_evening(ctx).await,
-    };
-    Ok(match ran {
-        Ok(_) => SlotOutcome::Ran {
-            day,
-            job: owner.name().into(),
-        },
-        Err(error) => {
-            tracing::error!(%error, slot = "evening", job = owner.name(), "slot: the day's job failed");
-            SlotOutcome::Failed {
-                day,
-                job: owner.name().into(),
-                error: format!("{error:#}"),
-            }
-        }
-    })
+    run_with(ctx, &JOBS).await
 }
 
-/// The evening rehearsal: the day's owner's `dry_run`.
+/// [`run`] with these jobs.
+pub async fn run_with(ctx: &JobCtx, jobs: &EveningJobs) -> anyhow::Result<SlotOutcome> {
+    Ok(build(ctx, jobs)?.run().await)
+}
+
+/// The evening rehearsal: the `dry_run` of whoever runs first tonight.
 pub async fn dry_run(ctx: &JobCtx) -> anyhow::Result<Option<JobReport>> {
-    let rota =
-        Rota::from_config(&ctx.config.rota).map_err(|error| anyhow::anyhow!(error.to_string()))?;
+    let rota = Rota::from_config(&ctx.config.rota)?;
     Ok(match owner_of(ctx, rota.slot(ctx.now())) {
         None => None,
         Some(EveningJob::Narrative) => Some(crate::narrative::dry_run(ctx).await?),
         Some(EveningJob::Article) => Some(crate::article::dry_run(ctx).await?),
-        Some(EveningJob::Lore) => Some(crate::lore::dry_run(ctx).await?),
+        Some(EveningJob::Quote) => Some(crate::quote::dry_run(ctx).await?),
     })
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use chrono::{TimeZone, Utc};
-    use teeny_agent::deps::{Deps, fake_vars};
-    use teeny_cadence::clock::ManualClock;
-    use teeny_store::InMemoryJournal;
-
-    use super::*;
-    use crate::runner::ScriptedRunner;
-
-    fn ctx(extra: &[(&'static str, &'static str)]) -> JobCtx {
-        let mut vars = fake_vars();
-        vars.push(("POST_ROTA_DAYS", "7"));
-        vars.push(("POST_ROTA_ANCHOR", "2026-09-14"));
-        vars.extend_from_slice(extra);
-        let config = teeny_core::Config::from_vars(vars).unwrap();
-        JobCtx::new(
-            Arc::new(Deps::fake()),
-            Arc::new(ScriptedRunner::new()),
-            Arc::new(config),
-            Arc::new(InMemoryJournal::default()),
-        )
-    }
-
-    #[test]
-    fn runs_the_days_owner_and_the_lore_on_days_nobody_has() {
-        let all = ctx(&[
-            ("NARRATIVE_ENABLED", "true"),
-            ("ARTICLE_ENABLED", "true"),
-            ("LORE_ENABLED", "true"),
-        ]);
-        assert_eq!(
-            describe(&all).unwrap(),
-            "0:lore 1:narrative 2:article 3:lore 4:narrative 5:article 6:lore"
-        );
-        let article_only = ctx(&[("ARTICLE_ENABLED", "true")]);
-        assert_eq!(
-            describe(&article_only).unwrap(),
-            "0:- 1:- 2:article 3:- 4:- 5:article 6:-"
-        );
-        // A job switched off hands its days to the lore.
-        let no_serial = ctx(&[("ARTICLE_ENABLED", "true"), ("LORE_ENABLED", "true")]);
-        assert_eq!(owner_of(&no_serial, 1), Some(EveningJob::Lore));
-    }
-
-    #[tokio::test]
-    async fn is_quiet_with_no_owner() {
-        let quiet = ctx(&[("ARTICLE_ENABLED", "true")]).with_clock(Arc::new(ManualClock::new(
-            Utc.with_ymd_and_hms(2026, 9, 14, 19, 0, 0).unwrap(),
-        )));
-        assert_eq!(run(&quiet).await.unwrap(), SlotOutcome::Quiet { day: 0 });
-    }
-
-    #[tokio::test]
-    async fn survives_an_owner_failing() {
-        // The serial cannot be built without its lore files on this box; the slot reports it and carries on.
-        let failing = ctx(&[
-            ("NARRATIVE_ENABLED", "true"),
-            ("NARRATIVE_LORE_PATH", "/nonexistent/LORE.md"),
-        ])
-        .with_clock(Arc::new(ManualClock::new(
-            Utc.with_ymd_and_hms(2026, 9, 15, 19, 0, 0).unwrap(),
-        )));
-        match run(&failing).await.unwrap() {
-            SlotOutcome::Failed { day: 1, job, .. } => assert_eq!(job, "narrative"),
-            other => panic!("{other:?}"),
-        }
-    }
-}
+#[path = "mod_tests.rs"]
+mod tests;

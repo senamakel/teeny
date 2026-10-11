@@ -1,6 +1,6 @@
 //! The lore job: the guards (twenty hours, the cadence), the pipeline, the
-//! journal. The rota is the slot's to apply ([`crate::evening`], the
-//! afternoon dispatch), not this job's.
+//! journal. The rota is the slot's to apply ([`crate::afternoon`], whose
+//! fallback this is), not this job's.
 
 use std::sync::{Arc, Mutex};
 
@@ -18,24 +18,12 @@ use crate::ctx::{JobCtx, JobReport};
 use crate::journal_glue::record_quietly;
 use crate::morning::job::{Gates, admit, day_id, journal_failure};
 
-/// The afternoon page.
+/// The page's name: its journal kind, its guard, its ledger kind.
 pub const AFTERNOON: &str = "lore";
-/// The evening page, the evening slot's fallback.
-pub const EVENING: &str = "lore-evening";
 
-/// The afternoon page, for the afternoon dispatch.
-pub async fn run_afternoon(ctx: &JobCtx) -> anyhow::Result<JobReport> {
-    run_named(ctx, AFTERNOON).await
-}
-
-/// The evening page, for the evening slot.
-pub async fn run_evening(ctx: &JobCtx) -> anyhow::Result<JobReport> {
-    run_named(ctx, EVENING).await
-}
-
-/// The scheduled run: the afternoon page.
+/// The scheduled run: the afternoon page, the afternoon slot's fallback.
 pub async fn run(ctx: &JobCtx) -> anyhow::Result<JobReport> {
-    run_afternoon(ctx).await
+    run_named(ctx, AFTERNOON).await
 }
 
 /// The rehearsal (`lore-dry-run`): the whole pipeline with no gates and

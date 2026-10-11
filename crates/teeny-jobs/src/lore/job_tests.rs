@@ -49,18 +49,16 @@ async fn journals_the_turn_with_the_room_and_the_post() {
 }
 
 #[tokio::test]
-async fn refuses_to_run_twice_inside_the_interval_under_each_name() {
+async fn refuses_to_run_twice_inside_the_interval() {
     let clock = Arc::new(ManualClock::new(
         Utc.with_ymd_and_hms(2026, 9, 22, 15, 0, 0).unwrap(),
     ));
     let (ctx, _journal) = ctx(Arc::new(Deps::fake()), clock.clone());
     ctx.guard(AFTERNOON).mark(clock.now());
-    let declined = run_afternoon(&ctx).await.unwrap();
+    clock.advance(TimeDelta::hours(1));
+    let declined = run(&ctx).await.unwrap();
     assert!(!declined.ran);
     assert!(declined.note.unwrap().contains("already ran recently"));
-    clock.advance(TimeDelta::hours(1));
-    ctx.guard(EVENING).mark(clock.now());
-    assert!(!run_evening(&ctx).await.unwrap().ran);
 }
 
 #[tokio::test]
