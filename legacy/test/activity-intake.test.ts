@@ -85,7 +85,8 @@ describe('activity intake', () => {
 
     // A like counts once per event, not once per transport.
     expect(people.observe).toHaveBeenCalledTimes(2)
-    await vi.waitFor(() => expect(store.captureActivity).toHaveBeenCalledTimes(2))
+    // ...and is counted only: engagement is not written to memory.
+    expect(store.captureActivity).not.toHaveBeenCalled()
   })
 
   it('forgets the oldest ids once the set is full', async () => {

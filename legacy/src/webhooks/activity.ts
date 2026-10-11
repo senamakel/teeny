@@ -229,6 +229,12 @@ export function activityEntries(payload: Record<string, unknown>): Array<{
  * the raw delivery here as well would put the same conversation back into
  * memory as an unattributed blob under the account's own id.
  */
+/** Likes, reposts, follows and deletions: counted, not remembered. */
+export function isEngagement(kind: string): boolean {
+  return /^(like|favorite|post\.repost|repost|retweet|follow|unfollow|block|mute|tweet_delete)[._]/.test(kind) ||
+    /^(favorite|follow|block|mute|tweet_delete|retweet)_events$/.test(kind)
+}
+
 export async function captureWebhookActivity(
   memory: Memory,
   payload: Record<string, unknown>,
@@ -236,6 +242,11 @@ export async function captureWebhookActivity(
   await Promise.all(
     activityEntries(payload)
       .filter((entry) => entry.kind !== 'tweet_create_events' && !POST_EVENTS.has(entry.kind))
+      // Engagement -- likes, reposts, follows -- is counted in the people
+      // store, which is what decides who gets answered. Stored here as raw
+      // payloads it was two thirds of memory, and recall returned JSON about
+      // who liked what instead of what anybody said.
+      .filter((entry) => !isEngagement(entry.kind))
       .map((entry) => memory.captureActivity(entry.kind, entry.id, entry.payload)),
   )
 }

@@ -34,6 +34,8 @@ export interface People {
   /** Scores for the ids given; an unknown person scores 0. */
   scores(userIds: string[]): Promise<Map<string, number>>
   top(limit: number): Promise<PersonRecord[]>
+  /** The person last seen under this handle, ignoring case and a leading @. */
+  byUsername?(username: string): Promise<PersonRecord | undefined>
   close(): Promise<void>
 }
 
@@ -63,6 +65,7 @@ export class MongoPeople implements People {
     await this.client.connect()
     await this.people.createIndex({ userId: 1 }, { unique: true })
     await this.people.createIndex({ score: -1 })
+    await this.people.createIndex({ username: 1 })
     this.indexed = true
   }
 
@@ -90,6 +93,18 @@ export class MongoPeople implements People {
   async top(limit: number): Promise<PersonRecord[]> {
     await this.ready()
     return this.people.find().sort({ score: -1 }).limit(limit).toArray()
+  }
+
+  async byUsername(username: string): Promise<PersonRecord | undefined> {
+    await this.ready()
+    const handle = username.replace(/^@/, '')
+    if (!/^\w{1,15}$/.test(handle)) return undefined
+    const row = await this.people
+      .find({ username: { $regex: `^${handle}$`, $options: 'i' } })
+      .sort({ lastSeenAt: -1 })
+      .limit(1)
+      .next()
+    return row ?? undefined
   }
 
   async close(): Promise<void> {
@@ -122,6 +137,13 @@ export class InMemoryPeople implements People {
 
   async top(limit: number): Promise<PersonRecord[]> {
     return [...this.people.values()].sort((a, b) => b.score - a.score).slice(0, limit)
+  }
+
+  async byUsername(username: string): Promise<PersonRecord | undefined> {
+    const handle = username.replace(/^@/, '').toLowerCase()
+    return [...this.people.values()]
+      .filter((person) => person.username?.toLowerCase() === handle)
+      .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt))[0]
   }
 
   async close(): Promise<void> {}

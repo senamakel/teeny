@@ -1,3 +1,4 @@
+import type { LivePersona } from '../agent/soul.js'
 import { existsSync, readFileSync } from 'node:fs'
 import { createChatModel } from '../agent/graph.js'
 import type { ExaSearch } from '../agent/tools/exa.js'
@@ -32,7 +33,7 @@ export interface BackroomsDeps {
   fetch?: Fetch
   botUsername: string
   /** The rendered persona (soul, context, skills), for the good-morning layer. Absent, the voice file stands in. */
-  persona?: string
+  persona?: LivePersona
   maxEmoji?: number
   ledger?: InferenceLedger
   logger?: { info(object: unknown, message?: string): void }

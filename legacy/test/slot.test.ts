@@ -6,8 +6,8 @@ const at = (date: string): number => Date.parse(`${date}T19:00:00Z`)
 
 describe('the evening slot', () => {
   it("runs the day's owner, and the fallback on days nobody has", async () => {
-    const article = vi.fn().mockResolvedValue(undefined)
-    const serial = vi.fn().mockResolvedValue(undefined)
+    const article = vi.fn().mockResolvedValue(true)
+    const serial = vi.fn().mockResolvedValue(true)
     const lore = vi.fn().mockResolvedValue(undefined)
     let now = at('2026-09-23') // Wednesday, slot 2
     const slot = new SlotJob({
@@ -34,7 +34,7 @@ describe('the evening slot', () => {
 
   it('is quiet with no owner and no fallback, and survives an owner failing', async () => {
     const logger = { info: vi.fn(), error: vi.fn() }
-    const quiet = new SlotJob({ label: 'evening', rota, owners: [{ name: 'article', slots: [2], run: vi.fn() }], logger, now: () => at('2026-09-22') })
+    const quiet = new SlotJob({ label: 'evening', rota, owners: [{ name: 'article', slots: [2], run: vi.fn().mockResolvedValue(true) }], logger, now: () => at('2026-09-22') })
     await quiet.run()
     expect(logger.info).toHaveBeenCalledWith(expect.objectContaining({ day: 1 }), 'slot: nobody has today; quiet')
     expect(quiet.describe()).toBe('0:- 1:- 2:article 3:- 4:- 5:- 6:-')
@@ -48,5 +48,76 @@ describe('the evening slot', () => {
     })
     await expect(failing.run()).resolves.toBeUndefined()
     expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({ job: 'article' }), "slot: the day's job failed")
+  })
+})
+
+describe('an owner that does not post', () => {
+  it('hands the slot to the fallback, whether it skipped or threw', async () => {
+    const logger = { info: vi.fn(), error: vi.fn() }
+    const quote = vi.fn().mockResolvedValue(undefined)
+    const article = vi.fn().mockResolvedValueOnce(false).mockRejectedValueOnce(new Error('x refused the article')).mockResolvedValueOnce(true)
+    const slot = new SlotJob({
+      label: 'evening',
+      rota,
+      owners: [{ name: 'article', slots: [2], run: article }],
+      fallback: { name: 'quote', run: quote },
+      logger,
+      now: () => at('2026-09-23'),
+    })
+    await slot.run()
+    expect(quote).toHaveBeenCalledTimes(1)
+    await slot.run()
+    expect(quote).toHaveBeenCalledTimes(2)
+    expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({ job: 'article' }), "slot: the day's job failed")
+    await slot.run()
+    expect(article).toHaveBeenCalledTimes(3)
+    expect(quote).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('the default calendar', () => {
+  it('is three days of three posts, eight hours apart, with the article once a cycle', async () => {
+    const { loadConfig } = await import('../src/config.js')
+    const config = loadConfig({
+      X_BOT_USERNAME: 'teenydroid',
+      X_API_KEY: 'k',
+      X_API_SECRET: 's',
+      X_ACCESS_TOKEN: 't',
+      X_ACCESS_TOKEN_SECRET: 'ts',
+      CORTEX_TOKEN: 'c',
+      LLM_API_KEY: 'l',
+      LLM_MODEL: 'reasoning',
+    })
+    expect([config.MORNING_CRON, config.AFTERNOON_CRON, config.EVENING_CRON]).toEqual(['0 7 * * *', '0 15 * * *', '0 23 * * *'])
+    expect(config.POST_ROTA_DAYS).toBe(3)
+    // Under the eight hours between slots, so a late post does not cost the next slot.
+    expect(config.POST_MIN_GAP_HOURS).toBeLessThan(8)
+    expect(config.POST_MIN_GAP_HOURS * 60 - config.POST_GAP_TOLERANCE_MINUTES).toBeGreaterThan(6 * 60)
+
+    const rota = { days: config.POST_ROTA_DAYS, anchor: config.POST_ROTA_ANCHOR }
+    const logger = { info: vi.fn(), error: vi.fn() }
+    const run = vi.fn().mockResolvedValue(true)
+    const afternoon = new SlotJob({
+      label: 'afternoon',
+      rota,
+      owners: [
+        { name: 'chart', slots: [config.CHART_ROTA_SLOT], run },
+        { name: 'moon', slots: [config.MOON_ROTA_SLOT], run },
+      ],
+      fallback: { name: 'lore', run },
+      logger,
+    })
+    const evening = new SlotJob({
+      label: 'evening',
+      rota,
+      owners: [
+        { name: 'article', slots: config.ARTICLE_ROTA_SLOTS, run },
+        { name: 'narrative', slots: config.NARRATIVE_ROTA_SLOTS, run },
+      ],
+      fallback: { name: 'quote', run },
+      logger,
+    })
+    expect(afternoon.describe()).toBe('0:chart 1:moon 2:lore')
+    expect(evening.describe()).toBe('0:quote 1:article 2:narrative')
   })
 })

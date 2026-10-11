@@ -199,3 +199,21 @@ describe('the morning timeline config', () => {
     expect(off.MORNING_X_HOURS).toBe(48)
   })
 })
+
+describe('article config', () => {
+  it('gives the article model calls minutes, not the 90 seconds a caption gets', () => {
+    expect(loadConfig(REQUIRED).ARTICLE_MODEL_TIMEOUT_SECONDS).toBe(360)
+    expect(loadConfig({ ...REQUIRED, ARTICLE_MODEL_TIMEOUT_SECONDS: '600' }).ARTICLE_MODEL_TIMEOUT_SECONDS).toBe(600)
+  })
+})
+
+describe('memory config', () => {
+  it('gives a recall seconds, reads exact history by default, and keeps the brief on', () => {
+    const config = loadConfig(REQUIRED)
+    expect(config.CORTEX_RECALL_TIMEOUT_MS).toBe(15_000)
+    expect(config.MEMORY_EXCHANGES).toBe(6)
+    expect(config.LEARNINGS_ENABLED).toBe(true)
+    expect(config.LEARNINGS_PATH).toBe('data/memory/LEARNINGS.md')
+  })
+
+})

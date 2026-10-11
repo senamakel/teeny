@@ -713,7 +713,7 @@ The job refuses to run twice inside 20 hours even if the cron fires again — a
 container that restarts near the cron minute would otherwise post the same chart
 an hour later, which is exactly the repetitive-publishing shape that got this
 account throttled. It also only posts on its day of [the rota](#the-rota) it
-shares with the moon chart and the lore post: one day a week by default.
+shares with the moon chart and the lore post: one day in three by default.
 
 ## The morning post
 
@@ -835,7 +835,7 @@ on the video surface; over it, the seed is the part that goes.
 
 ## The moon chart
 
-"$TINY with the market cap of X", one day a week, at 13:00 UTC by default. Like
+"$TINY with the market cap of X", one day in three, at 15:00 UTC by default. Like
 the morning post it is a fixed pipeline rather than an agent: read the board,
 pick a yardstick, do the arithmetic, draw it, write two lines under it, post.
 Nothing in it wants a model's judgement about whether to run.
@@ -853,31 +853,33 @@ The picture is written to `MOON_OUTPUT_DIR` (`data/moon`) either way.
 
 ### The rota
 
-The calendar is four slots a day, six hours apart, and a week-long rota
-that says which job has each slot on each day, counted in UTC days from
-`POST_ROTA_ANCHOR` (slot 0, a Monday):
+The calendar is three posts a day, eight hours apart, and a three-day rota
+that says which job has each slot on each day -- nine posts a cycle --
+counted in UTC days from `POST_ROTA_ANCHOR` (slot 0):
 
-| UTC | Mon | Tue | Wed | Thu | Fri | Sat | Sun |
-|---|---|---|---|---|---|---|---|
-| 07:00 | morning post | ← | ← | ← | ← | ← | ← |
-| 13:00 | moon chart | lore | lore | chart | lore | lore | lore |
-| 19:00 | lore | serial | article | lore | serial | article | lore |
-| 01:00 | quote post | ← | ← | ← | ← | ← | ← |
+| UTC | day 0 | day 1 | day 2 |
+|---|---|---|---|
+| 07:00 | morning post | ← | ← |
+| 15:00 | chart | moon chart | lore |
+| 23:00 | quote post | article | serial (quote post while it is off) |
 
-The afternoon slot: `MOON_ROTA_SLOT` (0) and `CHART_ROTA_SLOT` (3) are the
-charts' days, and [the lore post](#the-lore-post) has the rest. Each of
-the three keeps its daily cron and asks `src/jobs/cycle.ts` whether today
-is its slot; a slot past `POST_ROTA_DAYS` (7) never posts. The evening
-slot is one cron, `EVENING_CRON`, and one job (`src/jobs/slot.ts`) that
-runs the day's owner: the serial on `NARRATIVE_ROTA_SLOTS` (1 and 4), the
-article on `ARTICLE_ROTA_SLOTS` (2 and 5), the lore on every other day. A
-job that is off hands its days to the lore rather than leaving them quiet.
-The rehearsal scripts force past the rota, so a dry run works on any day.
+Each of the two rota slots is one cron (`AFTERNOON_CRON`, `EVENING_CRON`)
+and one job (`src/jobs/slot.ts`) that asks `src/jobs/cycle.ts` which day
+of the rota it is and runs that day's owner. The afternoon: the chart on
+`CHART_ROTA_SLOT` (0), the moon chart on `MOON_ROTA_SLOT` (1), and
+[the lore post](#the-lore-post) on the rest. The evening: the article on
+`ARTICLE_ROTA_SLOTS` (1), the serial on `NARRATIVE_ROTA_SLOTS` (2), and
+[the quote post](#the-quote-post) on the rest. A job that is off hands its
+days to the slot's fallback rather than leaving them quiet, and so does
+one that runs and does not post -- the article held by the filter, a
+rehearsal, an error -- so a bad night for the article is still a quote
+post. A slot past `POST_ROTA_DAYS` (3) never posts. The rehearsal scripts force past the
+rota, so a dry run works on any day.
 
 ## The lore post
 
-A page from the lab, on the days the charts, the serial and the article do
-not have -- the afternoon slot at 13:00 UTC and the evening slot at 19:00 -- something comes through the wire, the backrooms (`src/backrooms/`)
+A page from the lab, on the afternoon slot's days the charts do not have
+(15:00 UTC, one day in three by default): something comes through the wire, the backrooms (`src/backrooms/`)
 run on it inside the lore, the editor keeps one thought, and the thought is
 written up in Teeny's voice with the soul, the lore and the account's last
 posts around it (`src/backrooms/lore.ts`, the afternoon sibling of the
@@ -905,11 +907,10 @@ not told twice; the turn is journaled with `trigger: lore`.
 
 ## The quote post
 
-Once a day, at 01:00 UTC by default, somebody else's post lifted onto the
-timeline with a line over it: a holder bullish on $TINY, somebody who posted
-the ticker or the contract with something to say about it, or somebody who
-talked to the account and meant it. The third post of the day, after the
-morning post and the afternoon chart.
+On the evening slot's spare days, at 23:00 UTC, somebody else's post lifted
+onto the timeline with a line over it: a holder bullish on $TINY, somebody
+who posted the ticker or the contract with something to say about it, or
+somebody who talked to the account and meant it.
 
 It is off by default (`QUOTE_ENABLED=false`), because it publishes. It needs
 nothing beyond the chat model and the X read credentials.
@@ -1038,11 +1039,11 @@ on its day of the rota.
 
 ## The article
 
-Twice a week the account writes something long: a piece of the serial's
+Once a cycle the account writes something long: a piece of the serial's
 lore, published as an X Article with a cover and a picture per section,
 and mirrored on the site at `/articles`. `ARTICLE_ENABLED` turns the job
-on; it has `ARTICLE_ROTA_SLOTS` (Wednesday and Saturday) of the evening
-slot, see [the rota](#the-rota).
+on; it has `ARTICLE_ROTA_SLOTS` (day 1 of three) of the evening slot,
+see [the rota](#the-rota).
 
 The idea comes from the backrooms. A room of tool-using agents is opened
 on something from the wire (`ARTICLE_NEWS_TOPICS`), steered at one of the
@@ -1440,6 +1441,66 @@ Before this, every event was written as an opaque JSON blob attributed to the
 bot's own id, so recall could not tell two people apart and the account
 answered a stranger and a regular identically.
 
+### What a turn starts with
+
+Every reply and every Telegram turn is drafted from one context, gathered by
+`TurnContext` (`src/memory/context.ts`) from four sources at once, each failing
+on its own:
+
+| Section | Source | Read how |
+|---|---|---|
+| `YOUR LAST N EXCHANGES WITH @user` | the mention queue: every answered mention from this X user | exactly, newest first (`MEMORY_EXCHANGES`, default 6) |
+| `ABOUT @user` / `GENERAL CONTEXT` | CortexDB, the two holistic packs above | by meaning, within `CORTEX_RECALL_TIMEOUT_MS` |
+| `WHAT YOU YOURSELF HAVE POSTED RECENTLY` | the post ledger | exactly (`MEMORY_OWN_POSTS_HOURS`, `MEMORY_OWN_POSTS_LIMIT`) |
+| the learnings brief | `LEARNINGS.md`, in the system prompt | from disk, every turn |
+
+What can be read exactly is read exactly. The account's own posts and its
+answers to a person already exist as lists; asked for them, the semantic index
+answered "what has this account posted recently" with month-old replies to
+other people. Memory is asked only for what is not written down elsewhere.
+
+A source that fails is said out loud. When the recall times out the drafter
+reads `MEMORY WAS UNAVAILABLE THIS TURN` instead of an empty block, so it does
+not greet a regular as a stranger, and the journal's `recalled` lines name the
+source that dropped out.
+
+`recall_memory` takes an `about: "@handle"` so the agent can look someone up by
+name. Memory finds a person by the `@handle` label every exchange with them
+carries; recall draws only on conversation, notes and the account's own posts
+(`RECALL_LABELS`), never on the raw like and follow payloads webhooks used to
+store, and after a recall times out it stays off for `CORTEX_RECALL_COOLDOWN_MS`
+so a stalled store is not handed another abandoned query per reply.
+
+### The learnings brief
+
+Once a day (`LEARNINGS_CRON`, 05:00 UTC, before the morning post) the account
+rewrites `LEARNINGS.md` (`LEARNINGS_PATH`, on the data volume) from its own
+record: the last `LEARNINGS_DAYS` of posts with their numbers, its journal,
+the people who interact with it most, and three recalls for what is written
+down nowhere else (notes it left itself, its running bits, open threads). The
+model updates yesterday's brief rather than writing a fresh one, so a regular
+who was quiet for a week does not fall out of it; a draft that is missing most
+of the fixed sections is thrown away and yesterday's stays.
+
+The brief is in every prompt the account writes: replies, Telegram, the agent,
+the chart, morning, moon, quote and lore posts. It is read live, so the brief
+written at five is in the six o'clock reply without a restart. Older briefs are
+kept in `data/memory/history/`. `npm run learnings -- --print` writes one now.
+
+### Checking that recall works
+
+`npm run memory:probe -- --sample 10` (in the container,
+`node dist/scripts/memory-probe.js --sample 10`) takes the account's most
+frequent correspondents, builds the context a reply to each would get, and
+reports whether the exact history is there, whether memory asked about the
+person brings back one of the last three things said (the recall hit rate),
+and how long each took. It reads and recalls; it never writes.
+
+The bot also reads CortexDB's readiness report at boot and hourly
+(`CORTEX_HEALTH_CRON`) and warns when the store cannot embed. That state
+answers every recall, by keyword alone, and nothing else notices: from
+2026-10-04 the store embedded nothing for a day.
+
 ## The cadence
 
 The account's own posts -- the morning post, the chart, the moon chart, the
@@ -1459,10 +1520,12 @@ subject to it; they are conversations, not slots.
 
 `POST_GAP_TOLERANCE_MINUTES` (20) is how much short of the gap still counts:
 the jobs fire on the hour and spend minutes drawing and filming, so a
-schedule of exactly six hours apart lands at five hours fifty. The default
-crons are the morning at 07:00, the afternoon slot at 13:00, the evening
-slot at 19:00 and the quote post at 01:00 UTC: four posts a day, six hours
-apart, with [the rota](#the-rota) saying what the two middle slots carry.
+post a few minutes late does not cost the next slot. The defaults are the
+morning at 07:00, the afternoon slot at 15:00 and the evening slot at 23:00
+UTC: three posts a day, eight hours apart, with [the rota](#the-rota)
+saying what the last two carry. `POST_MIN_GAP_HOURS` (7) is an hour short
+of the eight, so a slow job -- the article, a filmed morning -- that posts
+late still leaves the next slot its turn.
 
 ### A post that takes off
 
@@ -1691,6 +1754,8 @@ npm run calendar-dry-run -- gm   # draft one calendar item, generate its media, 
 npm run article-dry-run -- --structure-only   # rehearse an article: the room and the plan; --no-images for the text too
 npm run telegram-dry-run -- "hi"            # one Telegram DM through the real drafter, printed not sent
 npm run telegram-dry-run -- --group "@teenythebot gm"   # the same, as a group mention
+npm run memory:probe -- --sample 10   # does recall bring back what was said to the top correspondents?
+npm run learnings -- --print          # rewrite the learnings brief now, and print it
 ```
 
 Runtime cursor data is stored at `data/state.json` and is ignored by

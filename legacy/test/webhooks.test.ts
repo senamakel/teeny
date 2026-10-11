@@ -51,12 +51,11 @@ describe('X webhook', () => {
     })
     expect(signed.statusCode).toBe(200)
 
-    // Only the non-post event reaches memory. A post goes to the queue and is
-    // captured later as a chat turn attributed to its author, so writing the
-    // raw delivery here too would store the same conversation twice, once
-    // unattributed under the account's own id.
-    await vi.waitFor(() => expect(store.captureActivity).toHaveBeenCalledTimes(1))
-    expect(store.captureActivity).toHaveBeenCalledWith('favorite_events', '456', { id: '456' })
+    // Neither reaches memory. A post goes to the queue and is captured later
+    // as a chat turn attributed to its author; a like is engagement, counted
+    // in the people store and not kept as a raw payload in memory.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(store.captureActivity).not.toHaveBeenCalled()
     await app.close()
   })
 })
@@ -424,8 +423,14 @@ describe('X Activity API deliveries', () => {
     const store = memory()
     await captureWebhookActivity(store, event('post.mention.create', { id: '904', text: '@TinyMascot', author_id: '42' }))
     expect(store.captureActivity).not.toHaveBeenCalled()
+    // Engagement is counted, not remembered: two thirds of memory was raw
+    // like, repost and follow payloads crowding out what people said.
     await captureWebhookActivity(store, event('like.create', { id: '905', author_id: '42' }))
-    expect(store.captureActivity).toHaveBeenCalledWith('like.create', '905', { id: '905', author_id: '42' })
+    await captureWebhookActivity(store, event('follow.follow', { source: { id: '42' }, target: { id: BOT } }))
+    await captureWebhookActivity(store, event('post.repost.create', { id: '907', author_id: '42' }))
+    expect(store.captureActivity).not.toHaveBeenCalled()
+    await captureWebhookActivity(store, event('dm.received', { id: '908', text: 'hi' }))
+    expect(store.captureActivity).toHaveBeenCalledWith('dm.received', '908', { id: '908', text: 'hi' })
   })
 
   it('queues a mention from the new envelope end to end', async () => {

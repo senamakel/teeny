@@ -7,7 +7,7 @@ import { createExaClient, createExaTools } from './tools/exa.js'
 import { createGiphyTools } from './tools/giphy.js'
 import { createMarketTools } from './tools/market.js'
 import { createMediaTools } from './tools/media.js'
-import { createMemoryTools } from './tools/memory.js'
+import { createMemoryTools, type FindPerson } from './tools/memory.js'
 import { createXTools } from './tools/x.js'
 import { createCritiqueTools } from './tools/critique.js'
 import type { Critic } from '../critic/algo.js'
@@ -40,6 +40,8 @@ export interface LlmOptions {
 
 export interface AgentOptions {
   memory: Memory
+  /** Turns a handle into the person memory files it under, for recall_memory's `about`. */
+  findPerson?: FindPerson
   x: XTools
   botUsername: string
   dryRun: boolean
@@ -122,7 +124,7 @@ export function createChatModel(options: LlmOptions): ChatOpenAI {
 
 export function buildTools(options: AgentOptions): StructuredToolInterface[] {
   return [
-    ...createMemoryTools(options.memory),
+    ...createMemoryTools(options.memory, options.findPerson ? { findPerson: options.findPerson } : {}),
     ...createXTools(options.x, {
       dryRun: options.dryRun,
       ...(options.allowPosting === false ? { allowPosting: false } : {}),

@@ -33,7 +33,7 @@ export function buildLorePipeline(
     x: { searchPosts: (query, searchOptions) => options.x.searchPosts(query, searchOptions) },
     ...(exa ? { exa } : {}),
     botUsername: options.botUsername,
-    persona: renderPersona(options.persona),
+    persona: () => renderPersona(options.persona),
     maxEmoji: config.MAX_EMOJI_PER_POST,
     ...(options.ledger ? { ledger: options.ledger } : {}),
     ...(options.logger ? { logger: options.logger } : {}),
