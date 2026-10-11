@@ -158,6 +158,18 @@ impl QueuedPost for QueuedXPost {
     fn post_id(&self) -> &str {
         self.0.id.as_str()
     }
+
+    fn author_id(&self) -> Option<&str> {
+        self.0.author_id.as_ref().map(|id| id.as_str())
+    }
+
+    fn text(&self) -> &str {
+        &self.0.text
+    }
+
+    fn conversation_id(&self) -> Option<&str> {
+        self.0.conversation_id.as_ref().map(|id| id.as_str())
+    }
 }
 
 impl Deps {
@@ -224,7 +236,7 @@ impl Deps {
 
         Ok(Self {
             settings: Settings::from_config(&config),
-            persona: Persona::from_config(&config.agent)?,
+            persona: Persona::from_settings(&config.agent, &config.learnings)?,
             memory: Arc::new(CortexMemory::from_config(&config.cortex)?),
             x,
             x_reads,

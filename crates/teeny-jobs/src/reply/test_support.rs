@@ -78,6 +78,8 @@ pub struct ProbeMemory {
     /// Capturing a reply never finishes, as a process dying after the post
     /// would leave it.
     pub stall_reply_capture: bool,
+    /// Capturing a reply fails, as a store that timed out after the post would.
+    pub fail_reply_capture: bool,
     /// `recall` and `capture:<kind>` (`mention`, `reply`, `message`), in order.
     pub events: Mutex<Vec<String>>,
     pub queries: Mutex<Vec<(String, Option<Person>)>>,
@@ -128,7 +130,7 @@ impl Memory for ProbeMemory {
         if self.stall_reply_capture && kind == "reply" {
             std::future::pending::<()>().await;
         }
-        if self.broken {
+        if self.broken || (self.fail_reply_capture && kind == "reply") {
             return Err(MemoryError::InvalidInput("401 MISSING_TOKEN".into()));
         }
         self.captured.lock().unwrap().push(experience);

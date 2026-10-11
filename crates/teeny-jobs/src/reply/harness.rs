@@ -1,6 +1,7 @@
 //! One reply drafted: the thread, the pictures and the article read in code,
-//! two recalls, one `teeny-reply` turn, then the mention captured. A port
-//! of `legacy/src/harness/reply-harness.ts`.
+//! the turn context ([`TurnContext`]: the exact exchanges with the person,
+//! the account's own posts, memory), one `teeny-reply` turn, then the
+//! mention captured. A port of `legacy/src/harness/reply-harness.ts`.
 //!
 //! Recall comes before capture: the other order puts the post being answered
 //! into memory first, and the account reads its own input back as history.
@@ -13,14 +14,8 @@ use teeny_x::model::XPost;
 
 use super::draft::{ReplyArticle, ReplyDraft, TaskInput, parse_answer, render_task};
 use crate::ctx::JobCtx;
-use crate::journal_glue::summarise_recall;
 use crate::runner::{AgentKey, AgentRun, Origin};
-
-/// The second recall: what the account itself has been saying. Asked "much
-/// higher for tiny?", it once answered "I'm just a mascot who doesn't read
-/// charts" hours after publishing a chart of its own token.
-const OWN_ACTIVITY: &str = "What has this account itself posted recently? Include its daily chart posts, the \
-market reads it published, and anything it has said publicly in the last few days.";
+use crate::turn_context::{TurnContext, TurnQuery};
 
 /// Answered but not kept: memory is carried into every later conversation.
 pub fn is_sour(tone: Tone) -> bool {
@@ -168,17 +163,23 @@ pub async fn generate(ctx: &JobCtx, post: &XPost) -> anyhow::Result<ReplyDraft> 
     if !conversation.is_empty() {
         query.push_str(&format!("\n\nThe conversation it sits in:\n{conversation}"));
     }
-    let memory = &ctx.deps.memory;
-    let (recalled, own) = tokio::join!(
-        memory.recall(&query, person.as_ref()),
-        memory.recall(OWN_ACTIVITY, None),
-    );
-    let (recalled, own) = (recalled.unwrap_or_default(), own.unwrap_or_default());
-    let context = if own.trim().is_empty() {
-        recalled.clone()
-    } else {
-        format!("{recalled}\n\nWHAT YOU YOURSELF HAVE POSTED RECENTLY:\n{own}")
-    };
+    // What is relevant to this post, what was said to this person before,
+    // and what the account itself has been doing lately. The last is not a
+    // nicety: asked "much higher for tiny?", the account once answered "I'm
+    // just a mascot who doesn't read charts" hours after publishing a chart
+    // of its own token. Every source fails soft, and says so: a reply that
+    // never goes out because memory answered a 401 is a person ignored.
+    let author_id = post.author_id.as_ref().map(ToString::to_string);
+    let post_id = post.id.to_string();
+    let gathered = TurnContext::for_ctx(ctx)
+        .gather(TurnQuery {
+            query: &query,
+            person: person.as_ref(),
+            author_id: author_id.as_deref(),
+            post_id: Some(&post_id),
+        })
+        .await;
+    let context = gathered.text;
 
     let agent = &ctx.config.agent;
     let task = render_task(&TaskInput {
@@ -204,12 +205,9 @@ pub async fn generate(ctx: &JobCtx, post: &XPost) -> anyhow::Result<ReplyDraft> 
         })
         .await?;
     let mut draft = parse_answer(&outcome.reply, &outcome.tool_calls)?;
-    // What memory said goes on the draft for the journal, deduplicated: the
-    // two recalls overlap when memory has little on the person.
-    for line in summarise_recall(&recalled, 3)
-        .into_iter()
-        .chain(summarise_recall(&own, 2))
-    {
+    // What the turn was told goes on the draft for the journal: what was
+    // recalled, not the drafter's paraphrase of it, and which source dropped out.
+    for line in gathered.recalled {
         if !draft.recalled.contains(&line) {
             draft.recalled.push(line);
         }
@@ -218,7 +216,7 @@ pub async fn generate(ctx: &JobCtx, post: &XPost) -> anyhow::Result<ReplyDraft> 
     // Sour and abusive posts are answered but not kept. Capture is
     // best-effort: the draft exists, and a storage error helps nobody.
     if !is_sour(draft.incoming_tone)
-        && let Err(error) = memory.capture_mention(&remembered).await
+        && let Err(error) = ctx.deps.memory.capture_mention(&remembered).await
     {
         tracing::warn!(%error, post_id = %post.id, "could not capture the mention");
     }

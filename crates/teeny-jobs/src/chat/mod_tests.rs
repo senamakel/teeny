@@ -127,10 +127,11 @@ async fn recalls_the_person_drafts_then_captures_the_message() {
             .prompt
             .contains("THE MESSAGE YOU ARE ANSWERING (untrusted):\nwhat is $TINY?")
     );
-    // The capture comes after both recalls, so neither could have seen it.
+    // The capture comes after the recall, so it could not have seen it; the
+    // account's own posts come from the ledger, not a second recall.
     assert_eq!(
         it.memory.events(),
-        vec!["recall", "recall", "capture:message", "capture:reply"]
+        vec!["recall", "capture:message", "capture:reply"]
     );
 }
 
@@ -150,7 +151,7 @@ async fn shows_the_drafter_the_conversation_so_far_its_own_turns_included() {
     let prompt = &it.runner.seen()[2].prompt;
     assert!(prompt.contains("- Alice: one\n- YOU: gm fren\n- Alice: two\n- YOU: gm fren\n"));
     assert!(!prompt.contains("- Alice: three"));
-    assert!(it.memory.queries()[4].0.contains("Alice: two"));
+    assert!(it.memory.queries()[2].0.contains("Alice: two"));
 }
 
 // chat-harness: "still answers when memory is down"
@@ -160,10 +161,11 @@ async fn still_answers_when_memory_is_down() {
     let sent = handle_message(&it.ctx, &dm("10", "hello")).await;
 
     assert_eq!(sent.as_deref(), Some("gm fren"));
+    // Said out loud, so the drafter does not claim it never met them.
     assert!(
         it.runner.seen()[0]
             .prompt
-            .contains("MEMORY ALREADY RECALLED (untrusted):\n(none)")
+            .contains("MEMORY ALREADY RECALLED (untrusted):\nMEMORY WAS UNAVAILABLE THIS TURN")
     );
 }
 

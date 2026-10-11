@@ -36,13 +36,10 @@ use teeny_store::{ChatTurn, TranscriptEntry};
 use crate::ctx::{Conversation, JobCtx};
 use crate::reply::harness::is_sour;
 use crate::runner::{AgentKey, AgentRun, Origin};
+use crate::turn_context::{TurnContext, TurnQuery};
 
 /// The channel's name in memory and the transcript.
 pub const CHANNEL: &str = "telegram";
-
-/// The second recall, as on X: what the account has been saying itself.
-const OWN_ACTIVITY: &str = "What has this account itself posted recently? Include its daily chart posts, the \
-market reads it published, and anything it has said publicly in the last few days.";
 
 /// One message to the account, as the transport hands it over. Several
 /// messages typed in a row by one person arrive joined, one per line, under
@@ -135,7 +132,9 @@ async fn keep_own_turn(
 }
 
 /// Recall, draft, capture: the chat-shaped twin of the reply harness, with
-/// the same order and the same reasons for it.
+/// the same order and the same reasons for it. The turn context reads the
+/// account's own posts from the ledger and asks memory about the person;
+/// a Telegram user has no mention-queue history to read exactly.
 async fn generate(
     ctx: &JobCtx,
     message: &ChatMessage,
@@ -164,17 +163,17 @@ async fn generate(
     if !conversation.is_empty() {
         query.push_str(&format!("\n\nThe conversation it sits in:\n{conversation}"));
     }
-    let memory = &ctx.deps.memory;
-    let (recalled, own) = tokio::join!(
-        memory.recall(&query, Some(&person)),
-        memory.recall(OWN_ACTIVITY, None)
-    );
-    let (recalled, own) = (recalled.unwrap_or_default(), own.unwrap_or_default());
-    let context = if own.trim().is_empty() {
-        recalled
-    } else {
-        format!("{recalled}\n\nWHAT YOU YOURSELF HAVE POSTED RECENTLY:\n{own}")
-    };
+    // Every source fails soft, and says so: a message drafted without memory
+    // is a worse message, and one that never goes out because the memory
+    // service is down is a person in a DM being ignored.
+    let context = TurnContext::for_ctx(ctx)
+        .gather(TurnQuery {
+            query: &query,
+            person: Some(&person),
+            ..TurnQuery::default()
+        })
+        .await
+        .text;
 
     let agent = &ctx.config.agent;
     let task = draft::render_task(&draft::TaskInput {
@@ -200,7 +199,11 @@ async fn generate(
     let drafted = draft::parse_answer(&outcome.reply, &outcome.tool_calls)?;
     if !is_sour(drafted.incoming_tone)
         && !rehearsal(ctx)
-        && let Err(error) = memory.capture_chat_message(&message.for_memory()).await
+        && let Err(error) = ctx
+            .deps
+            .memory
+            .capture_chat_message(&message.for_memory())
+            .await
     {
         tracing::warn!(%error, chat_id = message.chat_id, "could not capture the chat message");
     }

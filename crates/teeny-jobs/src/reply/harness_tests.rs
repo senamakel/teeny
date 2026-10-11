@@ -6,6 +6,7 @@ use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
 use serde_json::json;
+use teeny_agent::deps::QueuedXPost;
 use teeny_agent::deps::{Deps, fake_vars};
 use teeny_agent::fakes::FakeVision;
 use teeny_core::Config;
@@ -15,6 +16,7 @@ use teeny_media::types::ImageInput;
 use teeny_media::wiring::MediaAccess;
 use teeny_memory::Person;
 use teeny_store::journal::Tone;
+use teeny_store::posts::NewOwnPost;
 use teeny_x::model::{XPost, XPostMedia};
 
 use super::*;
@@ -196,21 +198,76 @@ async fn drafts_from_the_words_alone_when_nothing_can_look_or_looking_fails() {
 }
 
 #[tokio::test]
-async fn also_recalls_what_the_account_itself_has_posted_and_labels_it_as_such() {
+async fn reads_what_the_account_itself_has_posted_from_the_ledger_and_labels_it_as_such() {
     let it = subject(
         &hi(),
-        ProbeMemory::answering(&[
-            "they asked about the roadmap last week",
-            "yesterday you posted the daily chart",
-        ]),
+        ProbeMemory::answering(&["they asked about the roadmap last week"]),
     );
+    let posted_at = it.ctx.now() - chrono::TimeDelta::hours(20);
+    it.ctx
+        .conversation()
+        .unwrap()
+        .posts
+        .record(&NewOwnPost {
+            post_id: "p1".into(),
+            kind: "chart".into(),
+            posted_at: teeny_store::iso(posted_at),
+            text: Some("yesterday you posted the daily chart".into()),
+        })
+        .await
+        .unwrap();
     generate(&it.ctx, &XPost::new("1", "much higher for tiny?"))
         .await
         .unwrap();
     let prompt = &it.runner.seen()[0].prompt;
-    assert!(prompt.contains(
-        "they asked about the roadmap last week\n\nWHAT YOU YOURSELF HAVE POSTED RECENTLY:\nyesterday you posted the daily chart"
-    ));
+    let stamp = posted_at.format("%Y-%m-%d %H:%M UTC");
+    assert!(
+        prompt.contains(&format!(
+            "they asked about the roadmap last week\n\nWHAT YOU YOURSELF HAVE POSTED RECENTLY:\n[{stamp} · chart] yesterday you posted the daily chart"
+        )),
+        "{prompt}"
+    );
+    // One recall: the own-activity question is answered by the ledger.
+    assert_eq!(it.memory.queries().len(), 1);
+}
+
+#[tokio::test]
+async fn reads_the_last_exchanges_with_the_person_exactly_from_the_queue() {
+    let it = subject(&hi(), ProbeMemory::default());
+    let conversation = it.ctx.conversation().unwrap();
+    let earlier = XPost {
+        author_id: Some("77".into()),
+        author_username: Some("web3knight".into()),
+        ..XPost::new("90", "is the serial back?")
+    };
+    conversation
+        .queue
+        .cache(&[QueuedXPost(earlier), QueuedXPost(mention())])
+        .await
+        .unwrap();
+    conversation
+        .queue
+        .mark_replied(
+            "90",
+            &teeny_store::Reply {
+                text: "tuesday, promise".into(),
+                ..teeny_store::Reply::default()
+            },
+        )
+        .await
+        .unwrap();
+    let draft = generate(&it.ctx, &mention()).await.unwrap();
+    let prompt = &it.runner.seen()[0].prompt;
+    assert!(
+        prompt.contains("YOUR LAST 1 EXCHANGES WITH @web3knight"),
+        "{prompt}"
+    );
+    assert!(prompt.contains("@web3knight: is the serial back?\n  you: tuesday, promise"));
+    assert!(
+        draft
+            .recalled
+            .contains(&"1 earlier exchanges with @web3knight".to_owned())
+    );
 }
 
 #[tokio::test]
@@ -233,24 +290,6 @@ impl EndsWithMemory for String {
 }
 
 #[tokio::test]
-async fn still_replies_when_the_self_recall_fails() {
-    let memory = ProbeMemory::answering(&["context"]);
-    memory
-        .answers
-        .lock()
-        .unwrap()
-        .push_back(Err("401 MISSING_TOKEN".into()));
-    let it = subject(&hi(), memory);
-    assert_eq!(
-        generate(&it.ctx, &XPost::new("1", "hello"))
-            .await
-            .unwrap()
-            .text,
-        "hi"
-    );
-}
-
-#[tokio::test]
 async fn still_recalls_without_an_author_just_without_a_person_filter() {
     let it = subject(&hi(), ProbeMemory::default());
     generate(&it.ctx, &XPost::new("43", "hello")).await.unwrap();
@@ -266,10 +305,7 @@ async fn recalls_before_capturing_so_the_post_is_not_read_back_as_history() {
         ..XPost::new("1", "gm")
     };
     generate(&it.ctx, &post).await.unwrap();
-    assert_eq!(
-        it.memory.events(),
-        vec!["recall", "recall", "capture:mention"]
-    );
+    assert_eq!(it.memory.events(), vec!["recall", "capture:mention"]);
 }
 
 #[tokio::test]
@@ -308,7 +344,7 @@ async fn remembers_friendly_and_neutral_posts_as_usual() {
 }
 
 #[tokio::test]
-async fn when_memory_is_down_it_still_drafts_with_no_memory_and_no_failure() {
+async fn when_memory_is_down_it_still_drafts_and_says_memory_was_unavailable() {
     let it = subject(&hi(), ProbeMemory::broken());
     let post = XPost {
         author_id: Some("9".into()),
@@ -316,7 +352,15 @@ async fn when_memory_is_down_it_still_drafts_with_no_memory_and_no_failure() {
     };
     let draft = generate(&it.ctx, &post).await.unwrap();
     assert_eq!(draft.text, "hi");
-    assert!(it.runner.seen()[0].prompt.ends_with_memory("(none)"));
+    // Said out loud rather than left blank: an empty memory reads as "never
+    // met this person", and the drafter used to say exactly that.
+    let prompt = &it.runner.seen()[0].prompt;
+    assert!(
+        prompt.contains("MEMORY WAS UNAVAILABLE THIS TURN"),
+        "{prompt}"
+    );
+    assert!(!prompt.contains("401"));
+    assert!(draft.recalled.contains(&"(memory unavailable)".to_owned()));
     assert_eq!(draft.incoming_tone, Tone::Friendly);
 }
 
