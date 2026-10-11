@@ -161,7 +161,7 @@ fn states_its_handle_in_every_prompt_even_when_the_persona_is_loaded() {
     let options = PromptOptions {
         persona: Some(Persona {
             soul: Some("# SOUL.md - Tiny (@TinyMascot)".into()),
-            context: None,
+            ..Persona::default()
         }),
         ..options("teenydroid", true)
     };
@@ -256,6 +256,7 @@ fn matches_the_legacy_prompts_byte_for_byte() {
             persona: case["persona"].as_bool().unwrap().then(|| Persona {
                 soul: Some("# SOUL.md - Tiny\n\nYou are Tiny.".into()),
                 context: Some("# CONTEXT.md\n\n$TINY is the only token.".into()),
+                ..Persona::default()
             }),
         };
         let chart_options = PromptOptions {
@@ -321,3 +322,73 @@ const CHART_CHANGES: [(&str, &str); 6] = [
 
 const ANSWER_10: &str = "10. Answer with the post and that chartId, in the shape the task gives. You do not publish it:\n   the service checks it and publishes it, and remembers what went out.\n";
 const ANSWER_9: &str = "9. Answer with the post and that chartId, in the shape the task gives. You do not publish it:\n   the service checks it and publishes it, and remembers what went out.\n";
+
+/// Port of "the learnings in the persona" in `legacy/test/learnings.test.ts`.
+#[test]
+fn the_learnings_reach_the_rendered_persona_and_a_rewrite_reaches_it_without_a_reload() {
+    let root = fixture("learnings");
+    let path = root.join("memory/LEARNINGS.md");
+    let _ = std::fs::remove_file(&path);
+    let persona = Persona::load(root.join("SOUL.md"), root.join("CONTEXT.md"))
+        .unwrap()
+        .with_learnings(&path);
+    // A clone (the prompts hold one each) reads the same file.
+    let held = persona.clone();
+
+    assert_eq!(persona.learnings(), None);
+    assert!(!render_persona(&held).contains("<learnings>"));
+
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, "# Learnings\n\n- @ana likes the lab lore\n").unwrap();
+    let rendered = render_persona(&held);
+    assert!(
+        rendered.contains("<learnings>\n# Learnings\n\n- @ana likes the lab lore\n</learnings>"),
+        "{rendered}"
+    );
+    // After the facts, before nothing else: SOUL.md and CONTEXT.md outrank it.
+    assert!(
+        rendered.find("$TINY is the only token").unwrap() < rendered.find("<learnings>").unwrap()
+    );
+    assert!(rendered.contains("SOUL.md and the facts above still outrank it"));
+
+    // The same length, so only the modification time tells them apart.
+    std::fs::write(&path, "# Learnings\n\n- @ana loves the lab lore\n").unwrap();
+    let later = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
+    std::fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(later)
+        .unwrap();
+    assert!(render_persona(&held).contains("@ana loves the lab lore"));
+
+    // A brief that goes away is no brief, not an error.
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(held.learnings(), None);
+}
+
+#[test]
+fn reads_the_brief_only_when_the_learnings_are_on() {
+    let root = fixture("learnings-config");
+    let config = teeny_core::Config::from_vars(
+        crate::deps::fake_vars()
+            .into_iter()
+            .chain([("LEARNINGS_PATH", "/nonexistent/LEARNINGS.md")]),
+    )
+    .unwrap();
+    let mut agent = config.agent.clone();
+    agent.soul_path = root.join("SOUL.md").display().to_string();
+    let on = Persona::from_settings(&agent, &config.learnings).unwrap();
+    assert_eq!(
+        on.learnings_path(),
+        Some(std::path::Path::new("/nonexistent/LEARNINGS.md"))
+    );
+    let mut off = config.learnings.clone();
+    off.enabled = false;
+    assert_eq!(
+        Persona::from_settings(&agent, &off)
+            .unwrap()
+            .learnings_path(),
+        None
+    );
+}

@@ -144,7 +144,8 @@ ENV TEENY_DATA=/data \
     ARTICLES_DIR=/data/articles \
     QUOTE_LOG_PATH=/data/state/quotes.json \
     NARRATIVE_STATE_PATH=/data/state/narrative-state.json \
-    BACKROOMS_DIR=/data/state/backrooms
+    BACKROOMS_DIR=/data/state/backrooms \
+    LEARNINGS_PATH=/data/state/memory/LEARNINGS.md
 
 # deploy.sh and cutover.sh tell this image from the legacy one by this label.
 LABEL org.opencontainers.image.source="https://github.com/tinyhumansai/teeny" \

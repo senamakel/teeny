@@ -3,9 +3,9 @@
 //! `chart-prompt.ts` and `soul.ts`.
 //!
 //! The text is the legacy's, line for line ([`rules`] holds it). The one
-//! change is the persona: `SOUL.md` and `CONTEXT.md` still open the prompt,
-//! but skills are no longer pasted in after them, because OpenHuman loads
-//! them through `skills_dir`. Two lines still name a skill inline and rely on
+//! change is the persona: `SOUL.md`, `CONTEXT.md` and the learnings brief
+//! still open the prompt, but skills are no longer pasted in after them,
+//! because OpenHuman loads them through `skills_dir`. Two lines still name a skill inline and rely on
 //! it being loaded: the conversation skill's pre-post check, which
 //! `x_critique` points to when the critic is down.
 
@@ -15,7 +15,7 @@ mod soul;
 
 pub use chart::chart_prompt;
 pub use rules::{CONTENT_RULES, PRICE_RULES};
-pub use soul::{Persona, render_persona};
+pub use soul::{LiveFile, Persona, render_persona};
 
 use rules::*;
 

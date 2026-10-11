@@ -75,6 +75,7 @@ services:
       QUOTE_LOG_PATH: /data/state/quotes.json
       NARRATIVE_STATE_PATH: /data/state/narrative-state.json
       BACKROOMS_DIR: /data/state/backrooms
+      LEARNINGS_PATH: /data/state/memory/LEARNINGS.md
     # api.telegram.org publishes an AAAA record and this network has no v6
     # route; a client that tries v6 first sits in a connect timeout instead
     # of falling back. The legacy service needed

@@ -73,6 +73,10 @@ async fn run(command: Command) -> anyhow::Result<()> {
             init_tracing("warn");
             cmd::cron::execute(&args).await
         }
+        Command::Learnings(args) => {
+            init_tracing("warn");
+            cmd::learnings::execute(&args).await
+        }
         Command::Redteam => {
             init_tracing("warn");
             cmd::redteam::execute().await
