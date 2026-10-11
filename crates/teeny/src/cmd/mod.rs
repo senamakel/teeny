@@ -7,6 +7,7 @@ pub mod cron;
 pub mod dry_run;
 pub mod forget;
 pub mod learnings;
+pub mod memory;
 pub mod redteam;
 pub mod remember;
 pub mod unsay;

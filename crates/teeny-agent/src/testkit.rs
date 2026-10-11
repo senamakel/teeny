@@ -258,6 +258,7 @@ async fn boot() -> Booted {
         allowed_domains: vec!["dexscreener.com".into()],
         tinycomputer_module: None,
         backend_url: Some(server.uri()),
+        memory: runtime::MemorySettings::default(),
     };
     let runtime = runtime::global(settings)
         .await
@@ -268,6 +269,7 @@ async fn boot() -> Booted {
         model: MODEL.into(),
         skills_dir: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../skills"),
         max_iterations: 4,
+        memory_root: teeny_memory::DEFAULT_ROOT.into(),
     };
     let agents = TeenyAgents::register(runtime, &Deps::fake(), context)
         .expect("every Teeny agent registers");

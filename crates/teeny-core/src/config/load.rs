@@ -111,6 +111,12 @@ fn cortex(env: &mut Env) -> CortexConfig {
 
 fn memory(env: &mut Env) -> MemoryConfig {
     MemoryConfig {
+        url: env.url("TEENY_MEMORY_URL", "http://127.0.0.1:3143"),
+        token: env.optional_secret("TEENY_MEMORY_TOKEN", 1),
+        root: env.name("TEENY_MEMORY_ROOT", "team:teeny"),
+        build_beliefs_every: env.int("MEMORY_BUILD_BELIEFS_EVERY", 10, 0, 1_000),
+        learnings_limit: env.int("MEMORY_LEARNINGS_LIMIT", 8, 0, 50),
+        turn_pack: env.switch("MEMORY_TURN_PACK", true),
         exchanges: env.int("MEMORY_EXCHANGES", 6, 0, 50),
         own_posts_hours: env.int("MEMORY_OWN_POSTS_HOURS", 72, 0, 24 * 14),
         own_posts_limit: env.int("MEMORY_OWN_POSTS_LIMIT", 8, 0, 50),

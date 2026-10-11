@@ -764,6 +764,56 @@ mod memory {
     use super::*;
 
     #[test]
+    fn the_shared_store_is_a_local_cortexdb_on_root_team_teeny_with_learning_on() {
+        let config = load(&[]);
+        assert_eq!(config.memory.url, "http://127.0.0.1:3143");
+        assert_eq!(config.memory.token, None, "no key means memory is off");
+        assert_eq!(config.memory.root, "team:teeny");
+        assert_eq!(config.memory.build_beliefs_every, 10);
+        assert_eq!(config.memory.learnings_limit, 8);
+        assert!(config.memory.turn_pack);
+    }
+
+    #[test]
+    fn reads_the_shared_store_apart_from_the_legacy_one() {
+        let config = load(&[
+            ("TEENY_MEMORY_URL", "http://teeny-cortexdb:3141"),
+            ("TEENY_MEMORY_TOKEN", "new-key"),
+            ("TEENY_MEMORY_ROOT", "team:teeny-shadow"),
+            ("MEMORY_BUILD_BELIEFS_EVERY", "0"),
+            ("MEMORY_LEARNINGS_LIMIT", "3"),
+            ("MEMORY_TURN_PACK", "false"),
+        ]);
+        assert_eq!(config.memory.url, "http://teeny-cortexdb:3141");
+        assert_eq!(
+            config.memory.token.as_ref().map(Secret::expose),
+            Some("new-key")
+        );
+        assert_eq!(
+            config.cortex.token.expose(),
+            "c",
+            "the legacy key is its own"
+        );
+        assert_eq!(config.memory.root, "team:teeny-shadow");
+        assert_eq!(config.memory.build_beliefs_every, 0);
+        assert_eq!(config.memory.learnings_limit, 3);
+        assert!(!config.memory.turn_pack);
+        assert_eq!(load(&[("TEENY_MEMORY_TOKEN", "")]).memory.token, None);
+        assert_eq!(
+            keys(&load_err(&[
+                ("TEENY_MEMORY_URL", "not a url"),
+                ("TEENY_MEMORY_ROOT", ""),
+                ("MEMORY_LEARNINGS_LIMIT", "51"),
+            ])),
+            [
+                "TEENY_MEMORY_URL",
+                "TEENY_MEMORY_ROOT",
+                "MEMORY_LEARNINGS_LIMIT"
+            ]
+        );
+    }
+
+    #[test]
     fn gives_a_recall_seconds_reads_exact_history_by_default_and_keeps_the_brief_on() {
         let config = load(&[]);
         assert_eq!(config.cortex.recall_timeout_ms, 15_000);

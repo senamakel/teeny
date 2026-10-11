@@ -64,6 +64,7 @@ async fn run(command: Command) -> anyhow::Result<()> {
         Command::Webhook(args) => cmd::webhook::execute(&args).await,
         Command::Forget(args) => cmd::forget::execute(&args).await,
         Command::Remember(args) => cmd::remember::execute(&args).await,
+        Command::Memory(args) => cmd::memory::execute(&args).await,
         Command::Unsay(args) => cmd::unsay::execute(&args).await,
         Command::DryRun(args) => {
             init_tracing("warn");

@@ -1,5 +1,5 @@
-//! `teeny remember`: one durable note in CortexDB, stored the way the
-//! agent's own `remember` tool stores it, for facts the operator wants in
+//! `teeny remember`: one durable note in the shared memory, stored the way
+//! the agent's own `remember` tool stores it, for facts the operator wants in
 //! memory without waiting for a turn to store them.
 //!
 //! Memory is recalled on every turn, so a note written here is read back in
@@ -13,8 +13,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::bail;
 use serde_json::json;
+use teeny_agent::runtime::RuntimeSettings;
+use teeny_agent::shared_memory::shared_memory;
 use teeny_core::Config;
-use teeny_memory::{CortexMemory, Memory};
+use teeny_memory::{CortexOptions, Memory};
 
 /// `teeny remember "<note>" [--label <label>]...`
 #[derive(Debug, Clone, PartialEq, Eq, clap::Args)]
@@ -27,7 +29,7 @@ pub struct RememberArgs {
     pub labels: Vec<String>,
 }
 
-/// Stores the note and says where. `place` is `<scope> at <api url>`.
+/// Stores the note and says where. `place` is `<root> at <store url>`.
 pub async fn run(
     memory: &dyn Memory,
     args: &RememberArgs,
@@ -54,8 +56,11 @@ pub async fn run(
 /// The command, from the environment.
 pub async fn execute(args: &RememberArgs) -> anyhow::Result<()> {
     let config = Config::from_env()?;
-    let memory = CortexMemory::from_config(&config.cortex)?;
-    let place = format!("{} at {}", config.cortex.scope, config.cortex.api_url);
+    let memory = shared_memory(
+        RuntimeSettings::from_teeny(&config),
+        CortexOptions::from_config(&config.cortex),
+    );
+    let place = format!("{} at {}", config.memory.root, config.memory.url);
     run(&memory, args, &place, &mut std::io::stdout()).await
 }
 

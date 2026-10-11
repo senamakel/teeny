@@ -151,6 +151,27 @@ fn a_spec_carries_its_belts_id() {
 }
 
 #[test]
+fn every_agent_keeps_its_own_turns_under_the_one_shared_memory_root() {
+    let deps = Deps::fake();
+    let mut vars = crate::deps::fake_vars();
+    vars.push(("TEENY_MEMORY_ROOT", "team:teeny-shadow"));
+    let context = SpecContext::from_config(&teeny_core::Config::from_vars(vars).unwrap());
+    assert_eq!(context.memory_root, "team:teeny-shadow");
+    for belt in [Belt::Reply, Belt::Chart, Belt::Operator] {
+        let tools = Arc::new(belt.build(&deps));
+        let spec = belt_spec(belt, tools, "prompt".into(), &context);
+        let expected = MemoryBinding::new(agent_id(belt)).root("team:teeny-shadow");
+        assert!(
+            format!("{spec:?}").contains(&format!("{:?}", Some(&expected))),
+            "{spec:?}"
+        );
+    }
+    let room = memory_binding("teeny-room-gm", &context);
+    assert_eq!(room.agent_id(), "teeny-room-gm");
+    assert_eq!(room.root_namespace(), Some("team:teeny-shadow"));
+}
+
+#[test]
 fn a_public_belt_is_handed_its_reads_only_and_parks_nothing() {
     let deps = Deps::fake();
     for belt in Belt::ALL {

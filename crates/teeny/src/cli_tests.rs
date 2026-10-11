@@ -46,6 +46,38 @@ mod operator {
     }
 
     #[test]
+    fn reads_memory_import_and_its_options() {
+        let Command::Memory(args) = parse(&["memory", "import"]) else {
+            panic!("not memory");
+        };
+        let crate::cmd::memory::MemoryCommand::Import(import) = args.command;
+        assert!(!import.dry_run);
+        assert_eq!(import.since, None);
+        assert_eq!(import.cursor, None);
+        let Command::Memory(args) = parse(&[
+            "memory",
+            "import",
+            "--dry-run",
+            "--since",
+            "2026-09-01",
+            "--cursor",
+            "/data/c.json",
+        ]) else {
+            panic!("not memory");
+        };
+        let crate::cmd::memory::MemoryCommand::Import(import) = args.command;
+        assert!(import.dry_run);
+        assert_eq!(
+            import.since.map(|at| at.to_rfc3339()).as_deref(),
+            Some("2026-09-01T00:00:00+00:00")
+        );
+        assert_eq!(
+            import.cursor.as_deref(),
+            Some(std::path::Path::new("/data/c.json"))
+        );
+    }
+
+    #[test]
     fn reads_learnings_and_its_rehearsal() {
         let Command::Learnings(args) = parse(&["learnings"]) else {
             panic!("not learnings");

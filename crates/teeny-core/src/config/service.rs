@@ -90,10 +90,33 @@ pub struct CortexConfig {
     pub health_cron: String,
 }
 
-/// What a turn is told before it is drafted, read exactly rather than
-/// searched for. Zero turns either source off.
+/// The account's memory: the shared TinyMemory store every agent reads and
+/// writes through OpenHuman, and what a turn is told before it is drafted,
+/// read exactly rather than searched for (zero turns either source off).
 #[derive(Debug, Clone, PartialEq)]
 pub struct MemoryConfig {
+    /// `TEENY_MEMORY_URL`, default `http://127.0.0.1:3143`: the dedicated
+    /// CortexDB the shared memory lives in (`teeny-cortexdb` in the
+    /// deployment), not the legacy store at `CORTEX_API_URL`.
+    pub url: String,
+    /// `TEENY_MEMORY_TOKEN`: that store's API key. Without one the shared
+    /// memory is off: every recall reads as unavailable and nothing is
+    /// captured.
+    pub token: Option<Secret>,
+    /// `TEENY_MEMORY_ROOT`, default `team:teeny`: the layout root every
+    /// agent's memory lives under. The shadow run uses a root of its own.
+    pub root: String,
+    /// `MEMORY_BUILD_BELIEFS_EVERY`, 0..=1000, default 10: an agent's turns
+    /// between belief builds; zero builds none.
+    pub build_beliefs_every: u32,
+    /// `MEMORY_LEARNINGS_LIMIT`, 0..=50, default 8: learnings in an agent's
+    /// pre-turn memory pack.
+    pub learnings_limit: u32,
+    /// `MEMORY_TURN_PACK`, default on: OpenHuman reads each agent a memory
+    /// pack (the shared learnings, its own history) before every turn and
+    /// logs the turn after it. Off, agents still share the store through
+    /// the account's own captures and recall.
+    pub turn_pack: bool,
     /// `MEMORY_EXCHANGES`, 0..=50, default 6: the last answered mentions from
     /// the person, from the mention queue.
     pub exchanges: u32,

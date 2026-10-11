@@ -4,9 +4,11 @@ pub mod deps;
 pub mod exa;
 pub mod fakes;
 pub mod llm;
+pub mod memory_relay;
 pub mod posture;
 pub mod prompt;
 pub mod runtime;
+pub mod shared_memory;
 pub mod shared_tool;
 pub mod specs;
 #[cfg(feature = "testkit")]

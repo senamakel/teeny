@@ -29,7 +29,7 @@ struct RememberArgs {
 pub fn recall_memory(memory: Arc<dyn Memory>) -> Arc<dyn Tool> {
     HostTool::build(
         "recall_memory",
-        "Search CortexDB long-term memory for prior interactions, product facts, tone, and past decisions. \
+        "Search long-term memory, the one every part of the account shares, for prior interactions, product facts, tone, and past decisions. \
          Call this before answering anything about the project or a user the bot has spoken to before. \
          Pass `about` with an @handle to search what is known about, and what was said with, that particular person.",
         json!({
@@ -76,7 +76,7 @@ pub fn recall_memory(memory: Arc<dyn Memory>) -> Arc<dyn Tool> {
 pub fn remember(memory: Arc<dyn Memory>) -> Arc<dyn Tool> {
     HostTool::build(
         "remember",
-        "Write a durable note to CortexDB memory. Use for facts worth recalling in future turns: decisions \
+        "Write a durable note to long-term memory, shared by every part of the account. Use for facts worth recalling in future turns: decisions \
          taken, promises made, user preferences, correction of a mistake.",
         json!({
             "type": "object",

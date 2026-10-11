@@ -8,6 +8,7 @@ use crate::cmd::cron::CronArgs;
 use crate::cmd::dry_run::DryRunArgs;
 use crate::cmd::forget::ForgetArgs;
 use crate::cmd::learnings::LearningsArgs;
+use crate::cmd::memory::MemoryArgs;
 use crate::cmd::remember::RememberArgs;
 use crate::cmd::unsay::UnsayArgs;
 use crate::cmd::webhook::WebhookArgs;
@@ -30,10 +31,12 @@ pub enum Command {
     AuthX(AuthXArgs),
     /// Read and move where X delivers the account's activity.
     Webhook(WebhookArgs),
-    /// Preview, and with --confirm perform, a CortexDB deletion.
+    /// Preview, and with --confirm perform, a deletion in the legacy CortexDB.
     Forget(ForgetArgs),
-    /// Store one durable note in CortexDB, as the remember tool does.
+    /// Store one durable note in the shared memory, as the remember tool does.
     Remember(RememberArgs),
+    /// The shared memory: `import` copies the legacy CortexDB scope into it.
+    Memory(MemoryArgs),
     /// Delete replies the account should not have made, and requeue the
     /// mentions behind them.
     Unsay(UnsayArgs),

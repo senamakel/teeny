@@ -30,6 +30,16 @@
 //! research browser on the data volume, and limits browsing to
 //! `BROWSE_ALLOWED_DOMAINS` less X: the account reaches X through its own
 //! API, never a browser.
+//!
+//! **Memory.** Every agent shares one TinyMemory store: the dedicated
+//! CortexDB at `TEENY_MEMORY_URL`, installed as the runtime's memory engine
+//! ([`memory_engine`]; OpenHuman's `RuntimeBuilder::memory_engine`, the
+//! embed path for a host that owns its store, so no key goes through the
+//! keychain). Every agent is bound to the root `TEENY_MEMORY_ROOT`
+//! ([`crate::specs`]): the learnings and beliefs there are shared, each
+//! agent's own turns are logged at its node below, and the account's own
+//! captures go to the root through [`crate::shared_memory`]. Without
+//! `TEENY_MEMORY_TOKEN` memory is off (`[memory] engine = "none"`).
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
@@ -37,10 +47,13 @@ use std::sync::{Arc, OnceLock};
 use openhuman_core::config::Config as OhConfig;
 use openhuman_core::config::schema::ModuleOverride;
 use openhuman_core::core::runtime::{AGENT_WORKER_STACK_BYTES, MAX_BLOCKING_THREADS};
+use openhuman_embed::memory::api::MemoryEngine;
 use openhuman_embed::{
-    Access, DomainSet, Runtime, RuntimeError, ServiceSet, ToolGroups, Workspace,
+    Access, DomainSet, LearningSettings, Runtime, RuntimeError, ServiceSet, ToolGroups, Workspace,
 };
-use teeny_core::config::OpenHumanConfig;
+use teeny_core::Secret;
+use teeny_core::config::{MemoryConfig, OpenHumanConfig};
+use tinymemory_integrations::cortex::{CortexCredential, CortexEngine};
 use tokio::sync::OnceCell;
 
 /// Hosts no browser turn may open, with their subdomains: X, and the
@@ -67,6 +80,121 @@ pub struct RuntimeSettings {
     /// OpenHuman's default; a test points it at a stub so nothing leaves
     /// the machine.
     pub backend_url: Option<String>,
+    /// The shared memory.
+    pub memory: MemorySettings,
+}
+
+/// The shared memory every agent reads and writes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemorySettings {
+    /// `TEENY_MEMORY_URL` and `TEENY_MEMORY_TOKEN`; `None` turns memory off.
+    pub store: Option<MemoryStore>,
+    /// `TEENY_MEMORY_ROOT`: the layout root every agent is bound to.
+    pub root: String,
+    /// `MEMORY_BUILD_BELIEFS_EVERY`.
+    pub build_beliefs_every: u32,
+    /// `MEMORY_LEARNINGS_LIMIT`.
+    pub learnings_limit: u32,
+    /// `MEMORY_TURN_PACK`: OpenHuman's pre-turn pack and turn log.
+    pub turn_pack: bool,
+    /// An engine in place of the store: a test's reference engine.
+    pub engine: Option<HostEngine>,
+}
+
+impl Default for MemorySettings {
+    /// Off, on the default root.
+    fn default() -> Self {
+        Self {
+            store: None,
+            root: teeny_memory::DEFAULT_ROOT.to_owned(),
+            build_beliefs_every: LearningSettings::default().build_beliefs_every,
+            learnings_limit: LearningSettings::default().learnings_limit,
+            turn_pack: true,
+            engine: None,
+        }
+    }
+}
+
+impl MemorySettings {
+    pub fn from_config(config: &MemoryConfig) -> Self {
+        Self {
+            store: config.token.clone().map(|token| MemoryStore {
+                url: config.url.clone(),
+                token,
+            }),
+            root: config.root.clone(),
+            build_beliefs_every: config.build_beliefs_every,
+            learnings_limit: config.learnings_limit,
+            turn_pack: config.turn_pack,
+            engine: None,
+        }
+    }
+
+    /// Whether an engine will be installed.
+    pub fn is_on(&self) -> bool {
+        self.store.is_some() || self.engine.is_some()
+    }
+
+    /// The learning policy every agent inherits.
+    pub fn learning(&self) -> LearningSettings {
+        LearningSettings {
+            build_beliefs_every: self.build_beliefs_every,
+            learnings_limit: self.learnings_limit,
+        }
+    }
+}
+
+/// The dedicated CortexDB the shared memory lives in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoryStore {
+    pub url: String,
+    pub token: Secret,
+}
+
+/// An engine handed to the runtime as is; equal only to itself.
+#[derive(Clone)]
+pub struct HostEngine(pub Arc<dyn MemoryEngine>);
+
+impl PartialEq for HostEngine {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for HostEngine {}
+
+impl std::fmt::Debug for HostEngine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("HostEngine")
+            .field(&self.0.descriptor().id)
+            .finish()
+    }
+}
+
+/// The engine the runtime installs: the test's, else the dedicated
+/// CortexDB, attributing each item to the person it is about (the
+/// `observed_actor` the legacy store was written with). `None` leaves
+/// memory off.
+///
+/// A store on the stack's private network is reached through a loopback
+/// relay ([`crate::memory_relay`]): the engine refuses cleartext to any
+/// other host.
+pub async fn memory_engine(
+    memory: &MemorySettings,
+) -> Result<Option<Arc<dyn MemoryEngine>>, BootError> {
+    if let Some(engine) = &memory.engine {
+        return Ok(Some(Arc::clone(&engine.0)));
+    }
+    let Some(store) = &memory.store else {
+        return Ok(None);
+    };
+    let endpoint = crate::memory_relay::engine_endpoint(&store.url)
+        .await
+        .map_err(|error| BootError::Memory(error.to_string()))?;
+    let engine = CortexEngine::direct(&endpoint, CortexCredential::api_key(store.token.expose()))
+        .map_err(|error| BootError::Memory(error.to_string()))?
+        .with_observed_actor(true);
+    Ok(Some(Arc::new(engine)))
 }
 
 impl RuntimeSettings {
@@ -81,6 +209,16 @@ impl RuntimeSettings {
             allowed_domains: config.allowed_domains.clone(),
             tinycomputer_module: config.tinycomputer_module_path.as_ref().map(PathBuf::from),
             backend_url: None,
+            memory: MemorySettings::default(),
+        }
+    }
+
+    /// From the whole configuration: [`Self::from_config`] with the shared
+    /// memory's settings.
+    pub fn from_teeny(config: &teeny_core::Config) -> Self {
+        Self {
+            memory: MemorySettings::from_config(&config.memory),
+            ..Self::from_config(&config.openhuman)
         }
     }
 
@@ -141,9 +279,18 @@ pub fn openhuman_config(settings: &RuntimeSettings) -> OhConfig {
     config.agent.tool_dispatcher = "native".into();
     config.autonomy.enabled = true;
     config.cron.enabled = true;
-    // Teeny remembers through CortexDB, with its own tools.
-    config.memory.conversations.enabled = false;
-    config.memory.recall.enabled = false;
+    // One shared store, installed as the host engine (`memory_engine`).
+    // Without it memory is off outright rather than reaching for the
+    // TinyHumans backend. The pre-turn pack and the turn log run only with
+    // a store, and only when `MEMORY_TURN_PACK` asks for them.
+    let memory = &settings.memory;
+    if !memory.is_on() {
+        config.memory.engine = "none".into();
+    }
+    let pack = memory.is_on() && memory.turn_pack;
+    config.memory.conversations.enabled = pack;
+    config.memory.recall.enabled = pack;
+    config.memory.root = Some(memory.root.clone());
     // No local models on this host. (OpenHuman no longer ships an embedded
     // Python runtime; `runtimes` is off in [`domains`] besides.)
     config.local_ai.runtime_enabled = false;
@@ -225,6 +372,8 @@ pub enum BootError {
     Runtime(#[from] RuntimeError),
     #[error("the OpenHuman boot task failed: {0}")]
     Task(String),
+    #[error("the shared memory store: {0}")]
+    Memory(String),
 }
 
 static RUNTIME: OnceCell<Arc<Runtime>> = OnceCell::const_new();
@@ -296,13 +445,19 @@ async fn build(settings: RuntimeSettings) -> Result<Arc<Runtime>, BootError> {
         .defer_services()
         // Every Teeny agent names its own access; one that forgot would get
         // the narrowest tier rather than the supervised default.
-        .access(Access::readonly());
+        .access(Access::readonly())
+        .learning(settings.memory.learning());
+    if let Some(engine) = memory_engine(&settings.memory).await? {
+        builder = builder.memory_engine(engine);
+    }
     if let Some(url) = &settings.backend_url {
         builder = builder.backend_url(url);
     }
     let runtime = builder.build().await?;
     tracing::info!(
         workspace = %settings.workspace_dir().display(),
+        memory = settings.memory.is_on(),
+        root = %settings.memory.root,
         "[runtime] OpenHuman runtime built"
     );
     Ok(Arc::new(runtime))

@@ -1,6 +1,6 @@
 //! What a memory call can fail with.
 
-/// CortexDB refused a call, or could not be reached.
+/// A memory store refused a call, or could not be reached.
 #[derive(Debug, thiserror::Error)]
 pub enum MemoryError {
     /// The request never got an answer: DNS, TLS, a timeout.
@@ -23,6 +23,9 @@ pub enum MemoryError {
     /// The call outlived its own deadline.
     #[error("request timed out after {after_ms}ms")]
     Timeout { after_ms: u128 },
+    /// The shared memory store refused a call or failed it.
+    #[error("memory store: {0}")]
+    Store(String),
     /// Recall is off for now; nothing was sent.
     #[error(transparent)]
     Paused(#[from] crate::RecallPaused),

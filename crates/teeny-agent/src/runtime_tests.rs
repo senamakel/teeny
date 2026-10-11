@@ -17,6 +17,7 @@ fn settings() -> RuntimeSettings {
         allowed_domains: vec!["dexscreener.com".into()],
         tinycomputer_module: Some(PathBuf::from("/opt/tinycomputer/libtinycomputer.so")),
         backend_url: None,
+        memory: MemorySettings::default(),
     }
 }
 
@@ -209,4 +210,94 @@ fn an_empty_list_browses_nothing_rather_than_everything() {
             .is_empty(),
         "OpenHuman's default is [\"*\"], which includes X"
     );
+}
+
+fn with_store() -> RuntimeSettings {
+    RuntimeSettings {
+        memory: MemorySettings {
+            store: Some(MemoryStore {
+                url: "http://teeny-cortexdb:3141".into(),
+                token: Secret::new("key"),
+            }),
+            ..MemorySettings::default()
+        },
+        ..settings()
+    }
+}
+
+#[tokio::test]
+async fn without_a_store_memory_is_off_and_no_turn_reads_or_logs_it() {
+    let config = openhuman_config(&settings());
+    assert_eq!(config.memory.engine, "none");
+    assert!(!config.memory.conversations.enabled);
+    assert!(!config.memory.recall.enabled);
+    assert!(memory_engine(&settings().memory).await.unwrap().is_none());
+}
+
+#[test]
+fn with_a_store_every_turn_reads_the_shared_root_and_is_logged_under_it() {
+    let config = openhuman_config(&with_store());
+    assert_ne!(config.memory.engine, "none");
+    assert!(config.memory.conversations.enabled);
+    assert!(config.memory.recall.enabled);
+    assert_eq!(config.memory.root.as_deref(), Some("team:teeny"));
+
+    let mut quiet = with_store();
+    quiet.memory.turn_pack = false;
+    let config = openhuman_config(&quiet);
+    assert!(!config.memory.conversations.enabled && !config.memory.recall.enabled);
+    assert_ne!(
+        config.memory.engine, "none",
+        "the store stays on for the host"
+    );
+}
+
+#[tokio::test]
+async fn the_store_is_installed_as_a_cortexdb_engine_and_a_tests_engine_wins() {
+    // On the stack's network by name, which the engine reaches by relay.
+    let engine = memory_engine(&with_store().memory).await.unwrap().unwrap();
+    assert_eq!(engine.descriptor().id, "cortexdb");
+
+    let reference: Arc<dyn MemoryEngine> =
+        Arc::new(tinymemory_api::conformance::ReferenceEngine::new());
+    let mut settings = with_store();
+    settings.memory.engine = Some(HostEngine(Arc::clone(&reference)));
+    let installed = memory_engine(&settings.memory).await.unwrap().unwrap();
+    assert!(Arc::ptr_eq(&installed, &reference));
+}
+
+#[test]
+fn the_learning_policy_and_the_store_come_from_the_teeny_config() {
+    let mut vars = crate::deps::fake_vars();
+    vars.extend([
+        ("TEENY_MEMORY_URL", "http://teeny-cortexdb:3141"),
+        ("TEENY_MEMORY_TOKEN", "key"),
+        ("TEENY_MEMORY_ROOT", "team:teeny-shadow"),
+        ("MEMORY_BUILD_BELIEFS_EVERY", "25"),
+        ("MEMORY_LEARNINGS_LIMIT", "4"),
+    ]);
+    let config = teeny_core::Config::from_vars(vars).unwrap();
+    let settings = RuntimeSettings::from_teeny(&config);
+    assert_eq!(
+        settings.data_dir,
+        RuntimeSettings::from_config(&config.openhuman).data_dir
+    );
+    let memory = &settings.memory;
+    assert_eq!(
+        memory.store,
+        Some(MemoryStore {
+            url: "http://teeny-cortexdb:3141".into(),
+            token: Secret::new("key"),
+        })
+    );
+    assert_eq!(memory.root, "team:teeny-shadow");
+    let learning = memory.learning();
+    assert_eq!(
+        (learning.build_beliefs_every, learning.learnings_limit),
+        (25, 4)
+    );
+    let off = RuntimeSettings::from_teeny(
+        &teeny_core::Config::from_vars(crate::deps::fake_vars()).unwrap(),
+    );
+    assert!(!off.memory.is_on());
 }

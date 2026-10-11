@@ -112,7 +112,7 @@ pub async fn execute() -> anyhow::Result<()> {
     let mut deps = Deps::from_config(config.clone()).await?;
     deps.memory = Arc::new(ReadOnlyMemory(Arc::clone(&deps.memory)));
     let deps = Arc::new(deps);
-    let runtime = oh_runtime::global(RuntimeSettings::from_config(&config.openhuman)).await?;
+    let runtime = oh_runtime::global(RuntimeSettings::from_teeny(&config)).await?;
     let agents = Arc::new(TeenyAgents::register(
         runtime,
         &deps,

@@ -1,6 +1,6 @@
 [package]
 name = "teeny-memory"
-description = "The CortexDB client with the same scope, labels and idempotency as the TypeScript service, plus the recall_memory and remember tools."
+description = "The account's memory: the shared TinyMemory store every agent reads, the legacy CortexDB client it is imported from, and the recall_memory and remember tools."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -16,10 +16,14 @@ serde.workspace = true
 serde_json.workspace = true
 teeny-core.workspace = true
 thiserror.workspace = true
+# The TinyMemory contract the shared store speaks: items, hits, the engine.
+tinymemory-api.workspace = true
+tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-tokio.workspace = true
+# The in-memory reference engine, behind the contract's `conformance` feature.
+tinymemory-api = { workspace = true, features = ["conformance"] }
 wiremock.workspace = true
 
 [lints]

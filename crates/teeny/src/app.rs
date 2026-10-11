@@ -75,7 +75,7 @@ impl App {
     pub async fn build(config: Config) -> anyhow::Result<Self> {
         let db = teeny_store::connect(&config.store).await?;
         let deps = Arc::new(Deps::from_config(config.clone()).await?);
-        let settings = RuntimeSettings::from_config(&config.openhuman);
+        let settings = RuntimeSettings::from_teeny(&config);
         let runtime = oh_runtime::global(settings.clone()).await?;
         let agents = Arc::new(TeenyAgents::register(
             Arc::clone(&runtime),

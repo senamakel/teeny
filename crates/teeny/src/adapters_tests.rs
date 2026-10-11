@@ -52,6 +52,7 @@ fn settings(module: Option<&str>) -> RuntimeSettings {
         allowed_domains: vec![],
         tinycomputer_module: module.map(PathBuf::from),
         backend_url: None,
+        memory: Default::default(),
     }
 }
 

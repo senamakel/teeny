@@ -36,6 +36,11 @@ teeny-jobs = { path = "crates/teeny-jobs" }
 # tinycomputer browser loads as a module). See the plan's threat model.
 openhuman-core = { path = "vendor/openhuman/crates/openhuman-core", package = "openhuman", default-features = false, features = ["skills", "modules"] }
 openhuman-embed = { path = "vendor/openhuman/crates/openhuman-embed", default-features = false, features = ["skills", "modules"] }
+# TinyMemory, the memory contract OpenHuman's engines implement, by the same
+# paths OpenHuman names so one copy resolves: the contract (items, hits, the
+# engine trait) for teeny-memory, and the CortexDB engine the runtime installs.
+tinymemory-api = { path = "vendor/openhuman/vendor/tinymemory/crates/tinymemory-api" }
+tinymemory-integrations = { path = "vendor/openhuman/vendor/tinymemory/crates/tinymemory-integrations", default-features = false, features = ["cortex"] }
 
 # --- shared third-party crates (versions as in vendor/openhuman/Cargo.lock) ---
 anyhow = "1.0.104"

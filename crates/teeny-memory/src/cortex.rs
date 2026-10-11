@@ -17,20 +17,20 @@ use crate::{Experience, Memory, MemoryError, Person, Result};
 
 #[path = "cortex_admin.rs"]
 mod admin;
-pub use admin::ForgetSelector;
+pub use admin::{EventsPage, ForgetSelector};
 
 /// The SDK's request timeout, for the operator's calls.
 const TIMEOUT: Duration = Duration::from_secs(60);
 /// What a recall pass reads.
 const INCLUDE: [&str; 4] = ["events", "facts", "beliefs", "episodes"];
 /// Token budgets: the person pass is half the general one.
-const ABOUT_TOKENS: usize = 600;
-const GENERAL_TOKENS: usize = 1_200;
+pub(crate) const ABOUT_TOKENS: usize = 600;
+pub(crate) const GENERAL_TOKENS: usize = 1_200;
 /// Generous for prose, so the cap only bites when a budget was ignored: a
 /// pack is mostly English and JSON, which run three to four characters a token.
-const CHARS_PER_TOKEN: usize = 6;
+pub(crate) const CHARS_PER_TOKEN: usize = 6;
 /// What separates two memories in a pack.
-const PACK_SEPARATOR: &str = "\n\n---\n\n";
+pub(crate) const PACK_SEPARATOR: &str = "\n\n---\n\n";
 
 /// What a recall may draw on: conversation, notes the account left itself,
 /// and the account's own posts. Everything else in the scope is webhook

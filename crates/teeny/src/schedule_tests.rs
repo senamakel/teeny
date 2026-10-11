@@ -42,6 +42,15 @@ const CALENDAR: &str = r#"{
 }"#;
 
 #[test]
+fn the_health_job_reads_the_shared_store_not_the_legacy_one() {
+    let config = config(&[
+        ("TEENY_MEMORY_URL", "http://teeny-cortexdb:3141"),
+        ("CORTEX_API_URL", "http://cortexdb:3141"),
+    ]);
+    assert_eq!(memory_health_url(&config), "http://teeny-cortexdb:3141");
+}
+
+#[test]
 fn every_job_of_the_default_role_on_its_configured_cron() {
     let everything = config(&[
         ("MORNING_ENABLED", "true"),
@@ -423,6 +432,7 @@ fn installs_on_the_real_runtime_and_runs_a_job_now() {
                 allowed_domains: vec![],
                 tinycomputer_module: None,
                 backend_url: Some("http://127.0.0.1:9".into()),
+                memory: Default::default(),
             })
             .await
             .expect("the runtime boots");
@@ -535,6 +545,7 @@ fn a_job_due_before_the_scheduler_starts_fires_once_after_boot() {
                 allowed_domains: vec![],
                 tinycomputer_module: None,
                 backend_url: Some("http://127.0.0.1:9".into()),
+                memory: Default::default(),
             })
             .await
             .expect("the runtime boots");

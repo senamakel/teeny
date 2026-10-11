@@ -331,6 +331,7 @@ fn context() -> SpecContext {
         model: MODEL.into(),
         skills_dir: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../skills"),
         max_iterations: 4,
+        memory_root: teeny_memory::DEFAULT_ROOT.into(),
     }
 }
 

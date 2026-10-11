@@ -1,5 +1,6 @@
-//! The operator's CortexDB calls (`teeny forget`): list the scope's events,
-//! preview a forget, and perform it.
+//! The operator's CortexDB calls: list the scope's events, page through
+//! them (`teeny memory import`), preview a forget, and perform it
+//! (`teeny forget`).
 //!
 //! Operational notes written during setup are recalled like anything else,
 //! and a persona repeats them in public voice, so they have to be removed
@@ -10,8 +11,19 @@
 
 use serde_json::{Value, json};
 
-use super::{CortexMemory, api_error};
+use std::time::Duration;
+
+use super::{CortexMemory, api_error, timed};
 use crate::Result;
+
+/// One page of a scope's events, newest first.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct EventsPage {
+    /// The events as CortexDB sent them; a listing can repeat one.
+    pub items: Vec<Value>,
+    /// The cursor of the next page; `None` at the end.
+    pub next: Option<String>,
+}
 
 /// What a forget removes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,6 +67,62 @@ impl CortexMemory {
         }
         let page: Value = serde_json::from_str(&text)?;
         Ok(page["items"].as_array().cloned().unwrap_or_default())
+    }
+
+    /// One page of the scope's own events (`view=local`, never a heavy
+    /// view) carrying any one of `labels`, after `cursor`, within
+    /// `deadline`. The label filter is the one listing shape the shared
+    /// store always answered quickly.
+    pub async fn events_page(
+        &self,
+        labels: &[String],
+        cursor: Option<&str>,
+        limit: usize,
+        deadline: Duration,
+    ) -> Result<EventsPage> {
+        let limit = limit.to_string();
+        let joined = labels.join(",");
+        let mut query = vec![
+            ("scope", self.scope.as_str()),
+            ("view", "local"),
+            ("limit", limit.as_str()),
+        ];
+        if !labels.is_empty() {
+            query.push(("labels", joined.as_str()));
+        }
+        if let Some(cursor) = cursor {
+            query.push(("cursor", cursor));
+        }
+        let response = self
+            .http
+            .get(format!("{}/v1/events", self.api_url))
+            .query(&query)
+            .header("X-Cortex-Actor", &self.actor)
+            .bearer_auth(self.bearer.expose())
+            .timeout(deadline)
+            .send()
+            .await
+            .map_err(|error| timed(error, deadline))?;
+        let status = response.status();
+        let text = response
+            .text()
+            .await
+            .map_err(|error| timed(error, deadline))?;
+        if !status.is_success() {
+            return Err(api_error(status.as_u16(), &text));
+        }
+        let page: Value = serde_json::from_str(&text)?;
+        let next = page["next_cursor"]
+            .as_str()
+            .filter(|next| !next.is_empty())
+            // An explicit `has_more: false` ends the listing whatever the
+            // cursor says; a store that does not send it pages by cursor.
+            .filter(|_| page["has_more"].as_bool() != Some(false))
+            .map(str::to_owned);
+        Ok(EventsPage {
+            items: page["items"].as_array().cloned().unwrap_or_default(),
+            next,
+        })
     }
 
     /// What a forget would remove, and the `preview_id` to perform it with.

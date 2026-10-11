@@ -8,7 +8,7 @@
 //! | `teeny_brain_usage` | `BRAIN_USAGE_CRON` (`* * * * *`), with a brain dir | all, ingest |
 //! | `teeny_heat` | `HEAT_CRON` (`*/20 * * * *`), `HEAT_ENABLED` | all, reply |
 //! | `teeny_reply` | `REPLY_CRON`, only with `REPLY_MODE=cron` | all, reply |
-//! | `teeny_cortex_health` | `CORTEX_HEALTH_CRON` (`17 * * * *`), and once at boot | every role |
+//! | `teeny_cortex_health` | `CORTEX_HEALTH_CRON` (`17 * * * *`), and once at boot: the shared store at `TEENY_MEMORY_URL` | every role |
 //! | `teeny_learnings` | `LEARNINGS_CRON` (`0 5 * * *`), `LEARNINGS_ENABLED` | all, morning |
 //! | `teeny_morning` | `MORNING_CRON` (`0 7 * * *`) | all, morning |
 //! | `teeny_afternoon` | `AFTERNOON_CRON` (`0 15 * * *`): chart, moon, else lore | all, chart, moon, lore |
@@ -293,7 +293,7 @@ impl Dispatch {
             Work::Heat => teeny_jobs::heat::run(ctx).await,
             Work::Reply => teeny_jobs::reply::run(ctx).await,
             Work::CortexHealth => {
-                teeny_memory::health::report_cortex_health(&ctx.config.cortex.api_url).await;
+                teeny_memory::health::report_cortex_health(memory_health_url(&ctx.config)).await;
                 return Ok(());
             }
             Work::Learnings => teeny_jobs::learnings::run(ctx).await,
@@ -411,6 +411,13 @@ pub async fn boot(
     install(scheduler, jobs, dispatch, handle)?;
     scheduler.start().await;
     Ok(())
+}
+
+/// The store the health job reads: the shared memory's dedicated CortexDB,
+/// which every recall now depends on. The legacy store is only read by
+/// `teeny memory import`.
+pub fn memory_health_url(config: &Config) -> &str {
+    &config.memory.url
 }
 
 #[cfg(test)]

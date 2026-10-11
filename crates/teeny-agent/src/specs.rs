@@ -63,7 +63,7 @@ use openhuman_core::agent::tool_policy::ToolPolicy;
 use openhuman_core::inference::tokenjuice::{RECOVERY_TOOL_NAMES, REPL_TOOL_NAMES};
 use openhuman_embed::{
     Access, Agent, AgentDefinitionSpec, AgentError, AgentSpec, AgentTurnOrigin, DefinitionBase,
-    HostTurnTools, Provider, Runtime, ToolGroups, ToolScopeSpec,
+    HostTurnTools, MemoryBinding, Provider, Runtime, ToolGroups, ToolScopeSpec,
 };
 use teeny_core::Secret;
 use tinytools::ToolRules;
@@ -229,6 +229,8 @@ pub struct SpecContext {
     pub skills_dir: PathBuf,
     /// `AGENT_MAX_STEPS`: the tool-call iterations per turn.
     pub max_iterations: usize,
+    /// `TEENY_MEMORY_ROOT`: the memory root every agent is bound to.
+    pub memory_root: String,
 }
 
 impl SpecContext {
@@ -240,6 +242,7 @@ impl SpecContext {
             model: config.llm.model.clone(),
             skills_dir: std::path::absolute(&skills).unwrap_or(skills),
             max_iterations: config.agent.max_steps as usize,
+            memory_root: config.memory.root.clone(),
         }
     }
 
@@ -339,9 +342,17 @@ pub fn spec_as(
         .tool_groups(ToolGroups::none())
         .skills_dir(&context.skills_dir)
         .include_user_skills(false)
+        .memory(memory_binding(id, context))
         .tools(move |_turn| {
             HostTurnTools::advertised(owned_belt(&tools)).with_policy(Arc::clone(&policy))
         })
+}
+
+/// Whose memory an agent reads and writes: its own id's, under the shared
+/// root. The learnings and beliefs at the root are every agent's; the turns
+/// OpenHuman logs are kept at the agent's own node below it.
+pub fn memory_binding(id: &str, context: &SpecContext) -> MemoryBinding {
+    MemoryBinding::new(id).root(&context.memory_root)
 }
 
 /// Registering an agent failed.

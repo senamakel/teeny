@@ -26,7 +26,7 @@ use teeny_market::{GlobalMarketClient, GlobalSource, MarketReports, TokenMarket}
 use teeny_media::giphy::{GifSource, GiphyClient};
 use teeny_media::store::MediaBudget;
 use teeny_media::wiring::{MediaAccess, build_media};
-use teeny_memory::{CortexMemory, Memory, MemoryError};
+use teeny_memory::{CortexOptions, Memory, MemoryError};
 use teeny_safety::critic::{AlgoCritic, Critic};
 use teeny_safety::gate::{SafetyGate, SafetyGateOptions};
 use teeny_safety::judge::{Judge, ModelJudge};
@@ -42,6 +42,8 @@ use teeny_x::model::XPost;
 use crate::exa::ExaClient;
 use crate::llm::LlmClient;
 use crate::prompt::Persona;
+use crate::runtime::RuntimeSettings;
+use crate::shared_memory::shared_memory;
 use crate::tools::media::CadenceMediaBudget;
 
 /// Why the clients could not be built.
@@ -237,7 +239,10 @@ impl Deps {
         Ok(Self {
             settings: Settings::from_config(&config),
             persona: Persona::from_settings(&config.agent, &config.learnings)?,
-            memory: Arc::new(CortexMemory::from_config(&config.cortex)?),
+            memory: Arc::new(shared_memory(
+                RuntimeSettings::from_teeny(&config),
+                CortexOptions::from_config(&config.cortex),
+            )),
             x,
             x_reads,
             safety,

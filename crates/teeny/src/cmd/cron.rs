@@ -145,8 +145,7 @@ pub async fn execute(args: &CronArgs) -> anyhow::Result<()> {
     let config = Config::from_env()?;
     match &args.command {
         CronCommand::List => {
-            let runtime =
-                oh_runtime::global(RuntimeSettings::from_config(&config.openhuman)).await?;
+            let runtime = oh_runtime::global(RuntimeSettings::from_teeny(&config)).await?;
             run(
                 &RuntimeCron(runtime),
                 &args.command,

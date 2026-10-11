@@ -221,7 +221,7 @@ fn log_slots(ctx: &teeny_jobs::ctx::JobCtx, jobs: &[schedule::JobDef]) {
 /// learnings brief, which should not wait for tomorrow's five o'clock. Both
 /// in the background; neither can stop the service starting.
 fn at_boot(ctx: &Arc<teeny_jobs::ctx::JobCtx>, jobs: &[schedule::JobDef]) {
-    let api_url = ctx.config.cortex.api_url.clone();
+    let api_url = schedule::memory_health_url(&ctx.config).to_owned();
     tokio::spawn(async move {
         teeny_memory::health::report_cortex_health(&api_url).await;
     });

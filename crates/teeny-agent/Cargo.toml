@@ -25,6 +25,9 @@ teeny-memory.workspace = true
 teeny-safety.workspace = true
 teeny-store.workspace = true
 teeny-x.workspace = true
+# The CortexDB engine the runtime installs as every agent's shared memory,
+# by the path OpenHuman's core links.
+tinymemory-integrations.workspace = true
 # The vendored tinytools that OpenHuman links (the workspace patch resolves
 # every other spelling of it to this same path), for the `Tool` method types
 # OpenHuman does not re-export: the adapter in `shared_tool` forwards them all.
@@ -44,6 +47,8 @@ wiremock = { workspace = true, optional = true }
 
 [dev-dependencies]
 wiremock.workspace = true
+# TinyMemory's in-memory reference engine, for `tests/shared_memory.rs`.
+tinymemory-api = { workspace = true, features = ["conformance"] }
 # The crate itself with the test kit on, for `tests/posture.rs`.
 teeny-agent = { path = ".", features = ["testkit"] }
 

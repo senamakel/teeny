@@ -76,7 +76,7 @@ pub async fn check_cortex(api_url: &str) -> CortexHealth {
 async fn read(api_url: &str) -> Result<CortexHealth, String> {
     let url = reqwest::Url::parse(api_url)
         .and_then(|base| base.join("/v1/admin/ready"))
-        .map_err(|error| format!("CORTEX_API_URL {api_url:?}: {error}"))?;
+        .map_err(|error| format!("the store URL {api_url:?}: {error}"))?;
     let response = reqwest::Client::new()
         .get(url)
         .timeout(TIMEOUT)
