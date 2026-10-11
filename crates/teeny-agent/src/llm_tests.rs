@@ -254,3 +254,36 @@ async fn is_the_media_crate_s_text_model() {
     );
     assert_eq!(last_row(&ledger).await.source, "reference");
 }
+
+/// e84e8d7: the article's editor and flow pass read and rewrite the whole
+/// piece on a reasoning model; at a caption's deadline both were cut off.
+#[tokio::test]
+async fn a_client_waits_as_long_as_it_is_told_and_no_longer() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "choices": [{ "message": { "content": "slow" } }] }))
+                .set_delay(std::time::Duration::from_millis(400)),
+        )
+        .mount(&server)
+        .await;
+    let ledger = Arc::new(InMemoryLedger::default());
+    let hurried = client(&server, &ledger).with_timeout(std::time::Duration::from_millis(100));
+    assert!(matches!(
+        hurried.complete(None, "go").await,
+        Err(LlmError::Transport(error)) if error.is_timeout()
+    ));
+    let patient = client(&server, &ledger).with_timeout(std::time::Duration::from_secs(5));
+    assert_eq!(patient.complete(None, "go").await.unwrap(), "slow");
+    // The alias swap keeps the deadline.
+    assert_eq!(
+        patient.with_model("flash").timeout(),
+        std::time::Duration::from_secs(5)
+    );
+    assert_eq!(
+        client(&server, &ledger).timeout(),
+        std::time::Duration::from_secs(60)
+    );
+}

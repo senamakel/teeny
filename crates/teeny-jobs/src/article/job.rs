@@ -107,12 +107,17 @@ pub fn build(ctx: &JobCtx) -> anyhow::Result<ArticlePipeline> {
             random: Mutex::new(Rng::new(Rng::seed_from_time())),
         },
     });
+    // The editor reads the whole piece and the flow pass rewrites all of it
+    // on a reasoning model: at a caption's deadline both were cut off and the
+    // article went out unchecked and unsmoothed.
+    let timeout = std::time::Duration::from_secs(u64::from(config.article.model_timeout_seconds));
     let model = |source: &str, temperature: f32| {
         Arc::new(
             deps.llm
                 .clone()
                 .with_source(source)
-                .with_temperature(temperature),
+                .with_temperature(temperature)
+                .with_timeout(timeout),
         )
     };
     Ok(ArticlePipeline {

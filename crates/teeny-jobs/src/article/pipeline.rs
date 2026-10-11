@@ -505,14 +505,15 @@ impl ArticlePipeline {
             return Ok(result);
         }
         if let Some(critic) = &self.deps.critic {
+            // The critic reads the front of anything long. Cut at a paragraph
+            // and say so: a cut mid-sentence was read as the piece ending
+            // mid-sentence.
+            let front = front_of(&markdown, CRITIC_READ_LENGTH);
             let input = CritiqueInput {
                 kind: CritiqueKind::Other,
-                text: crate::backrooms::text::head(&markdown, 8_000),
+                context: Some(critic_context(&thought.premise, &front, &markdown)),
+                text: front,
                 media: None,
-                context: Some(format!(
-                    "a long-form article from teeny's serial, published as an x article. the premise: {}",
-                    thought.premise
-                )),
             };
             match critic.critique(&input).await {
                 Ok(critique) => {
@@ -949,6 +950,41 @@ impl ArticlePipeline {
         }
         None
     }
+}
+
+/// How much of the article the critic is shown: the most it reads, in
+/// UTF-16 units as the legacy counted.
+const CRITIC_READ_LENGTH: usize = 8_000;
+
+/// The article up to `max` UTF-16 units, cut at the last paragraph break
+/// that fits (a hard cut when there is none).
+pub fn front_of(markdown: &str, max: usize) -> String {
+    if teeny_memory::text::units(markdown) <= max {
+        return markdown.to_owned();
+    }
+    let window = teeny_memory::text::cut_at(markdown, max);
+    let cut = match window.rfind("\n\n") {
+        Some(at) if at > 0 => &markdown[..at],
+        _ => window,
+    };
+    cut.trim_end().to_owned()
+}
+
+/// What the critic is told about the piece, and, when it reads only the
+/// front, that the stop is not the ending.
+pub fn critic_context(premise: &str, front: &str, markdown: &str) -> String {
+    let mut context = format!(
+        "a long-form article from teeny's serial, published as an x article. the premise: {premise}"
+    );
+    if front.len() < markdown.len() {
+        let words = |text: &str| text.split_whitespace().count();
+        context.push_str(&format!(
+            "\nthis is the opening {} of its {} words; the piece goes on past where this text stops, so the stop is not its ending.",
+            words(front),
+            words(markdown)
+        ));
+    }
+    context
 }
 
 /// The dek, then each `## ` section with its heading, as separate pieces.
