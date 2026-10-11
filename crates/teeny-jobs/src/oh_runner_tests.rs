@@ -122,7 +122,7 @@ fn model_call(model: &str, input: u64, output: u64, reasoning: u64) -> AgentProg
         cached_input_tokens: 2,
         cache_creation_tokens: 0,
         reasoning_tokens: reasoning,
-        cost_usd: 0.0,
+        cost_usd: Some(0.0),
     }
 }
 
@@ -287,6 +287,28 @@ fn a_room_persona_is_its_own_agent() {
 }
 
 /// How many times the provider saw a turn whose message carries `tag`.
+/// The runner bounded at [`SLOW_TIMEOUT`], after one ordinary turn on the
+/// drafter, so the timed attempts are not also paying for a cold start.
+/// The bound is generous because a turn's session build competes for the
+/// CPU with every other test in the process; [`SLOW`] answers well after it.
+fn slow_runner() -> OhRunner {
+    let warm = OhRunner::new(Arc::clone(&booted().agents));
+    testkit::run(async move {
+        warm.run(turn(
+            AgentKey::Belt(Belt::Drafter),
+            Origin::Scheduled { once: true },
+            "warm up",
+            "warm",
+        ))
+        .await
+    })
+    .expect("the warm-up turn completes");
+    OhRunner::new(Arc::clone(&booted().agents)).with_timeout(SLOW_TIMEOUT)
+}
+
+/// How long a slow turn's attempt may run.
+const SLOW_TIMEOUT: Duration = Duration::from_secs(20);
+
 fn tries(tag: &str) -> usize {
     let tag = tag.to_owned();
     testkit::run(async move {
@@ -300,8 +322,7 @@ fn tries(tag: &str) -> usize {
 
 #[test]
 fn a_turn_that_must_run_once_times_out_and_is_never_retried() {
-    let runner =
-        OhRunner::new(Arc::clone(&booted().agents)).with_timeout(Duration::from_millis(500));
+    let runner = slow_runner();
     let once = format!("{SLOW} post-once");
     let result = testkit::run({
         let once = once.clone();
@@ -322,8 +343,7 @@ fn a_turn_that_must_run_once_times_out_and_is_never_retried() {
 
 #[test]
 fn a_turn_that_may_repeat_is_tried_again() {
-    let runner =
-        OhRunner::new(Arc::clone(&booted().agents)).with_timeout(Duration::from_millis(500));
+    let runner = slow_runner();
     let result = testkit::run(async move {
         runner
             .run(turn(

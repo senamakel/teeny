@@ -65,6 +65,21 @@ scripts/check-dup-crates.sh
 After bumping `vendor/openhuman`, re-check the root `[patch]` tables against
 `vendor/openhuman/Cargo.toml` and run the duplicate-crate check.
 
+**Which OpenHuman.** The submodule pins branch `teeny-vendor` of the fork
+`senamakel/openhuman`: upstream `tinyhumansai/openhuman` `main` plus the vendor
+patches Teeny still needs, each on its own `embed-<topic>` branch off upstream
+`main` with an upstream PR open. Today that is one:
+
+| Patch | Why Teeny needs it | Upstream PR |
+|---|---|---|
+| `embed-defer-services`: `RuntimeBuilder::defer_services` | `teeny serve` registers its cron system-job handlers and upserts the rota before the scheduler starts; without it a job already due at boot is recorded `ok` without running | [#7477](https://github.com/tinyhumansai/openhuman/pull/7477) |
+
+`.gitmodules` points at the fork because the pinned SHA only exists there.
+Point it back at `tinyhumansai/openhuman` once every patch has merged and
+the pin is a commit on upstream `main`. Everything else Teeny does, the agent
+lockdown included, is built from upstream's own mechanisms: see
+`crates/teeny-agent/src/specs.rs`.
+
 The container is the root `Dockerfile` (BuildKit; the submodule has to be
 checked out recursively first). It builds `teeny` and the TinyComputer
 browser module (`libtinycomputer.so` and its `modules.toml`, from the same
@@ -1341,8 +1356,8 @@ One process, one codebase: the same `teeny-bot-1` container answers on both.
   `TELEGRAM_DRY_RUN`. The `teeny-chat` agent drafts as a public turn and holds
   no tool that writes.
 - **`openhuman`**: OpenHuman's own Telegram channel, bound to the `teeny-chat`
-  agent. The agent's posture still applies (locked down, its named tools only,
-  `Access::public`), but the channel sends the agent's text as it is: **it
+  agent. The agent's posture still applies (locked down, its named reads only,
+  the read-only public tier), but the channel sends the agent's text as it is: **it
   bypasses Teeny's outbound content filter, the house style and the transcript
   budget**, keeps its own history, and ignores `TELEGRAM_DRY_RUN`. That is why
   it is not the default. It is only compiled into a build with

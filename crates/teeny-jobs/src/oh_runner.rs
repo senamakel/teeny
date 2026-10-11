@@ -4,7 +4,7 @@
 //!   the persona's own agent, registered on first use
 //!   ([`TeenyAgents::room`]).
 //! - **With what authority** ([`turn_origin`]): a public turn runs as the
-//!   `public` external channel (`Access::public`'s origin), and only on
+//!   `public` external channel (`specs::public_origin`), and only on
 //!   `teeny-reply` or `teeny-chat`, whose access refuses a write at once (a
 //!   trusted agent keeps its writes under a public origin, so a public turn
 //!   on one is refused before it starts); a scheduled turn runs as
@@ -19,8 +19,12 @@
 //!   allowed to repeat, which gets one retry. A turn that may post
 //!   (`once: true`, the operator) is never retried, whatever failed: a retry
 //!   re-runs the whole turn and can post twice.
-//! - **For how long**: every attempt is bounded by the runner's timeout;
-//!   on expiry the turn's future is dropped, which cancels it.
+//! - **For how long**: every attempt is bounded by the runner's timeout,
+//!   through OpenHuman's own turn deadline (`Turn::timeout`), which cancels
+//!   the whole turn, its in-flight model call included, before the next
+//!   attempt starts. Dropping the turn's future instead would leave that
+//!   call holding the agent until the provider answered. A backstop a little
+//!   past the deadline guards against a deadline that never fires.
 //! - **What it reports**: the reply and session, and, from a bounded
 //!   progress channel drained beside the turn, every tool call and every
 //!   model call. Each model call is one inference-ledger row (the legacy
@@ -33,7 +37,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use openhuman_embed::agent_progress::AgentProgress;
-use openhuman_embed::{Access, Agent, AgentTurnOrigin, TrustedAutomationSource};
+use openhuman_embed::{Agent, AgentTurnOrigin, CoreError, TrustedAutomationSource};
 use serde_json::Value;
 use teeny_agent::posture::Belt;
 use teeny_agent::specs::TeenyAgents;
@@ -53,6 +57,9 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// awaits its sends, so this is backpressure; the collector drains it
 /// continuously, so it never stalls a turn.
 const PROGRESS_CAPACITY: usize = 256;
+/// How long past the turn's own deadline the runner waits before giving up
+/// on it regardless.
+const BACKSTOP: Duration = Duration::from_secs(30);
 /// Prefix of a trusted turn's job id, so the core's audit names Teeny.
 const JOB_PREFIX: &str = "teeny:";
 
@@ -105,7 +112,8 @@ impl OhRunner {
         let started = Instant::now();
         let mut turn = agent
             .turn(run.prompt.clone())
-            .origin(turn_origin(run.origin, &run.label));
+            .origin(turn_origin(run.origin, &run.label))
+            .timeout(self.timeout);
         if let Some(session) = &run.session {
             turn = turn.session(session.clone());
         }
@@ -120,7 +128,13 @@ impl OhRunner {
             }
             progress
         });
-        let sent = tokio::time::timeout(self.timeout, turn.on_progress(sink).send()).await;
+        let sent = tokio::time::timeout(self.timeout + BACKSTOP, turn.on_progress(sink).send())
+            .await
+            .map_err(|_| ())
+            .and_then(|sent| match sent {
+                Err(CoreError::DeadlineExceeded { .. }) => Err(()),
+                other => Ok(other),
+            });
         // The turn (and with it the sender) is gone either way, so this ends.
         let progress = collector.await.unwrap_or_default();
         let outcome = match sent {
@@ -252,10 +266,7 @@ impl AgentRunner for OhRunner {
 pub fn turn_origin(origin: Origin, label: &str) -> AgentTurnOrigin {
     let job_id = format!("{JOB_PREFIX}{label}");
     match origin {
-        Origin::Public => Access::public()
-            .turn_origin()
-            .cloned()
-            .expect("the public access states its origin"),
+        Origin::Public => teeny_agent::specs::public_origin(),
         Origin::Scheduled { .. } => AgentTurnOrigin::TrustedAutomation {
             job_id,
             source: TrustedAutomationSource::Cron,

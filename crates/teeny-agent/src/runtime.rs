@@ -8,18 +8,22 @@
 //! subscribers) outlives whichever caller happened to build it.
 //!
 //! What the runtime registers is the outer wall of the posture; each agent
-//! narrows further with `AgentSpec::lockdown()` (see [`crate::specs`]):
+//! narrows further (see [`crate::specs`]):
 //!
-//! - **domains**: the embedded preset with skills and modules (the browser is
-//!   a module) on, and every family Teeny has no use for off: MCP, web3,
-//!   desktop, hosted, flows, integrations, runtimes, exec, filesystem,
-//!   system, voice, media, channels;
+//! - **domains**: the agent core (agent, memory, threads, config, security),
+//!   inference, skills, modules, automation (the cron store and scheduler
+//!   Teeny's own jobs run on) and platform (OpenHuman files its `browser`
+//!   under platform, beside shell and files). Every other family is off:
+//!   MCP, web3, desktop, hosted, flows, integrations, runtimes, voice, media,
+//!   channels. An agent narrows these again with [`agent_domains`]: no
+//!   agent has automation, and only a browsing agent keeps platform;
 //! - **tool groups**: every group off. No belt names a packed tool, and a
 //!   group that is off is not registered at all;
 //! - **services**: the cron scheduler, and nothing that listens. Building
-//!   does not start them: `teeny serve` installs every cron handler and job
-//!   first, then calls [`start_services`]; an operator subcommand never
-//!   starts them, so it cannot run a second scheduler beside the server.
+//!   does not start them (`defer_services`): `teeny serve` installs every
+//!   cron handler and job first, then calls [`start_services`]; an operator
+//!   subcommand never starts them, so it cannot run a second scheduler
+//!   beside the server.
 //!
 //! The config overlay ([`openhuman_config`]) pins native tool calling, turns
 //! the autonomy policy on (access tiers are inert without it), sets up the
@@ -91,22 +95,27 @@ impl RuntimeSettings {
 /// The domain families the runtime registers. Agents can only narrow these.
 pub fn domains() -> DomainSet {
     DomainSet {
+        inference: true,
         skills: true,
         modules: true,
-        mcp: false,
-        web3: false,
-        desktop: false,
-        hosted: false,
-        flows: false,
-        integrations: false,
-        runtimes: false,
-        exec: false,
-        filesystem: false,
-        system: false,
-        voice: false,
-        media: false,
-        channels: false,
-        ..DomainSet::embedded()
+        automation: true,
+        platform: true,
+        ..DomainSet::harness()
+    }
+}
+
+/// The families an agent runs with: the runtime's, less automation (no
+/// agent schedules anything: the cron tools are automation's), and less
+/// platform unless the agent browses. Platform is where OpenHuman files
+/// every tool without a family of its own (`browser`, and also shell,
+/// files, HTTP, installers), so an agent without the browser does not even
+/// have them registered; one with it is held to its named belt by the
+/// scope, the host-only policy and the deny rules (see [`crate::specs`]).
+pub fn agent_domains(browses: bool) -> DomainSet {
+    DomainSet {
+        automation: false,
+        platform: browses,
+        ..domains()
     }
 }
 
@@ -115,11 +124,10 @@ pub fn tool_groups() -> ToolGroups {
     ToolGroups::none()
 }
 
-/// The cron scheduler on top of the one-shot harness init; nothing listens.
-/// Selected here, started by [`start_services`].
+/// The cron scheduler, and nothing that listens. Selected here, started by
+/// [`start_services`].
 pub fn services() -> ServiceSet {
     ServiceSet {
-        harness_init: true,
         cron: true,
         ..ServiceSet::none()
     }
@@ -136,9 +144,9 @@ pub fn openhuman_config(settings: &RuntimeSettings) -> OhConfig {
     // Teeny remembers through CortexDB, with its own tools.
     config.memory.conversations.enabled = false;
     config.memory.recall.enabled = false;
-    // No local models and no Python runtime on this host.
+    // No local models on this host. (OpenHuman no longer ships an embedded
+    // Python runtime; `runtimes` is off in [`domains`] besides.)
     config.local_ai.runtime_enabled = false;
-    config.runtime_python.enabled = false;
 
     let data = &settings.data_dir;
     let browser = &mut config.browser;

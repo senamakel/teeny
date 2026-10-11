@@ -141,13 +141,63 @@ fn the_context_reads_the_ladder_the_model_the_skills_and_the_step_cap() {
 }
 
 #[test]
-fn a_spec_is_locked_down_with_its_belts_access() {
+fn a_spec_carries_its_belts_id() {
     let deps = Deps::fake();
     let context =
         SpecContext::from_config(&teeny_core::Config::from_vars(crate::deps::fake_vars()).unwrap());
     let tools = Arc::new(Belt::Reply.build(&deps));
     let spec = belt_spec(Belt::Reply, tools, "prompt".into(), &context);
     assert_eq!(spec.id(), "teeny-reply");
-    let shown = format!("{spec:?}");
-    assert!(shown.contains("lockdown: true"), "{shown}");
+}
+
+#[test]
+fn a_public_belt_is_handed_its_reads_only_and_parks_nothing() {
+    let deps = Deps::fake();
+    for belt in Belt::ALL {
+        let built = belt.build(&deps);
+        let handed = handed(belt, &built);
+        if is_public(belt) {
+            assert!(
+                handed
+                    .iter()
+                    .all(|tool| tool.permission_level() < PermissionLevel::Write),
+                "{belt:?}"
+            );
+            assert!(!access(belt).approval_gate_enabled(), "{belt:?}");
+        } else {
+            assert_eq!(handed.len(), built.len(), "{belt:?}");
+        }
+    }
+}
+
+#[test]
+fn the_deny_rules_refuse_every_denied_family_and_admit_the_belts() {
+    use tinytools::rules::{RuleContext, Surface, ToolSubject};
+    let rules = deny_rules();
+    let refused = |name: &str| {
+        !rules
+            .evaluate(
+                &ToolSubject::named(name),
+                &RuleContext::new(),
+                Surface::Call,
+                None,
+            )
+            .callable
+    };
+    for name in [
+        "shell",
+        "cron_add",
+        "spawn_subagent",
+        "delegate_x",
+        "mcp_call_tool",
+        "run_flow",
+    ] {
+        assert!(refused(name), "{name}");
+    }
+    let deps = Deps::fake();
+    for belt in Belt::ALL {
+        for name in tool_scope(belt, &belt.build(&deps)) {
+            assert!(!refused(&name), "{belt:?}: {name}");
+        }
+    }
 }

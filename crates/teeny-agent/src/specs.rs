@@ -2,51 +2,84 @@
 //!
 //! | Agent | Access | Belt | OpenHuman built-ins |
 //! |---|---|---|---|
-//! | `teeny-reply` | `public` | Reply | none |
-//! | `teeny-chat` | `public` | Chat | none |
+//! | `teeny-reply` | public (read-only) | Reply, its reads only | none |
+//! | `teeny-chat` | public (read-only) | Chat, its reads only | none |
 //! | `teeny-chart` | `full` | Chart | none |
 //! | `teeny-operator` | `full` | Operator | `browser` |
 //! | `teeny-drafter` | `full` | Drafter | none |
 //! | `teeny-room-<persona>` | `full` | Room | `browser` |
 //!
-//! Every spec is [`AgentSpec::lockdown`] with a [`ToolScopeSpec::Named`]
-//! scope: the belt's tools, by the names [`Belt::build`] gives them, plus the
-//! built-ins listed above. Lockdown makes that scope the session's tool
-//! ceiling, so no other built-in is registered and nothing nested can widen
-//! it. [`DENY`]'s exact names are also disallowed on the definition (its
-//! `*` families are inert there, which matches exact names only; the ceiling
-//! already keeps them out, and `tests/posture.rs` proves it).
+//! The lockdown is built from OpenHuman's own mechanisms, each enough on its
+//! own for what it covers:
+//!
+//! - **registration**: the agent's domain families
+//!   ([`runtime::agent_domains`]) leave out automation (the cron tools) and,
+//!   for every agent but the browsing ones, platform (shell, files, HTTP,
+//!   installers, `browser`); every tool group is off;
+//! - **scope**: a [`ToolScopeSpec::Named`] belt, the belt's tools by the
+//!   names [`Belt::build`] gives them plus the built-ins above, over a
+//!   definition with the orchestrator's sub-agents, extra and deferred tools
+//!   taken out ([`base_definition`]), so nothing else the runtime registers
+//!   is advertised and no delegation tool is synthesised. The browser is a
+//!   deferred tool: a browsing agent is advertised the harness's
+//!   `tool_search` bridge in its place (it finds the browser and nothing
+//!   else) and calls `browser` by name;
+//! - **policy**: OpenHuman's [`HostOnlyToolPolicy`] over that belt (and the
+//!   [`harness_tools`] OpenHuman adds to every named belt), set as the
+//!   session's whole gate through [`HostTurnTools::with_policy`]: a call to
+//!   any other name is refused before anything runs;
+//! - **deny rules**: [`DENY`] on the definition, its exact names as
+//!   `disallow_tools` and the whole list, families included, as deny
+//!   [`ToolRules`] on the catalogue, search and call surfaces.
+//!
+//! A public agent (Reply, Chat) runs `Access::readonly()` under the
+//! `public` external-channel origin with the approval gate off, so a write
+//! is refused at once, never parked, and it is handed only its belt's
+//! reads: nothing that writes is registered on it at all.
+//! `tests/posture.rs` proves all of it against the real runtime.
 //!
 //! The belt reaches OpenHuman as host tools ([`AgentSpec::tools`]), built
 //! once and handed out per turn through [`SharedTool`]. A host tool is
 //! spliced ahead of the config-derived registry and wins a collision on its
 //! name (`openhuman-core` `agent/session_host/builder/host_tools.rs`,
-//! `HostTurnTools::merge_into`; the merge runs after the ceiling, at
-//! `builder/factory.rs` `merge_for_turn`, and dedup keeps the first), so
-//! Teeny's `web_search` and `web_answer` answer, never OpenHuman's.
+//! `HostTurnTools::merge_into`; dedup keeps the first), so Teeny's
+//! `web_search` and `web_answer` answer, never OpenHuman's.
 //!
 //! No `AgentRegistryEntry` is written: an embed agent's turn dispatches
 //! `AgentChatTarget::Definition` with the definition in hand, so nothing is
 //! resolved by id (`openhuman-embed` `turn.rs` `dispatch`).
+//!
+//! [`SharedTool`]: crate::shared_tool::SharedTool
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use openhuman_core::agent::HostOnlyToolPolicy;
+use openhuman_core::agent::harness::definition::{
+    AgentDefinition, AgentDefinitionRegistry, ToolScope,
+};
+use openhuman_core::agent::tool_policy::ToolPolicy;
+use openhuman_core::inference::tokenjuice::{RECOVERY_TOOL_NAMES, REPL_TOOL_NAMES};
 use openhuman_embed::{
-    Access, Agent, AgentDefinitionSpec, AgentError, AgentSpec, HostTurnTools, Provider, Runtime,
-    ToolScopeSpec,
+    Access, Agent, AgentDefinitionSpec, AgentError, AgentSpec, AgentTurnOrigin, DefinitionBase,
+    HostTurnTools, Provider, Runtime, ToolGroups, ToolScopeSpec,
 };
 use teeny_core::Secret;
+use tinytools::ToolRules;
 
 use crate::deps::Deps;
 use crate::posture::{Belt, DENY};
 use crate::prompt::{self, Persona, PromptOptions};
+use crate::runtime;
 use crate::shared_tool::owned_belt;
-use crate::tools::Tool;
+use crate::tools::{PermissionLevel, Tool};
 
 /// OpenHuman's research browser: the one built-in a Teeny agent may hold.
 pub const BROWSER: &str = "browser";
+
+/// The channel a public turn names in its origin.
+pub const PUBLIC_CHANNEL: &str = "public";
 
 /// The longest persona id a room agent takes, so its id fits OpenHuman's 64.
 const MAX_PERSONA: usize = 48;
@@ -86,6 +119,28 @@ pub fn built_ins(belt: Belt) -> &'static [&'static str] {
     }
 }
 
+/// The tools OpenHuman itself adds to every named belt: the TinyJuice
+/// recovery and REPL tools a compacted tool result points the model at.
+/// They read back what a belt tool already returned, and nothing else.
+pub fn harness_tools() -> impl Iterator<Item = &'static str> {
+    RECOVERY_TOOL_NAMES.iter().chain(REPL_TOOL_NAMES).copied()
+}
+
+/// Whether `belt` takes untrusted input from the public (Reply, Chat).
+pub fn is_public(belt: Belt) -> bool {
+    matches!(belt, Belt::Reply | Belt::Chat)
+}
+
+/// What an agent of `belt` is handed of `tools`: all of them, or for a
+/// public belt only its reads, so nothing that writes is registered on it.
+pub fn handed(belt: Belt, tools: &[Arc<dyn Tool>]) -> Vec<Arc<dyn Tool>> {
+    tools
+        .iter()
+        .filter(|tool| !is_public(belt) || tool.permission_level() < PermissionLevel::Write)
+        .cloned()
+        .collect()
+}
+
 /// The named scope: `tools` by name, in order, then the built-ins.
 pub fn tool_scope(belt: Belt, tools: &[Arc<dyn Tool>]) -> Vec<String> {
     tools
@@ -95,13 +150,70 @@ pub fn tool_scope(belt: Belt, tools: &[Arc<dyn Tool>]) -> Vec<String> {
         .collect()
 }
 
-/// Untrusted input (Reply, Chat) runs public: read-only, every write
-/// refused at once. Everything else is trusted automation.
-pub fn access(belt: Belt) -> Access {
-    match belt {
-        Belt::Reply | Belt::Chat => Access::public(),
-        _ => Access::full(),
+/// The origin a public turn runs under: an external channel named
+/// [`PUBLIC_CHANNEL`], with no sender the core could grant anything to.
+pub fn public_origin() -> AgentTurnOrigin {
+    AgentTurnOrigin::ExternalChannel {
+        channel: PUBLIC_CHANNEL.to_owned(),
+        sender: None,
+        sender_name: None,
+        reply_target: String::new(),
+        message_id: String::new(),
+        history_key: None,
     }
+}
+
+/// Untrusted input (Reply, Chat) runs public: the read-only tier under the
+/// public origin, with the approval gate off so a write is refused at once
+/// rather than parked for an approval no one on a public channel can give.
+/// Everything else is trusted automation.
+pub fn access(belt: Belt) -> Access {
+    if is_public(belt) {
+        Access::readonly()
+            .origin(public_origin())
+            .approval_gate(false)
+    } else {
+        Access::full()
+    }
+}
+
+/// The definition every Teeny agent starts from: OpenHuman's orchestrator
+/// with every route to a tool the belt does not name taken out. The
+/// orchestrator declares built-in sub-agents (image, video, vision, task
+/// manager, skill setup), each of which would become a delegation tool on a
+/// named belt as well, and extra and deferred tools of its own; a Teeny
+/// agent delegates nothing, and discovers only what its belt names.
+pub fn base_definition() -> AgentDefinition {
+    let mut definition = AgentDefinitionRegistry::builtins_only()
+        .get(ORCHESTRATOR)
+        .cloned()
+        .expect("OpenHuman ships the orchestrator definition");
+    // Narrowed to the belt by the spec's named scope.
+    definition.tools = ToolScope::Wildcard;
+    definition.subagents.clear();
+    definition.extra_tools.clear();
+    definition.deferred_tools.clear();
+    definition
+}
+
+/// The built-in definition [`base_definition`] narrows.
+const ORCHESTRATOR: &str = "orchestrator";
+
+/// The deny rules every agent carries: [`DENY`], families included, off the
+/// catalogue, out of search and refused as a call.
+pub fn deny_rules() -> ToolRules {
+    ToolRules::from_allow_deny(Vec::<String>::new(), DENY.iter().copied())
+}
+
+/// The session gate for a belt whose named scope is `scope`: OpenHuman's
+/// host-only policy over the scope and [`harness_tools`].
+pub fn belt_policy(scope: &[String]) -> Arc<dyn ToolPolicy> {
+    let allowed: HashSet<String> = scope
+        .iter()
+        .cloned()
+        .chain(harness_tools().map(str::to_owned))
+        .collect();
+    Arc::new(HostOnlyToolPolicy::new(allowed, None))
 }
 
 /// What every spec is built with besides its belt.
@@ -208,20 +320,28 @@ pub fn spec_as(
     system_prompt: String,
     context: &SpecContext,
 ) -> AgentSpec {
-    let definition = AgentDefinitionSpec::new()
-        .system_prompt(system_prompt)
-        .display_name(id)
-        .tools(ToolScopeSpec::Named(tool_scope(belt, &tools)))
-        .disallow_tools(DENY.iter().filter(|name| !name.ends_with('*')).copied())
-        .max_iterations(context.max_iterations);
+    let tools = handed(belt, &tools);
+    let scope = tool_scope(belt, &tools);
+    let policy = belt_policy(&scope);
+    let definition =
+        AgentDefinitionSpec::from_base(DefinitionBase::Custom(Box::new(base_definition())))
+            .system_prompt(system_prompt)
+            .display_name(id)
+            .tools(ToolScopeSpec::Named(scope))
+            .disallow_tools(DENY.iter().filter(|name| !name.ends_with('*')).copied())
+            .tool_rules(deny_rules())
+            .max_iterations(context.max_iterations);
     AgentSpec::new(id)
         .definition(definition)
         .provider(context.provider())
         .access(access(belt))
+        .domains(runtime::agent_domains(!built_ins(belt).is_empty()))
+        .tool_groups(ToolGroups::none())
         .skills_dir(&context.skills_dir)
         .include_user_skills(false)
-        .tools(move |_turn| HostTurnTools::advertised(owned_belt(&tools)))
-        .lockdown()
+        .tools(move |_turn| {
+            HostTurnTools::advertised(owned_belt(&tools)).with_policy(Arc::clone(&policy))
+        })
 }
 
 /// Registering an agent failed.

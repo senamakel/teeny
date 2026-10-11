@@ -93,7 +93,14 @@ all = { level = "warn", priority = -1 }
 # vendor/openhuman bump.
 [patch."https://github.com/tinyhumansai/tinytools"]
 tinytools = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinytools/crates/tinytools" }
+tinytools-std = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinytools/crates/tinytools-std" }
 tinytools-agent = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinytools/crates/tinytools-agent" }
+
+# tinyflows-era crates name the storage drivers by git tag; one copy, so one
+# `DocumentStore` trait and one `libsqlite3-sys` (`links = "sqlite3"`).
+[patch."https://github.com/tinyhumansai/tinystoragedrivers"]
+tinystoragedrivers-core = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinystoragedrivers/crates/tinystoragedrivers-core" }
+tinystoragedrivers-sqlite = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinystoragedrivers/crates/tinystoragedrivers-sqlite" }
 
 [patch."https://github.com/tinyhumansai/tinyinference"]
 tinyinference-core = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-core" }
@@ -115,10 +122,12 @@ tinyinference-providers = { path = "vendor/openhuman/vendor/tinyagents/vendor/ti
 tinyinference-voice = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-voice" }
 # `tinychannels` is reachable through teeny's optional `openhuman-telegram`
 # feature (OpenHuman's channels), so it is in the lock and patched here even
-# though the default build leaves it out. OpenHuman also patches `tinyflows`;
-# it is not in the graph (`flows` is off), and an unused patch warns on every
-# cargo command, so it is left out until a feature pulls it in:
+# though the default build leaves it out. OpenHuman also patches `tinyflows`
+# (and, by git, `tinyinference-decisions` for tinymemes); neither is in the
+# graph (`flows` and `tinymemes` are off), and an unused patch warns on every
+# cargo command, so they are left out until a feature pulls them in:
 #   tinyflows = { path = "vendor/openhuman/vendor/tinyflows/crates/tinyflows" }
+#   tinyinference-decisions = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-decisions" }
 tinychannels = { path = "vendor/openhuman/vendor/tinychannels" }
 
 # --- profiles (OpenHuman's, so the vendored graph builds the same way) --------

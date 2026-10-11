@@ -22,7 +22,7 @@ pub enum AgentKey {
 }
 
 /// Where a turn's input came from. Decides the access tier the runner
-/// applies: `Public` turns are untrusted (OpenHuman `Access::public()`),
+/// applies: `Public` turns are untrusted (the read-only public tier, `specs::access`),
 /// `Scheduled` and `Operator` are trusted automation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Origin {

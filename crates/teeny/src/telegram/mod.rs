@@ -7,7 +7,8 @@
 //!   its token budget, the house style, `TELEGRAM_DRY_RUN`.
 //! - **`openhuman`**: OpenHuman's Telegram channel bound to `teeny-chat`
 //!   (`runtime.channels().telegram(..)`). The agent's posture still holds
-//!   (lockdown, its named tools, `Access::public`: nothing that writes), but
+//!   (its named reads, the host-only policy, the read-only public tier:
+//!   nothing that writes), but
 //!   the channel sends the agent's text as it is: **it bypasses Teeny's
 //!   outbound content filter, the house style and the transcript budget**,
 //!   keeps its own per-chat history, and ignores `TELEGRAM_DRY_RUN`. That is

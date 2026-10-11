@@ -61,6 +61,7 @@ fn registers_skills_and_modules_and_none_of_the_risky_families() {
         "agents need to run turns"
     );
     assert!(domains.automation, "the cron scheduler");
+    assert!(domains.platform, "the browser is filed under platform");
     for (family, on) in [
         ("mcp", domains.mcp),
         ("web3", domains.web3),
@@ -69,14 +70,23 @@ fn registers_skills_and_modules_and_none_of_the_risky_families() {
         ("flows", domains.flows),
         ("integrations", domains.integrations),
         ("runtimes", domains.runtimes),
-        ("exec", domains.exec),
-        ("filesystem", domains.filesystem),
-        ("system", domains.system),
         ("voice", domains.voice),
         ("media", domains.media),
         ("channels", domains.channels),
+        ("operator", domains.operator),
     ] {
         assert!(!on, "{family} is registered");
+    }
+}
+
+#[test]
+fn no_agent_schedules_and_only_a_browsing_agent_keeps_platform() {
+    for browses in [false, true] {
+        let agent = agent_domains(browses);
+        assert!(!agent.automation, "the cron tools are automation's");
+        assert_eq!(agent.platform, browses);
+        assert!(agent.skills && agent.modules && agent.inference);
+        assert!(!agent.mcp && !agent.flows && !agent.web3 && !agent.channels);
     }
 }
 

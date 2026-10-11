@@ -3,7 +3,7 @@
 # crate.
 #
 # Teeny links OpenHuman from the vendor/openhuman submodule, and vendored
-# crates name tinytools / tinyinference / tinymemory by git rev or registry
+# crates name tinytools / tinyinference / tinystoragedrivers by git rev or registry
 # version. The [patch] tables in the root Cargo.toml redirect all of them onto
 # the one vendored path. If a table goes stale after an OpenHuman bump, cargo
 # quietly resolves a second copy, and `tinytools::Tool` or `ChatModel` from
@@ -21,6 +21,8 @@ WATCHED=(
   openhuman-embed
   tinytools
   tinytools-agent
+  tinytools-std
+  tinystoragedrivers-core
   tinyinference-core
   tinyinference-llm
   tinyinference-providers

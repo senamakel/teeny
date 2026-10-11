@@ -30,7 +30,7 @@ pub const MARKER: &str = "CALL::";
 /// A user message carrying this is answered after [`SLOW_FOR`]: for timeouts.
 pub const SLOW: &str = "SLOW::";
 /// How long a [`SLOW`] message waits for its answer.
-pub const SLOW_FOR: std::time::Duration = std::time::Duration::from_secs(3);
+pub const SLOW_FOR: std::time::Duration = std::time::Duration::from_secs(60);
 /// The model's answer once a tool has answered, or when none was asked for.
 pub const FINAL_REPLY: &str = "done";
 /// The model alias every fixture agent runs on.
