@@ -12,9 +12,11 @@ cp deploy/.env.example deploy/.env   # the infrastructure around it
 ```
 
 Every push to `main` also deploys, through `.github/workflows/deploy.yml`:
-the checks in `.github/workflows/check.yml` (lint, typecheck, build, test,
-the web build; the same workflow every pull request runs) pass on the runner,
-then the same script runs with `--keep-env`,
+the checks in `.github/workflows/check.yml` (the Rust workspace's fmt, clippy,
+tests and duplicate-crate check; the legacy service's lint, typecheck, build
+and tests; the web build; shellcheck and the entrypoint tests -- the same
+workflow every pull request runs) pass on the runner, then the same script
+runs with `--keep-env`,
 which leaves the box's two `.env` files untouched and reads what it needs to
 verify from them over SSH. The workflow holds one secret, `DEPLOY_SSH_KEY`, a
 dedicated key authorised for `droid@robot1`; the host key is pinned in
@@ -22,21 +24,30 @@ dedicated key authorised for `droid@robot1`; the host key is pinned in
 that has the `.env` files.
 
 ```sh
-./deploy/deploy.sh --skip-checks   # skip the local lint/typecheck/test pass
+./deploy/deploy.sh --skip-checks   # skip the local cargo fmt/clippy/test pass
 ./deploy/deploy.sh --keep-env      # do not ship .env files; what CI runs
 ./deploy/deploy.sh --build-only    # sync and build, start nothing
+./deploy/deploy.sh --shadow        # the Rust bot in dry-run beside the live legacy one
 ./deploy/deploy.sh --logs          # tail the running stack
 ./deploy/deploy.sh --down          # stop it (volumes are kept)
-./deploy/deploy.sh --rollback      # put the previous image back
+./deploy/deploy.sh --rollback      # put the previous (Rust) image back
 ```
+
+The local checks are the Rust ones and need `vendor/openhuman` checked out
+recursively (`git submodule update --init --recursive vendor/openhuman`); the
+image is built on the box from the rsynced tree, submodules included, so the
+script refuses to sync without them. Nothing runs `npm` at the root any more:
+the legacy service's checks run in CI, from `legacy/`.
 
 ## The stack
 
 | Container          | What it does                              | Host port         |
 | ------------------ | ----------------------------------------- | ----------------- |
-| `teeny-bot-1`      | the agent: X ingest, the webhook, `/agent/run`, replies, the daily chart, the moon chart, Telegram | `127.0.0.1:3110`  |
+| `teeny-bot-1`      | the agent (Rust, the root `Dockerfile`): X ingest, the webhook, `/agent/run`, replies, the scheduled posts, Telegram, the browser | `127.0.0.1:3110`  |
+| `teeny-legacy-bot-1` | the TypeScript agent it replaces, `legacy` profile only: the shadow run and the rollback | `127.0.0.1:3111`  |
 | `teeny-web-1`      | the landing page, teeny.enamakel.com       | `127.0.0.1:3120`  |
-| `cortex`           | long-term memory, **not this stack's**: the shared CortexDB, reached as `cortexdb` | `127.0.0.1:3141`, `172.17.0.1:3141` |
+| `teeny-teeny-cortexdb-1` | the Rust bot's memory: its own CortexDB, the one TinyMemory store every agent shares ("The shared memory" below) | `127.0.0.1:3143` |
+| `cortex`           | the legacy service's memory, **not this stack's**: the shared CortexDB, reached as `cortexdb`; the Rust bot only imports from it | `127.0.0.1:3141`, `172.17.0.1:3141` |
 | `teeny-mongo-1`    | the mention queue                          | `127.0.0.1:27020` |
 | `ladder`           | the model endpoint, owned by no project    | `127.0.0.1:6969`, `172.17.0.1:6969` |
 | `teeny-opencompany-1` | the brain: the OpenCompany host + console over the public brain checkout | `127.0.0.1:3130` |
@@ -51,6 +62,224 @@ daily for a flexibility used never. `SERVICE_ROLE` still exists in the code,
 so the split is a compose change if it is ever wanted again; the constraint to
 remember then is that the chart cron and the Telegram poller must each run in
 exactly one place.
+
+## The bot image
+
+The root `Dockerfile`, built on the box by `deploy.sh` with BuildKit (the
+cargo registry and target directories are cache mounts, so a rebuild after
+a change in `crates/` compiles the changed crates and links):
+
+| Stage          | What it makes |
+| -------------- | ------------- |
+| `build-base`   | `rust:1.96.1-bookworm` plus the X11/xdo/Xtst/Xi, evdev, ALSA, udev and OpenSSL headers OpenHuman links |
+| `teeny`        | `cargo build --release --locked -p teeny` |
+| `tinycomputer` | `libtinycomputer.so` and the `modules.toml` naming its SHA-256, by `vendor/openhuman/vendor/tinycomputer/scripts/build-module`, from the same vendored SHA as the core |
+| `runtime`      | `debian:bookworm-slim` with `chromium`, the Noto fonts (core and colour emoji), `tini`, `gosu` and the X runtime libraries; the build fails if `ldd` finds a library missing |
+
+In the runtime image:
+
+```text
+/usr/local/bin/teeny              the service; `teeny healthcheck` is the HEALTHCHECK
+/usr/local/bin/teeny-entrypoint   docker/entrypoint.sh, under tini
+/opt/tinycomputer/                the module and its modules.toml: root:root, 755/644,
+                                  which is what the TinyBus loader insists on
+/app/                             SOUL.md, CONTEXT.md, skills/, narrative/, assets/,
+                                  calendar.json -- read-only, the working directory
+/data/                            the bot-data volume
+```
+
+The volume, laid out by the entrypoint on every boot:
+
+```text
+/data/openhuman/        OPENHUMAN_WORKSPACE: config.toml, sessions, cron jobs.db;
+                        HOME is /data/openhuman/home (OpenHuman's keyring and skills)
+/data/chrome-profile/   the browser's persistent profile: logins and cookies
+/data/media/            generated media; charts/, moon/, likeness/, downloads/,
+                        reference-sheet.json
+/data/articles/         the article store
+/data/state/            state.json (the ingest cursor), quotes.json,
+                        narrative-state.json, backrooms/
+```
+
+The legacy service wrote the same volume flat (it was mounted at `/app/data`).
+On first boot the entrypoint **copies** those files into the layout above,
+once each, and never overwrites a destination that exists; the originals stay
+put so the legacy service can be started again on the same volume. It also
+clears the `Singleton*` locks a killed Chromium leaves in the profile, which
+would otherwise refuse every launch in a recreated container. The path keys
+in `.env` (`CHART_OUTPUT_DIR=data/charts` and the rest) are the legacy ones;
+`compose.prod.yaml` overrides them for the bot with the `/data` paths.
+
+The container is locked down: `read_only: true` with a 512 MB tmpfs `/tmp`,
+`shm_size: 1gb` for Chromium, `no-new-privileges`, and `cap_drop: ALL` with
+four capabilities added back -- `CHOWN`, `DAC_OVERRIDE`, `SETUID`, `SETGID`.
+Those are the entrypoint's, which starts as root to create the layout inside a
+volume root the legacy uid owns and hand it to uid 10001, then `gosu`s to
+10001; teeny and Chromium run with none of them. Poke around as the bot's
+user, so nothing on the volume ends up root-owned:
+
+```sh
+ssh droid@174.138.35.76 'docker exec -u teeny teeny-bot-1 teeny --help'
+```
+
+The legacy service's `NODE_OPTIONS=--dns-result-order=ipv4first` is gone with
+Node; the same problem (api.telegram.org's AAAA record, no v6 route) is
+handled by disabling IPv6 inside the bot's container (`sysctls`).
+
+### The browser experiment
+
+Off by default. To try it, in the bot's `.env`:
+
+```sh
+BROWSER_RESEARCH=true
+# optional; unset is the default news/research set plus x.com, dexscreener.com, coingecko.com
+BROWSER_ALLOWED_HOSTS=reuters.com,techcrunch.com,coindesk.com,arxiv.org,x.com,dexscreener.com
+```
+
+then recreate the bot (`docker compose -f compose.prod.yaml up -d bot`). Who
+browses: the backrooms room agents, and `teeny-room-researcher`, which reads
+the morning post's chosen article and the lore seed's page. Never reply,
+chat, the learner, the operator, the chart agent or the drafter. Turning it
+off again is the same variable and a recreate; nothing else changes.
+
+What to watch:
+
+- `GET /health`: `browser.research` true, `browser.configured` true (the
+  module is in the image), `browser.allowedHosts` the list in force.
+- `GET /ledger` (and `/mind`): rows with source `morning.research` and
+  `lore.research`, and backrooms rows, carry each tool call by name; a
+  `browser` row shows what was opened and what came back or failed.
+- The log: `[oh_runner] tool calls` lines name the label, the agent and the
+  tools of every turn; `research: read` gives the URL, how many browser
+  calls it took and how much came back. `research: the browser turn failed`
+  means the morning fell back to Exa and the lore seed went as it was.
+- Cost and time: each reading is a full agent turn (up to the runner's ten
+  minutes), on top of the post's own model calls. A morning that starts
+  arriving late, or ledger spend on `*.research` out of proportion with what
+  the post gained, is the reason to turn it off.
+- `/data/chrome-profile` should never hold a login: nothing types unattended.
+
+## Moving to the Rust bot
+
+Three steps, each reversible: a shadow run, the cutover, and the clean-up.
+Until the cutover, `deploy.sh` refuses a plain deploy over the running legacy
+bot, so a push to `main` never does it by accident.
+
+### 1. The shadow run
+
+The legacy service stays live on the account; the Rust bot runs beside it
+with both gates shut (`DRY_RUN=true`, `TELEGRAM_DRY_RUN=true`), on its own
+volume (`bot-shadow-data`) and its own copy of the mention queue
+(`teeny_shadow`), so nothing it does can reach the account or hide a mention
+from legacy. `compose.shadow.yaml` holds those overrides. It also blanks the
+Telegram token and turns the activity stream off, because Telegram allows one
+poller per token and X one stream per app, and legacy holds both.
+
+In `deploy/.env`, put legacy on the webhook's port for the duration:
+
+```sh
+BOT_PORT=3111          # the Rust bot, drafting
+LEGACY_BOT_PORT=3110   # legacy, where nginx sends X's deliveries
+```
+
+then:
+
+```sh
+./deploy/deploy.sh --shadow
+```
+
+It builds both images, stops the legacy `bot` container, starts `legacy-bot`
+on the same `bot-data` volume and the Rust bot on the shadow volume, and
+gates on both answering. The Rust bot's ingest reads X on its own, so the
+shadow run pays for every X read twice: keep it to the days it takes.
+
+The shadow bot remembers under a root of its own in `teeny-cortexdb`
+(`TEENY_MEMORY_ROOT=team:teeny-shadow`, from `compose.shadow.yaml`), so its
+dry-run captures never reach the root the live bot will use. Give it the
+account's memory before judging its drafts: import the legacy store into
+that root, once the stack is up, and again whenever its recall looks stale:
+
+```sh
+ssh droid@174.138.35.76 'docker exec -u teeny teeny-bot-1 teeny memory import --dry-run'
+ssh droid@174.138.35.76 'docker exec -u teeny teeny-bot-1 teeny memory import'
+```
+
+"The shared memory" below has what the import carries and how it resumes.
+
+Diff the drafts against what legacy did with the same input:
+
+```sh
+# The journal each one keeps: legacy's posts and replies, the Rust bot's drafts.
+ssh droid@174.138.35.76 'curl -sS 127.0.0.1:3110/mind' > legacy-mind.json
+ssh droid@174.138.35.76 'curl -sS 127.0.0.1:3111/mind' > rust-mind.json
+# The drafts as they were logged, slot by slot and mention by mention.
+ssh droid@174.138.35.76 'docker logs --since 24h teeny-bot-1 2>&1' | grep -i draft
+ssh droid@174.138.35.76 'docker logs --since 24h teeny-legacy-bot-1 2>&1' | grep -iE 'draft|posted|replied'
+```
+
+Each scheduled slot should produce a Rust draft at the same time legacy
+posts, of the same kind, through the content filter and house style; each
+mention legacy answers should have a Rust draft (or the same decision to
+skip). `/ledger` on each shows what the inference cost. Re-run
+`./deploy/deploy.sh --shadow` to ship fixes during the shadow run.
+
+### 2. The cutover
+
+Take the port swap back out of `deploy/.env` (`BOT_PORT` 3110, no
+`LEGACY_BOT_PORT`), set `DRY_RUN=false` in `.env` when the Rust bot is to
+publish, then:
+
+```sh
+./deploy/cutover.sh        # what it will do
+./deploy/cutover.sh --go
+```
+
+It keeps the running legacy image as `teeny-legacy:current`, builds the Rust
+image, stops the legacy bot, snapshots `teeny_bot-data` to
+`teeny_bot-data-legacy`, starts the Rust bot on the volume and the webhook's
+port, and proves it healthy and able to reach the ladder. The account is
+quiet only between the stop and the health check. Browser logins made during
+the shadow run are on `bot-shadow-data`; copy its `chrome-profile/` across
+with a throwaway container if they are worth keeping.
+
+Then import the legacy store again, now into the live root (`team:teeny`,
+the bot's own environment): the legacy service has stopped writing, so
+this copy is the whole of it.
+
+```sh
+ssh droid@174.138.35.76 'docker exec -u teeny teeny-bot-1 teeny memory import'
+```
+
+To have most of it in place already, run the same import into the live
+root a day or so before the cutover, from the shadow container
+(`docker exec -u teeny -e TEENY_MEMORY_ROOT=team:teeny teeny-bot-1 teeny
+memory import`). The run at the cutover then stores only what legacy wrote
+since; it still reads the whole scope, because its cursor file is on the
+live volume and the earlier one was on the shadow's, and everything already
+stored is a replay. Until it finishes, recall in the live bot comes back
+thin, not wrong.
+
+### Rolling back
+
+```sh
+./deploy/cutover.sh --undo     # back to the TypeScript service
+./deploy/deploy.sh --rollback  # back to the previous Rust build
+```
+
+`--undo` stops the Rust bot, hands `media/` and `articles/` (the directories
+both layouts share) back to the legacy uid, and starts `legacy-bot` on the
+webhook's port over the flat files it left behind. Its cursor is where it was
+at the cutover, so its next poll re-reads (and is billed for) what the Rust
+bot already saw; the mention queue's replied set keeps it from answering
+anything twice. `deploy.sh --rollback` refuses to put the legacy image back
+through the Rust bot's service definition, which cannot run it.
+
+### 3. The clean-up
+
+Once the Rust bot has posted and replied for a few days: remove
+`teeny-legacy-bot-1`, the `teeny_bot-data-legacy` snapshot and
+`bot-shadow-data`, then delete `legacy/` and the `legacy-bot` service in a
+follow-up PR.
 
 ## The two shared containers
 
@@ -95,9 +324,10 @@ day 0, the moon chart on day 1 and the lore post on day 2 (`CHART_ENABLED`,
 box's `.env` must not pin the old four-slot values (`POST_ROTA_DAYS=7`,
 `CHART_ROTA_SLOT=3`, `POST_MIN_GAP_HOURS=6`); the old per-job crons
 (`CHART_CRON`, `MOON_CRON`, `LORE_CRON`, `QUOTE_CRON`) are ignored. The quote post's two searches
-are billed like every other X read; `data/quotes.json` on the `bot-data`
-volume is what stops it quoting a post twice, so migrate that volume with
-the rest.
+are billed like every other X read; `quotes.json` on the `bot-data` volume
+(`state/quotes.json` for the Rust bot, carried over from the legacy flat
+`quotes.json`) is what stops it quoting a post twice, so migrate that volume
+with the rest.
 
 ## The brain
 
@@ -211,9 +441,68 @@ The page reads its live reflection feed from `MIND_FEED_URL` (deploy/.env)
 and shows labelled samples while that is unset. A bad site build never fails
 the agent's deploy: the health step reports the page rather than gating on it.
 
+## The shared memory
+
+The Rust bot remembers in one TinyMemory store that every agent shares
+through OpenHuman: `teeny-cortexdb`, a CortexDB of this stack's own, its data
+in the `teeny-cortexdb-data` volume (migrate it, never recreate it). The
+runtime installs it as OpenHuman's memory engine; every agent is bound to the
+root `TEENY_MEMORY_ROOT` (`team:teeny`), so the learnings and beliefs there
+are shared, each agent's own turns are logged at its node below it, and what
+the account captures itself (mentions, replies, chat, its posts, notes) is
+stored at the root with the labels, keys and person it always had.
+
+- **Reaching it.** The bot gets `TEENY_MEMORY_URL=http://teeny-cortexdb:3141`
+  and `TEENY_MEMORY_TOKEN=$TEENY_CORTEX_API_KEY` from compose; the key lives
+  only in `deploy/.env`, and `deploy.sh` refuses to deploy without it.
+  OpenHuman's engine sends that key only over HTTPS or to loopback, so the bot
+  relays to the store from `127.0.0.1` inside its own container: the key goes
+  over the stack's private network, as the legacy key always has. An
+  operator on the box reaches the store on `127.0.0.1:3143`.
+- **Health.** `teeny_cortex_health` (hourly, and at boot) reads this store's
+  `/v1/admin/ready` now, not the legacy one's.
+- **Embeddings.** Pinned on the first ingest like the legacy store's:
+  `TEENY_CORTEX_EMBEDDING_MODEL` (default `vectors-oai3`, the Surplus tier
+  robot1 can reach) and `TEENY_CORTEX_EMBEDDING_DIMS` (default 3072). Check
+  the dimension the tier returns before the first import; changing either
+  afterwards orphans everything stored.
+- **Off.** Without `TEENY_MEMORY_TOKEN` memory is off: every recall reads as
+  unavailable and nothing is captured, and the bot still runs.
+
+### Importing the legacy memory
+
+```sh
+teeny memory import [--dry-run] [--since <date|timestamp>] [--cursor <file>]
+```
+
+It reads the legacy scope (`CORTEX_API_URL`, `CORTEX_SCOPE`, as
+`CORTEX_ACTOR` with `CORTEX_TOKEN`) through the one listing that store always
+answered fast: `GET /v1/events` with `view=local` and the label filter
+`x,telegram` (every capture the account made carries one), 200 a page, never
+a recall, a heavy view or a person filter (see the quirks in "The memory tier
+is external" below). Each request has a 30-second deadline and is retried
+four times with doubling backoff on a timeout, a 429 or a 5xx; the writes go
+two at a time.
+
+Every event is turned back into the capture it came from and stored exactly
+as the bot stores a live one: its text (a message) or JSON (an activity), its
+labels as tags, its time, its person, and its idempotency key
+(`x:<kind>:2:<id>`, or `cortex:<event id>` when the listing does not carry
+one). TinyMemory derives an item's identity from that, so a rerun stores
+nothing twice, and neither does a mention the bot already captured itself.
+`--since` leaves out what was observed before it; `--dry-run` reads and
+counts everything and writes nothing.
+
+The cursor file (`/data/state/memory-import-<root>.json` by default) records
+the listing's next page after every page, so an import that stops goes on
+from there when run again; a finished run records the newest event it read,
+and the next run stops when it reaches it. The report counts what was read,
+stored, already there and skipped, per kind (`mention`, `reply`, `message`,
+and each activity's own kind: `chart_post`, `like`, ...).
+
 ## The memory tier is external
 
-Teeny's memory lives in the shared CortexDB on the box: the container named
+The legacy service's memory lives in the shared CortexDB on the box: the container named
 `cortex`, published on `127.0.0.1:3141` and `172.17.0.1:3141`, with its data
 in the `cortex-data` volume. It is nobody's compose project here and it is
 not this stack's to start or stop. The agent reaches it as
@@ -295,7 +584,8 @@ local file can never wipe a working one on the box.
 `CORTEX_API_KEY` (deploy/.env) and `CORTEX_TOKEN` (.env) are the same secret
 from two sides — the service's own key, and the client's copy of it. They are
 checked against each other before every deploy, because a mismatch fails at the
-first recall rather than at boot.
+first recall rather than at boot. `TEENY_CORTEX_API_KEY` (deploy/.env) is the
+Rust bot's own store's key, and only there: compose hands it to the bot.
 
 `CORTEX_ACTOR` and `CORTEX_SCOPE` are `agent:tiny-x-bot` and must stay that
 way: everything Tiny remembers is filed under that scope, and changing it does
@@ -353,13 +643,14 @@ with a v2 post as the payload, and the app reads both that and the old
 `tweet_create_events` shape.
 
 ```sh
+cd legacy
 npm run webhook                                                 # where X delivers, and who is subscribed
 npm run webhook -- --set https://teeny.enamakel.com/api/webhooks/x --confirm
 ```
 
 The app holds exactly one webhook, so a move is a delete followed by a create
 and there is no moment where both are registered — the cron poll covers the
-seconds in between. See the header of `src/scripts/webhook.ts` for the rest,
+seconds in between. See the header of `legacy/src/scripts/webhook.ts` for the rest,
 including why a wrong credential shows up as a `503` rather than a 401.
 
 ### Forwarding it
@@ -432,8 +723,9 @@ performed the move, once, on 2026-09-08:
   stopped at the same time, on request. Stopped, not removed: every container
   and every volume is still there.
 
-`./deploy/cutover.sh --undo` reverses all of it. The script is kept because it
-documents what the state actually is, not because it should ever run twice.
+That version of `deploy/cutover.sh` is in git history
+(`git log --follow -p -- deploy/cutover.sh`); the script now performs the
+move to the Rust bot ("Moving to the Rust bot" above).
 
 Once teeny has been answering for a while, the leftovers can go:
 

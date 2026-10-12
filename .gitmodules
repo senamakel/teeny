@@ -1,3 +1,6 @@
 [submodule "brain"]
 	path = brain
 	url = git@github.com:teenydroid/brain.git
+[submodule "vendor/openhuman"]
+	path = vendor/openhuman
+	url = https://github.com/senamakel/openhuman.git

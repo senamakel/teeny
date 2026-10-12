@@ -11,7 +11,13 @@
 # deploys in order, never one racing the other for the containers.
 #
 # The checks in front of the deploy are check.yml, the workflow pull requests
-# run, called here as a reusable workflow rather than copied.
+# run, called here as a reusable workflow rather than copied: the legacy
+# TypeScript service, the Rust workspace (fmt, clippy, test, the duplicate-
+# crate tripwire), the web build, and the deploy scripts.
+#
+# deploy.sh refuses to replace a running legacy bot with the Rust one, so a
+# push here never performs the cutover by accident; that is cutover.sh's,
+# run by a person (deploy/README.md, "Moving to the Rust bot").
 
 name: deploy
 
@@ -35,12 +41,17 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      # With the submodule: brain/sync is the brain-sync sidecar's build
+      # With the submodules: brain/sync is the brain-sync sidecar's build
       # context, rsynced from here to the box, and a bare checkout leaves it
       # an empty directory, which the build refuses as a missing context.
+      # vendor/openhuman has to come recursively: the bot image builds on the
+      # box from the rsynced tree, and both the cargo [patch] tables and the
+      # TinyComputer module point into its nested vendors.
       - uses: actions/checkout@v5
         with:
           submodules: true
+      - name: Fetch vendor/openhuman's nested submodules
+        run: git submodule update --init --recursive --depth 1 --jobs 8 vendor/openhuman
       - name: Install the deploy key
         run: |
           mkdir -p ~/.ssh

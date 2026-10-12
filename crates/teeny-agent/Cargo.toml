@@ -1,0 +1,56 @@
+[package]
+name = "teeny-agent"
+description = "The OpenHuman runtime cell, agent specs and posture, the ledger meter, harnesses and the posting pipelines."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+# A scripted OpenAI-compatible provider and the booted runtime, for the
+# posture tests here and the runner's tests in teeny-jobs.
+testkit = ["dep:wiremock"]
+
+[dependencies]
+# The trimmed OpenHuman build (`skills` + `modules` only); the feature set is
+# fixed in the workspace table so every crate that names OpenHuman agrees.
+openhuman-core.workspace = true
+openhuman-embed.workspace = true
+teeny-cadence.workspace = true
+teeny-core.workspace = true
+teeny-market.workspace = true
+teeny-media.workspace = true
+teeny-memory.workspace = true
+teeny-safety.workspace = true
+teeny-store.workspace = true
+teeny-x.workspace = true
+# The CortexDB engine the runtime installs as every agent's shared memory,
+# by the path OpenHuman's core links.
+tinymemory-integrations.workspace = true
+# The vendored tinytools that OpenHuman links (the workspace patch resolves
+# every other spelling of it to this same path), for the `Tool` method types
+# OpenHuman does not re-export: the adapter in `shared_tool` forwards them all.
+tinytools = { path = "../../vendor/openhuman/vendor/tinyagents/vendor/tinytools/crates/tinytools" }
+
+anyhow.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+futures.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+wiremock = { workspace = true, optional = true }
+
+[dev-dependencies]
+wiremock.workspace = true
+# TinyMemory's in-memory reference engine, for `tests/shared_memory.rs`.
+tinymemory-api = { workspace = true, features = ["conformance"] }
+# The crate itself with the test kit on, for `tests/posture.rs`.
+teeny-agent = { path = ".", features = ["testkit"] }
+
+[lints]
+workspace = true

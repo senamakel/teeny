@@ -19,6 +19,127 @@ mascot, as an X account. It:
 > [OpenCompany](https://github.com/tinyhumansai/opencompany) company that
 > revises itself and commits every run. See `deploy/README.md`, "The brain".
 
+## Rust rewrite (in progress)
+
+Teeny is being rebuilt in Rust on the [OpenHuman](https://github.com/tinyhumansai/openhuman)
+embedded harness, as a locked-down public agent: OpenHuman compiled without
+shell, file-write, exec, wallet or MCP tools, every agent on a named tool
+allowlist, and posting only from trusted (scheduled or bearer-authenticated)
+turns through host code that runs the content filter, house style, cadence and
+`DRY_RUN`. Until cutover the TypeScript service below keeps running, from
+`legacy/`; the content it reads (`SOUL.md`, `CONTEXT.md`, `skills/`,
+`narrative/`, `assets/`, `calendar.json`, `brain/`) and the `web/` site stay
+where they are, and both services read the same `.env`.
+
+```
+Cargo.toml            virtual workspace; replicates OpenHuman's [patch] tables
+rust-toolchain.toml   pinned to vendor/openhuman's toolchain (1.96.1)
+vendor/openhuman/     OpenHuman, as a git submodule (recursive)
+crates/
+  teeny-core          config (the legacy env surface, typed), shared types, errors
+  teeny-store         Mongo repositories and file-state cursors
+  teeny-x             X API client, X tools, the Publisher guard
+  teeny-memory        the shared memory (TinyMemory), the legacy CortexDB client
+                      and import, recall_memory / remember tools
+  teeny-market        market data, technical analysis, market tools
+  teeny-media         GIFs, vision, image/video generation, chart rendering
+  teeny-safety        lexicon, link allowlist, LLM judge, holds, house style
+  teeny-cadence       gap, heat, budgets, 20h guard, rota, slots, calendar
+  teeny-agent         the OpenHuman runtime, agent specs and posture, pipelines
+  teeny               the binary: HTTP server, schedule, subcommands
+legacy/               the TypeScript service, until cutover
+scripts/check-dup-crates.sh   fails if OpenHuman-family crates resolve twice
+```
+
+Only `teeny-agent` and `teeny` depend on OpenHuman. The crates land milestone
+by milestone, each porting its tests from `legacy/test`; most are skeletons
+today. To work on the Rust side:
+
+```sh
+git submodule update --init --recursive --jobs 8 vendor/openhuman
+cargo fmt --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+scripts/check-dup-crates.sh
+```
+
+After bumping `vendor/openhuman`, re-check the root `[patch]` tables against
+`vendor/openhuman/Cargo.toml` and run the duplicate-crate check.
+
+**Which OpenHuman.** The submodule pins branch `teeny-vendor` of the fork
+`senamakel/openhuman`: upstream `tinyhumansai/openhuman` `main` plus the vendor
+patches Teeny still needs, each on its own `embed-<topic>` branch off upstream
+`main` with an upstream PR open:
+
+| Patch | Why Teeny needs it | Upstream PR |
+|---|---|---|
+| `embed-defer-services`: `RuntimeBuilder::defer_services` | `teeny serve` registers its cron system-job handlers and upserts the rota before the scheduler starts; without it a job already due at boot is recorded `ok` without running | [#7477](https://github.com/tinyhumansai/openhuman/pull/7477) (merged) |
+| `embed-memory-store`: `memory::Memory::store` and `memory::Memory::search` | the account files its own captures (mentions, replies, chat, posts) in the shared memory as conversations and documents with their labels, key and person, and reads back only the labels it recalls from; the facade could only `learn` | [#7486](https://github.com/tinyhumansai/openhuman/pull/7486) |
+
+**Memory.** Every agent shares one memory: OpenHuman's TinyMemory, on a
+CortexDB of the bot's own (`TEENY_MEMORY_URL`, `TEENY_MEMORY_TOKEN`), every
+agent bound to the root `TEENY_MEMORY_ROOT` (`team:teeny`) with its own turns
+at its node below. The account's captures and recalls go through the same
+root (`teeny_memory::TinyMemory`, over `teeny_agent::shared_memory`), with
+the legacy labels, keys, person and recall breaker. `teeny memory import`
+copies the TypeScript service's CortexDB scope in; `deploy/README.md`, "The
+shared memory", has the store, the import and when to run it.
+
+`.gitmodules` points at the fork because the pinned SHA only exists there.
+Point it back at `tinyhumansai/openhuman` once every patch has merged and
+the pin is a commit on upstream `main`. Everything else Teeny does, the agent
+lockdown included, is built from upstream's own mechanisms: see
+`crates/teeny-agent/src/specs.rs`.
+
+The container is the root `Dockerfile` (BuildKit; the submodule has to be
+checked out recursively first). It builds `teeny` and the TinyComputer
+browser module (`libtinycomputer.so` and its `modules.toml`, from the same
+vendored SHA) and runs them on `debian:bookworm-slim` with Chromium, as uid
+10001, over one volume at `/data`:
+
+```sh
+docker build -t teeny .
+docker run --rm -p 3001:3001 --env-file .env -e DRY_RUN=true -v teeny-data:/data --shm-size 1g teeny
+docker/entrypoint_test.sh    # the entrypoint's volume layout and legacy migration
+```
+
+`deploy/README.md`, "The bot image", has the layout, and "Moving to the Rust
+bot" the shadow run, the cutover and the way back.
+
+**Live prompts and the learner.** Every fixed agent's system prompt is a
+file OpenHuman reads per turn (`PromptSource::File`, under
+`<workspace>/agent/prompts/teeny/<pid>-<ms>/`), rendered again before each
+turn, so a learnings brief written after boot is in the next reply, chat,
+chart, operator and drafter turn without a restart; the backrooms rooms were
+already rendered per run. The brief itself is written by its own agent,
+`teeny-learner`: a scheduled turn whose belt is one memory read
+(`recall_memory`), no posting, no browser, no X, no shell, files or cron,
+proven in `crates/teeny-agent/tests/posture.rs`.
+
+**The browser experiment** (`BROWSER_RESEARCH`, off by default). On, the
+backrooms room agents hold OpenHuman's built-in `browser` (TinyComputer and
+the image's Chromium, headless, profile at `/data/chrome-profile`), and so
+does the research step of the morning post and the lore post: a room agent of
+its own, `teeny-room-researcher`, reads the morning's chosen article (Exa
+when the browser gets nothing) and the lore seed's page. Reply, chat, the
+learner, the operator, the chart agent and the drafter never get it, on or
+off. It is read-only by construction: OpenHuman refuses any host off
+`BROWSER_ALLOWED_HOSTS` (wire services, tech and crypto news, arXiv, GitHub,
+Hugging Face, Wikipedia, `x.com`, `dexscreener.com`, `coingecko.com` by
+default; `*` and bare top-level domains are dropped), a scheduled turn may
+only click and press (typing, choosing and the autonomous task step, what a
+login or a post is made of, are never unattended, whatever
+`BROWSE_UNATTENDED_ACTIONS` lists), and the researcher is told never to sign
+in or post. `OPENHUMAN_BROWSER_ALLOW_ALL` in the environment keeps the
+experiment off. The chart is still drawn by the native SVG renderer: there
+is no screenshot path in the Rust port, and DEX Screener's embed serves no
+chart data to a headless browser (see "Rendering" below).
+
+```text
+BROWSER_RESEARCH=false
+BROWSER_ALLOWED_HOSTS=        # unset: the default set; blank: no host at all
+```
+
 ## Setup
 
 Requirements: Node.js 20+, an X developer app with read/write access, a CortexDB
@@ -27,9 +148,16 @@ agent simply runs without web-research tools when it is absent.
 
 ```sh
 cp .env.example .env
+cd legacy
 npm install
 npm run dev
 ```
+
+The TypeScript service lives in `legacy/`. Its npm scripts run from the repo
+root, so `.env`, `SOUL.md` and `data/` resolve where they always have; run
+`npm` from `legacy/`. Its container builds from the repo root with
+`docker build -f legacy/Dockerfile .` (the `legacy-bot` service in
+`deploy/compose.prod.yaml`); the root `Dockerfile` is the Rust bot's.
 
 Fill every blank value in `.env`. Leave `DRY_RUN=true` until generated replies
 have been inspected. Set it to `false` only when the bot is ready to publish.
@@ -1264,6 +1392,23 @@ runs inside the ingest process (`SERVICE_ROLE=all` or `ingest`), the half of
 the account that already runs in exactly one place, next to the X webhook.
 One process, one codebase: the same `teeny-bot-1` container answers on both.
 
+### Two transports (`TELEGRAM_TRANSPORT`)
+
+- **`teeny`** (the default): Teeny's own Bot API long poll
+  (`crates/teeny/src/telegram/poller.rs`). Every message goes through
+  `teeny_jobs::chat`: the content filter on the way in and on the way out, the
+  transcript and its `TELEGRAM_HISTORY_TOKENS` budget, the house style and
+  `TELEGRAM_DRY_RUN`. The `teeny-chat` agent drafts as a public turn and holds
+  no tool that writes.
+- **`openhuman`**: OpenHuman's own Telegram channel, bound to the `teeny-chat`
+  agent. The agent's posture still applies (locked down, its named reads only,
+  the read-only public tier), but the channel sends the agent's text as it is: **it
+  bypasses Teeny's outbound content filter, the house style and the transcript
+  budget**, keeps its own history, and ignores `TELEGRAM_DRY_RUN`. That is why
+  it is not the default. It is only compiled into a build with
+  `cargo build -p teeny --features openhuman-telegram`; any other build refuses
+  to boot with `TELEGRAM_TRANSPORT=openhuman`.
+
 What it answers:
 
 - everything in a DM;
@@ -1400,7 +1545,12 @@ of the fixed sections is thrown away and yesterday's stays.
 The brief is in every prompt the account writes: replies, Telegram, the agent,
 the chart, morning, moon, quote and lore posts. It is read live, so the brief
 written at five is in the six o'clock reply without a restart. Older briefs are
-kept in `data/memory/history/`. `npm run learnings -- --print` writes one now.
+kept in `data/memory/history/`. `npm run learnings -- --print` writes one now;
+on the Rust bot, `teeny learnings` (`--dry-run` drafts and prints it, writing
+nothing), with the brief on the volume at `state/memory/LEARNINGS.md`. The
+Rust bot also works out what landed and what flopped from the ledger's numbers
+in code (each kind's average, the posts at twice the median or held hot, the
+posts at half or less) and hands the model that reading beside the raw list.
 
 ### Checking that recall works
 
@@ -1420,7 +1570,7 @@ answers every recall, by keyword alone, and nothing else notices: from
 
 The account's own posts -- the morning post, the chart, the moon chart, the
 lore post, the quote post, the calendar items, anything the agent is asked to put on the timeline -- are
-spaced at least `POST_MIN_GAP_HOURS` apart (6), whichever job writes them.
+spaced at least `POST_MIN_GAP_HOURS` apart (7), whichever job writes them.
 Each job used to guard only against running itself twice; none of them knew
 about the others, so a morning post at seven and a chart at eight were two
 well-behaved jobs and one badly paced account. Now every own post is written
@@ -1650,6 +1800,8 @@ it, signature header included, plus `WEBHOOK_FORWARD_TOKEN` as a bearer when
 set -- after X has been answered and without waiting for the receiver.
 
 ## Commands
+
+From `legacy/`:
 
 ```sh
 npm run dev
