@@ -100,6 +100,7 @@ root="$scratch/root"
 mkdir -p "$root/workspace" "$root/secrets"
 cp -R "$repo/bin" "$root/bin"
 cp "$repo/workspace/cron.toml" "$root/workspace/cron.toml"
+cp "$repo/workspace/SOUL.md" "$root/workspace/SOUL.md"
 cat >"$root/secrets/kernel.env" <<ENV
 LADDER_URL=http://127.0.0.1:$model_port/v1
 LADDER_API_KEY=stub-key
@@ -129,6 +130,7 @@ check "mints the core token" test -s "$root/secrets/core.token"
 check "mints the keyring master key" test -s "$root/secrets/openhuman.key"
 check "keeps the token private" test "$(stat -c %a "$root/secrets/core.token" 2>/dev/null || stat -f %Lp "$root/secrets/core.token")" = 600
 check "writes one storage file in the workspace" test -s "$root/workspace/storage.db"
+check "leaves Teeny's SOUL.md exactly as it was" cmp -s "$repo/workspace/SOUL.md" "$root/workspace/SOUL.md"
 check "keeps config out of the workspace" test ! -e "$root/workspace/config.toml"
 check "puts config beside the workspace" test -s "$root/.openhuman/config.toml"
 check "never exports the model key to the core" \
