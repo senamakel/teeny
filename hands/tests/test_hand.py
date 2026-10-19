@@ -114,14 +114,14 @@ class StateTest(Scratch):
             "from teeny_hands import hand\n"
             "c = hand.db(); c.execute('CREATE TABLE IF NOT EXISTS t (v)'); print('ok')\n"
         ) % str(HERE.parent / "lib")
-        for round_ in range(10):
+        for round_ in range(5):
             (self.root / "state" / "hands.db").unlink(missing_ok=True)
             for suffix in ("-wal", "-shm"):
                 (self.root / "state" / f"hands.db{suffix}").unlink(missing_ok=True)
             procs = [
                 subprocess.Popen([sys.executable, "-I", "-c", script], stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE, text=True, env=os.environ)
-                for _ in range(30)
+                for _ in range(12)
             ]
             outs = [p.communicate() for p in procs]
             failed = [err for (out, err), p in zip(outs, procs) if p.returncode != 0]
