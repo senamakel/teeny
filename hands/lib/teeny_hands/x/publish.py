@@ -17,7 +17,7 @@ from typing import Any, Mapping
 
 from .. import hand
 from . import open_db
-from . import cache
+from . import cache, media
 from . import posting_rules as rules
 from .client import XApi, XError, number_setting
 
@@ -113,6 +113,10 @@ def post(body: Any, x: XApi | None = None) -> Json:
         if not live:
             return _dry(text, kind)
         x = x or XApi.from_settings()
+        # Only a real post fetches and uploads its GIF: a refused or
+        # rehearsed one uploads nothing.
+        if gif_id:
+            media_ids = [media.attach_gif(x, gif_id)]
         post_id = x.create_post(text, quote=quote_of, media_ids=media_ids)
         # The post is out. A ledger that cannot record it is logged, not
         # raised: an error here would invite a retry that posts it twice.
@@ -163,6 +167,8 @@ def reply(to: str, body: Any, x: XApi | None = None) -> Json:
         rules.check_pacing(conn)
         if not live:
             return _dry(text, "reply", in_reply_to=to)
+        if gif_id:
+            media_ids = [media.attach_gif(x, gif_id)]
         with hand.transaction(conn):
             rules.claim_reply(conn, to)
         try:
