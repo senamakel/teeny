@@ -11,13 +11,15 @@ What goes out is always the guard's text, never the caller's.
 
 from __future__ import annotations
 
+import random
 import sys
 from typing import Any, Mapping
 
 from .. import hand
 from . import open_db
+from . import cache
 from . import posting_rules as rules
-from .client import XApi, number_setting
+from .client import XApi, XError, number_setting
 
 try:
     # Imported by name, so a test can stand in for the other hand's gate.
@@ -119,3 +121,67 @@ def post(body: Any, x: XApi | None = None) -> Json:
         except Exception as exc:  # noqa: BLE001
             print(f"hands/x: published {post_id} but could not record it: {type(exc).__name__}", file=sys.stderr)
     return {"id": post_id, "kind": kind, "text": text}
+
+
+def _in_doubt(error: XError) -> bool:
+    """Whether a failed post may still have gone out. A 4xx is X saying no;
+    a 5xx, no answer, or a 2xx without an id leaves it unknown."""
+    return error.status is None or error.status >= 500
+
+
+def reply(to: str, body: Any, x: XApi | None = None) -> Json:
+    """A reply to post `to`: guard (told whom it answers), 280, never the
+    account's own post, attachments, then under the replying lock one reply
+    per post and the pacing. The reply id is recorded the moment X returns
+    it, before the ledger or anything else that can fail."""
+    if not rules.is_x_id(to):
+        raise hand.HandError("--to must be a numeric X post id")
+    text, media_ids, gif_id, _ = _draft(body, quote=False)
+    x = x or XApi.from_settings()
+    reads = cache.reads(x)
+    target = reads.get_post(to)
+    if target is None:
+        raise hand.Refused(f"X does not have post {to} (deleted, protected or not visible); nothing was published", rule="target")
+    account = reads.identity()
+    text = _guarded(
+        text,
+        "reply",
+        replying_to=target.get("authorUsername"),
+        context={
+            "post_id": to,
+            "conversation_id": target.get("conversationId"),
+            "author_username": target.get("authorUsername"),
+        },
+    )
+    rules.check_length(text)
+    rules.check_not_own(target, account["id"])
+    live = not hand.dry_run()
+    conn = _db()
+    rules.check_attachments(conn, media_ids, gif_id, live=live)
+    with hand.lock("replying"):
+        rules.check_not_replied(conn, to)
+        rules.check_pacing(conn)
+        if not live:
+            return _dry(text, "reply", in_reply_to=to)
+        with hand.transaction(conn):
+            rules.claim_reply(conn, to)
+        try:
+            reply_id = x.create_post(text, reply_to=to, media_ids=media_ids)
+        except XError as error:
+            if _in_doubt(error):
+                rules.note_reply_in_doubt(conn, to, str(error))
+            else:
+                rules.release_reply(conn, to)
+            raise
+        # The reply is out: say so before anything else can fail or stop, so
+        # nothing from here on can ever answer this post a second time.
+        rules.record_reply_id(conn, to, reply_id)
+        for step, record in (
+            ("pacing", lambda: rules.advance_pacing(conn, random.random())),
+            ("ledger", lambda: rules.record_post(conn, reply_id, "reply", text, in_reply_to=to, media=media_ids)),
+        ):
+            try:
+                record()
+            except Exception as exc:  # noqa: BLE001
+                print(f"hands/x: replied {reply_id} but could not record the {step}: {type(exc).__name__}", file=sys.stderr)
+    return {"id": reply_id, "in_reply_to": to, "kind": "reply", "text": text}
