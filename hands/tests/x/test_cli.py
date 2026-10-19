@@ -154,11 +154,14 @@ class WriteVerbsTest(Cli):
         self.assertEqual((code, out), (2, {"ok": False, "refused": "held", "category": "politics", "hold_id": 7}))
         self.assertEqual(self.x.writes(), [])
 
-    def test_without_the_guard_nothing_is_published(self):
-        # The repo's lib/, whatever hands/guard holds: a hand with no guard
-        # fails closed, and one with a guard is not this test's to fake.
+    def test_through_the_repo_s_own_lib_without_a_guard_nothing_is_published(self):
+        # Whatever hands/guard holds right now: absent, the hand fails closed;
+        # present, it is the real guard, which this test does not fake.
+        self.configure(DRY_RUN="1")
         code, out, _ = self.run_x("post", stdin='{"text":"hi"}')
-        self.assertIn(code, (0, 1, 2))
+        if not (LIB / "teeny_hands" / "guard" / "gate.py").exists():
+            self.assertEqual(code, 1)
+            self.assertIn("guard", out["error"])
         self.assertEqual(self.x.writes(), [])
 
     def test_reply(self):
