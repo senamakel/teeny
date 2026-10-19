@@ -347,6 +347,7 @@ class ApprovedLinksReachTheGateTest(Lexical):
         self.assertEqual(gate_outbound("https://claim-tiny.xyz/go ok").fixes, [])
         other = self.root / "other"
         (other / "secrets").mkdir(parents=True)
+        (other / "secrets" / "teeny.env").write_text("SAFETY_JUDGE=0\n")
         os.environ["TEENY_ROOT"] = str(other)
-        self.secrets("SAFETY_JUDGE=0\n")
+        gate.hand._ENV_CACHE = None
         self.assertEqual(len(gate_outbound("https://claim-tiny.xyz/go ok").fixes), 1)
