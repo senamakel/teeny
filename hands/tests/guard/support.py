@@ -25,6 +25,10 @@ if str(LIB) not in sys.path:
 
 from teeny_hands import hand  # noqa: E402
 
+# The gate logs what it holds and cuts, as the Rust traced it. The tests that
+# care assert it with assertLogs; the rest keep the run's output clean.
+logging.getLogger("teeny_hands.guard").addHandler(logging.NullHandler())
+
 
 class Scratch(unittest.TestCase):
     """A scratch TEENY_ROOT per test, with the env cache cleared. The judge
