@@ -21,6 +21,14 @@ mascot, as an X account. It:
 
 ## Rust rewrite (in progress)
 
+> **Next: no Rust at all.** [`docs/architecture.md`](docs/architecture.md) specs
+> Teeny as a stock `openhuman-core serve` (the kernel), a few helper scripts
+> under `hands/` that hold every hard rule and secret, and a `workspace/` of
+> identity, skills, job prompts and schedules. It replaces `crates/` and
+> `legacy/` entirely. [`docs/hands.md`](docs/hands.md) lists the helpers and the
+> invariants they inherit, and [`docs/oh-gaps.md`](docs/oh-gaps.md) lists the
+> upstream OpenHuman changes that would simplify it.
+
 Teeny is being rebuilt in Rust on the [OpenHuman](https://github.com/tinyhumansai/openhuman)
 embedded harness, as a locked-down public agent: OpenHuman compiled without
 shell, file-write, exec, wallet or MCP tools, every agent on a named tool
