@@ -48,6 +48,20 @@ TIMEOUT_SECONDS = 30.0
 _TITLE_CHARS = 200
 
 
+def number_setting(name: str, default: float, low: float, high: float) -> float:
+    """A numeric switch from secrets/teeny.env, held to its range. A value
+    that does not parse is the default, as the Rust config read it: a typo
+    must not turn a rule off."""
+    raw = hand.setting(name)
+    try:
+        value = float(raw) if raw is not None else default
+    except ValueError:
+        return default
+    if value != value:  # NaN
+        return default
+    return min(max(value, low), high)
+
+
 class XError(hand.HandError):
     """A failed X call. `status` is X's HTTP status, or None when X was not
     reached or answered something unreadable (the outcome is then unknown)."""
