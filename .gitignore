@@ -25,3 +25,5 @@ target/
 /workspace/ROLE.md
 /workspace/STYLE.md
 /*.mp4
+__pycache__/
+*.pyc
