@@ -49,13 +49,6 @@ CREATE TABLE IF NOT EXISTS x_posts (
     created_at  REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS x_posts_kind_created ON x_posts (kind, created_at);
-CREATE TABLE IF NOT EXISTS x_replies (
-    in_reply_to TEXT PRIMARY KEY,
-    reply_id    TEXT,
-    claimed_at  REAL NOT NULL,
-    replied_at  REAL,
-    note        TEXT
-);
 CREATE TABLE IF NOT EXISTS x_media (
     media_id   TEXT PRIMARY KEY,
     source     TEXT NOT NULL,
@@ -63,11 +56,6 @@ CREATE TABLE IF NOT EXISTS x_media (
     bytes      INTEGER NOT NULL,
     dry_run    INTEGER NOT NULL DEFAULT 0,
     created_at REAL NOT NULL
-);
-CREATE TABLE IF NOT EXISTS x_pacing (
-    lane    TEXT PRIMARY KEY,
-    last_at REAL NOT NULL,
-    next_at REAL NOT NULL
 );
 """
 
@@ -187,98 +175,4 @@ def record_post(
     conn.execute(
         "INSERT OR REPLACE INTO x_posts (id, kind, text, in_reply_to, quote_of, media, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
         (post_id, kind, text, in_reply_to, quote_of, json.dumps(list(media)), hand.now() if created_at is None else created_at),
-    )
-
-
-# --- replies ------------------------------------------------------------------------------------
-
-
-def check_not_own(target: Mapping[str, Any], account_id: str) -> None:
-    """Never answer the account's own post: a self-reply is the failure that
-    compounds (reply/job.rs:534). Not knowing who wrote it fails closed."""
-    author = target.get("authorId")
-    if not author or not account_id:
-        raise hand.Refused(
-            f"could not tell who wrote post {target.get('id')}, so nothing was published", rule="self"
-        )
-    if author == account_id:
-        raise hand.Refused("refused: the account wrote this post; never reply to it", rule="self")
-
-
-def claim_reply(conn: sqlite3.Connection, in_reply_to: str) -> None:
-    """Claims the one reply a post gets, before X is called. A row with a
-    reply id is answered; a row without one is a reply whose fate is unknown
-    (X timed out, or the hand died mid-call), and is not risked twice."""
-    row = conn.execute("SELECT reply_id FROM x_replies WHERE in_reply_to = ?", (in_reply_to,)).fetchone()
-    if row is not None and row["reply_id"]:
-        raise hand.Refused(
-            f"already replied to post {in_reply_to} (reply {row['reply_id']}); a post gets one reply",
-            rule="replied",
-            reply_id=row["reply_id"],
-        )
-    if row is not None:
-        raise hand.Refused(
-            f"a reply to post {in_reply_to} may already have gone out (X did not confirm it); not replying again",
-            rule="replied",
-        )
-    conn.execute("INSERT INTO x_replies (in_reply_to, claimed_at) VALUES (?, ?)", (in_reply_to, hand.now()))
-
-
-def release_reply(conn: sqlite3.Connection, in_reply_to: str) -> None:
-    """X said no, so nothing went out and the post may be answered later."""
-    conn.execute("DELETE FROM x_replies WHERE in_reply_to = ? AND reply_id IS NULL", (in_reply_to,))
-
-
-def note_reply_in_doubt(conn: sqlite3.Connection, in_reply_to: str, note: str) -> None:
-    conn.execute("UPDATE x_replies SET note = ? WHERE in_reply_to = ?", (note[:300], in_reply_to))
-
-
-def record_reply_id(conn: sqlite3.Connection, in_reply_to: str, reply_id: str) -> None:
-    """The reply is out: said first, before anything else can fail or stop."""
-    conn.execute(
-        "UPDATE x_replies SET reply_id = ?, replied_at = ? WHERE in_reply_to = ?",
-        (reply_id, hand.now(), in_reply_to),
-    )
-
-
-def gap_ms(minimum: int, maximum: int, roll: float) -> int:
-    """The gap between two published replies, random within
-    `minimum..=maximum`. Never below the minimum, whatever the range says;
-    zero turns pacing off."""
-    if minimum == 0:
-        return 0
-    maximum = max(maximum, minimum)
-    return round(minimum + roll * (maximum - minimum))
-
-
-def _pacing_range() -> tuple[int, int]:
-    minimum = int(number_setting("REPLY_MIN_INTERVAL_MS", 30_000, 0, 3_600_000))
-    maximum = int(number_setting("REPLY_MAX_INTERVAL_MS", 60_000, 0, 3_600_000))
-    return minimum, maximum
-
-
-def check_pacing(conn: sqlite3.Connection) -> None:
-    """Refuses a reply before the gap since the last one is up, saying how
-    long to wait. The caller waits, not the hand: a sleeping hand holds the
-    lock and the job's slot."""
-    row = conn.execute("SELECT next_at FROM x_pacing WHERE lane = 'reply'").fetchone()
-    if row is None:
-        return
-    wait = row["next_at"] - hand.now()
-    if wait > 0:
-        raise hand.Refused(
-            f"pacing: the next reply may go out in {wait:.1f}s; wait and try again",
-            rule="pacing",
-            wait_seconds=round(wait, 3),
-            next_at=iso(row["next_at"]),
-        )
-
-
-def advance_pacing(conn: sqlite3.Connection, roll: float) -> None:
-    """A reply went out now: the next waits a fresh random gap."""
-    minimum, maximum = _pacing_range()
-    now = hand.now()
-    conn.execute(
-        "INSERT OR REPLACE INTO x_pacing (lane, last_at, next_at) VALUES ('reply', ?, ?)",
-        (now, now + gap_ms(minimum, maximum, roll) / 1000.0),
     )
