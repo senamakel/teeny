@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Call one JSON-RPC method on the running OpenHuman core.
+#
+#   bin/oh <method> [params-json | -]
+#
+# <method> is either the full name (`openhuman.cron_list`) or the short one
+# (`cron_list`). Params default to `{}`; `-` reads them from stdin. Prints the
+# method's result as JSON on stdout. A JSON-RPC error goes to stderr and exits
+# 1, so `set -e` callers stop on it.
+#
+# This posts to the server rather than running `openhuman-core call`, which
+# would start a second runtime over the same storage instead of asking the one
+# that is serving (docs/oh-gaps.md, G6).
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need curl jq
+
+[ $# -ge 1 ] || die "usage: bin/oh <method> [params-json | -]"
+method="$1"
+case "$method" in openhuman.*) ;; *) method="openhuman.$method" ;; esac
+params='{}'
+[ $# -ge 2 ] && params="$2"
+[ "$params" = "-" ] && params="$(cat)"
+jq -e 'type == "object"' <<<"$params" >/dev/null 2>&1 || die "params must be a JSON object"
+
+request="$(jq -cn --arg m "$method" --argjson p "$params" '{jsonrpc: "2.0", id: 1, method: $m, params: $p}')"
+# The bearer goes through a header file descriptor, never argv, so `ps` on the
+# box cannot read it.
+response="$(curl -sS --fail-with-body --max-time "${OH_TIMEOUT:-900}" "$OH_URL/rpc" \
+  -H @<(printf 'Authorization: Bearer %s\n' "$(core_token)") \
+  -H 'content-type: application/json' \
+  --data-binary "$request")" || die "core unreachable at $OH_URL: ${response:-no response}"
+
+if jq -e 'has("error") and .error != null' <<<"$response" >/dev/null; then
+  die "$method: $(jq -r '.error.message // .error' <<<"$response")"
+fi
+# Controllers answer `{logs, result}`; a few answer the value bare.
+jq '.result | if type == "object" and has("logs") and has("result") then .result else . end' <<<"$response"

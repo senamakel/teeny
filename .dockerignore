@@ -1,0 +1,14 @@
+# The image needs the workspace manifest, kernel/ and vendor/ only. Never the
+# keys, the core's state or anything local.
+**/.git
+**/target
+**/node_modules
+worktrees
+secrets
+state
+.openhuman
+workspace
+web
+deploy
+docs
+bin

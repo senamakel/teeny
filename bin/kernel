@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# Run the OpenHuman core over this checkout: the container's entrypoint, and
+# how to run the kernel on a laptop.
+#
+#   bin/kernel
+#
+# 1. Mints what a first boot needs and nothing else: secrets/core.token (the
+#    RPC bearer) and secrets/openhuman.key (the master key every secret the core
+#    stores is encrypted under). Back both up with workspace/storage.db; a
+#    storage.db without its key is unreadable.
+# 2. Starts `openhuman-core serve` with the workspace, the single storage file
+#    and the file keyring (docs/architecture.md, "Kernel").
+# 3. Once it answers, points it at the model and the memory store named in
+#    secrets/kernel.env, then makes cron match workspace/cron.toml.
+# 4. Waits on the core, forwarding SIGTERM, and exits with its status.
+#
+# secrets/kernel.env is read in a subshell and never exported to the core:
+# shell jobs inherit the core's environment, and the model and memory keys
+# belong in the core's encrypted store, not in every job's `env`.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need curl jq python3 sqlite3
+
+# The image sets OPENHUMAN_CORE_BIN; on a laptop it is the release build in
+# this checkout (`cargo build --release -p teeny-kernel`).
+core_bin="${OPENHUMAN_CORE_BIN:-}"
+if [ -z "$core_bin" ]; then
+  core_bin="$TEENY_ROOT/target/release/teeny-kernel"
+  [ -x "$core_bin" ] || core_bin=teeny-kernel
+fi
+command -v "$core_bin" >/dev/null 2>&1 || die "no kernel binary at '$core_bin' (cargo build --release -p teeny-kernel, or set OPENHUMAN_CORE_BIN)"
+host="${OPENHUMAN_CORE_HOST:-127.0.0.1}"
+port="${OPENHUMAN_CORE_PORT:-7788}"
+
+mkdir -p "$TEENY_WORKSPACE" "$TEENY_STATE"
+(umask 077 && mkdir -p "$TEENY_SECRETS")
+# Never a config.toml inside the workspace: the core would take the workspace
+# for its home and nest a second workspace/ inside it.
+[ ! -e "$TEENY_WORKSPACE/config.toml" ] ||
+  die "$TEENY_WORKSPACE/config.toml must not exist; the core keeps its config in $(dirname "$TEENY_WORKSPACE")/.openhuman/"
+
+mint() {
+  local file="$1" what="$2"
+  [ -s "$file" ] && return 0
+  log "first boot: minting $what at $file"
+  (umask 077 && python3 -c 'import secrets; print(secrets.token_hex(32))' >"$file")
+}
+mint "$TEENY_SECRETS/core.token" "the core RPC token"
+mint "$TEENY_SECRETS/openhuman.key" "the keyring master key"
+
+# Read one value from secrets/kernel.env without loading the rest of it into
+# this shell (and so into the core's environment).
+kernel_env() {
+  local file="$TEENY_SECRETS/kernel.env"
+  [ -r "$file" ] || return 0
+  # shellcheck disable=SC1090
+  (set -a && . "$file" && printf '%s' "${!1:-}")
+}
+
+# The model endpoint is the one non-secret the core must have in its
+# environment: a key-less core reaches an OpenAI-compatible endpoint only as
+# its `local-openai` runtime, and that runtime's URL is LOCAL_OPENAI_URL. A
+# custom cloud provider would need a TinyHumans sign-in (every turn fails
+# SESSION_EXPIRED without one).
+ladder_url="$(kernel_env LADDER_URL)"
+if [ -n "$ladder_url" ]; then
+  export LOCAL_OPENAI_URL="$ladder_url"
+fi
+
+export OPENHUMAN_WORKSPACE="$TEENY_WORKSPACE"
+export OPENHUMAN_STORAGE_URL="sqlite:$TEENY_STORAGE"
+export OPENHUMAN_ACTION_DIR="$TEENY_ROOT"
+export OPENHUMAN_KEYRING_BACKEND=file
+export OPENHUMAN_KEYRING_MASTER_KEY_FILE="$TEENY_SECRETS/openhuman.key"
+OPENHUMAN_CORE_TOKEN="$(tr -d '[:space:]' <"$TEENY_SECRETS/core.token")"
+export OPENHUMAN_CORE_TOKEN
+export OPENHUMAN_CORE_HOST="$host" OPENHUMAN_CORE_PORT="$port"
+export OPENHUMAN_CORE_URL="http://127.0.0.1:$port"
+# For cron shell jobs, which do not inherit this environment (bin/lib/teeny.sh).
+printf '%s\n' "$OPENHUMAN_CORE_URL" >"$TEENY_STATE/core.url"
+
+log "serving $TEENY_WORKSPACE on $host:$port (storage $TEENY_STORAGE)"
+"$core_bin" serve &
+core=$!
+trap 'kill -TERM "$core" 2>/dev/null || true' TERM INT
+
+for _ in $(seq 1 "${KERNEL_BOOT_SECS:-120}"); do
+  curl -fsS -o /dev/null "$OPENHUMAN_CORE_URL/health" 2>/dev/null && break
+  kill -0 "$core" 2>/dev/null || { wait "$core" || exit $?; exit 1; }
+  sleep 1
+done
+curl -fsS -o /dev/null "$OPENHUMAN_CORE_URL/health" || die "the core did not answer /health in ${KERNEL_BOOT_SECS:-120}s"
+
+# The model and the memory store, from secrets/kernel.env when it exists. Set
+# on every boot, so editing the file and restarting is the whole procedure.
+(
+  env_file="$TEENY_SECRETS/kernel.env"
+  if [ -r "$env_file" ]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$env_file"
+    set +a
+  fi
+  if [ -n "${LADDER_URL:-}" ]; then
+    [ -n "${KERNEL_MODEL:-}" ] || die "LADDER_URL is set without KERNEL_MODEL (the model id every workload uses, as LLM_MODEL is today)"
+    # The key goes to the core's encrypted store, never its environment. Once
+    # stored it can be dropped from kernel.env: a boot without it keeps the
+    # stored one.
+    oh config_update_local_ai_settings "$(jq -cn --arg k "${LADDER_API_KEY:-}" \
+      '{runtime_enabled: true, opt_in_confirmed: true} + (if $k != "" then {api_key: $k} else {} end)')" >/dev/null
+    [ -n "${LADDER_API_KEY:-}" ] || log "model: no LADDER_API_KEY; keeping the key the core already stores"
+    oh config_update_model_settings "$(jq -cn --arg m "$KERNEL_MODEL" '("local-openai:" + $m) as $p |
+      {default_model: $m, chat_provider: $p, reasoning_provider: $p, agentic_provider: $p,
+       coding_provider: $p, vision_provider: $p, memory_provider: $p}')" >/dev/null
+    log "model: $LADDER_URL as local-openai:$KERNEL_MODEL"
+  else
+    log "model: not configured (no LADDER_URL in $env_file)"
+  fi
+  if [ -n "${CORTEX_API_URL:-}" ]; then
+    status="$(oh memory_engine_set "$(jq -cn --arg u "$CORTEX_API_URL" --arg k "${CORTEX_API_KEY:-}" \
+      '{engine: "cortexdb", endpoint: $u} + (if $k != "" then {api_key: $k} else {} end)')" | jq -r '.status // "unknown"')"
+    log "memory: cortexdb at $CORTEX_API_URL ($status)"
+  else
+    log "memory: not configured (no CORTEX_API_URL in $env_file)"
+  fi
+) || { kill -TERM "$core"; wait "$core" || true; die "configuring the core failed"; }
+
+"$TEENY_ROOT/bin/seed-cron" || { kill -TERM "$core"; wait "$core" || true; die "seeding cron failed"; }
+log "ready"
+
+# A trapped signal interrupts `wait` before the core has finished shutting
+# down; keep waiting until it is actually gone.
+status=0
+while :; do
+  if wait "$core"; then status=0; else status=$?; fi
+  kill -0 "$core" 2>/dev/null || break
+done
+log "the core exited with status $status"
+exit "$status"

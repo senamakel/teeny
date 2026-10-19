@@ -1,6 +1,7 @@
 # Hands
 
-The only code Teeny owns. See [`architecture.md`](architecture.md) §3 for the
+The only code Teeny owns. The `crates/...` paths cited below are the Rust
+bot at `55c2c75`, the code each hand replaces. See [`architecture.md`](architecture.md) §3 for the
 contract: one JSON object out, exit `0`/`2`/other, secrets read by the hand,
 state in `state/hands.db`, `DRY_RUN=1` by default.
 

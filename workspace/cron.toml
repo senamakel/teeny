@@ -1,0 +1,20 @@
+# Every scheduled job Teeny runs. `bin/seed-cron` makes OpenHuman's cron match
+# this file at every boot; `bin/crons` shows what the core has and when each
+# job last ran.
+#
+#   [jobs.<name>]          becomes the core job `teeny.<name>`
+#   schedule = "m h dom mon dow"
+#   command  = "bin/..."   an operator script in this repository, run from the
+#                          repository root with no model in the loop
+#   tz       = "..."       optional; else a top-level `tz = "..."`, else
+#                          CALENDAR_TZ (as the bot reads it today), else UTC
+#   enabled  = false       optional; keeps the job, does not run it
+#
+# Jobs are shell jobs, never agent jobs: a turn cron starts may only use
+# read-only tools, so scripts act and models only draft
+# (docs/architecture.md, §1).
+
+# Proves cron fires in this checkout. The posting jobs arrive with the hands.
+[jobs.heartbeat]
+schedule = "*/5 * * * *"
+command = "bin/heartbeat"

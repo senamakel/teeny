@@ -9,3 +9,9 @@ key.pem.pub
 .DS_Store
 worktrees/
 target/
+/workspace/storage.db*
+/workspace/artifacts/
+/workspace/audit.log
+/.openhuman/
+/secrets/
+/state/

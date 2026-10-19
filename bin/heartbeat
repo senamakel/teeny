@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# The kernel's only job until the hands land: prove cron fires a shell job in
+# this checkout, and leave the time it last did in state/heartbeat. It touches
+# nothing outside state/.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+
+mkdir -p "$TEENY_STATE"
+date -u +%Y-%m-%dT%H:%M:%SZ >"$TEENY_STATE/heartbeat.tmp"
+mv "$TEENY_STATE/heartbeat.tmp" "$TEENY_STATE/heartbeat"
+cat "$TEENY_STATE/heartbeat"
