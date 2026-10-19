@@ -59,7 +59,6 @@ class Cli(Scratch):
         (lib / "x").symlink_to(LIB / "teeny_hands" / "x", target_is_directory=True)
         (lib / "guard" / "__init__.py").write_text("")
         (lib / "guard" / "gate.py").write_text(FAKE_GATE)
-        shim = hands / "x"
         shutil.copy(SHIM, shim)
         return shim
 
