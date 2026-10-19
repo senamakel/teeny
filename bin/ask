@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Run one agent turn on the core and print the answer.
+#
+#   bin/ask [--agent ID] [--thread ID] MESSAGE...
+#   echo MESSAGE | bin/ask [--agent ID]
+#
+# Without --agent the turn runs as the core's orchestrator. This is the
+# operator's way in (it replaces the Rust bot's bearer-authenticated
+# /agent/run): whoever can run it holds the core token, so it is never wired
+# to anything the public can reach.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need jq
+
+agent=""
+thread=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --agent) agent="$2"; shift 2 ;;
+    --thread) thread="$2"; shift 2 ;;
+    --) shift; break ;;
+    -*) die "usage: bin/ask [--agent ID] [--thread ID] MESSAGE..." ;;
+    *) break ;;
+  esac
+done
+if [ $# -gt 0 ]; then
+  message="$*"
+else
+  message="$(cat)"
+fi
+[ -n "${message//[[:space:]]/}" ] || die "nothing to ask"
+
+params="$(jq -cn --arg m "$message" --arg a "$agent" --arg t "$thread" \
+  '{message: $m} + (if $a != "" then {agent_id: $a} else {} end)
+                 + (if $t != "" then {thread_id: $t} else {} end)')"
+answer="$(oh inference_agent_chat "$params")"
+# The turn's text when the answer carries one, else the whole payload.
+jq -r 'if type == "string" then .
+       elif type == "object" then (.response // .text // .message // .content // .) | if type == "string" then . else tojson end
+       else tojson end' <<<"$answer"

@@ -9,3 +9,18 @@ key.pem.pub
 .DS_Store
 worktrees/
 target/
+/workspace/storage.db*
+/workspace/artifacts/
+/workspace/audit.log
+/.openhuman/
+/secrets/
+/state/
+# What the core writes into the workspace at boot: its own state, and its
+# generic persona defaults (IDENTITY, ROLE, STYLE) with their hash sidecars.
+# Teeny's SOUL.md is kept as is (the core never overwrites a file it did not
+# write). Un-ignore a persona file when Teeny writes its own version of it.
+/workspace/state/
+/workspace/.*.builtin-hash
+/workspace/IDENTITY.md
+/workspace/ROLE.md
+/workspace/STYLE.md

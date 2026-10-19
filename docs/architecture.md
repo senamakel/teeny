@@ -1,12 +1,20 @@
 # Teeny on a stock OpenHuman: kernel, hands, brain
 
-Status: **spec**. Nothing here is built yet. This replaces the Rust workspace
+Status: **the repository is this design.**
+- **Done:** the Rust bot, the TypeScript service and the OpenCompany brain are
+  gone. `teeny-kernel` (`kernel/`) builds OpenHuman's host from the vendored
+  library, boots from `workspace/`, and runs operator jobs (`bin/`,
+  `Dockerfile`, `deploy/compose.yaml`).
+- **To come:** the hands and the jobs that act.
+- **Pre-rewrite paths:** references below to `crates/...` and `legacy/...` are
+  to the code as it stood at `55c2c75`, before the rewrite. The invariants in
+  `hands.md` come from there. This replaces the Rust workspace
 (`crates/`, about 105k lines with tests) and the TypeScript service (`legacy/`)
 with three things:
 
 | Layer | What it is | Where it lives |
 |---|---|---|
-| **Kernel** | A stock, compiled `openhuman-core` running `serve`, unmodified and built from `upstream/main`. It provides the agent loop, model routing, cron, memory (CortexDB), browser, shell, the Telegram channel, hooks and JSON-RPC. | the binary; `deploy/` pins the commit |
+| **Kernel** | `teeny-kernel`, OpenHuman's own command-line host (`openhuman_rpc::host::cli`, what upstream's `openhuman-core` binary is), built here from `vendor/openhuman` at a pinned `upstream/main` commit and run as `serve`. It provides the agent loop, model routing, cron, memory (CortexDB), browser, shell, the Telegram channel, hooks and JSON-RPC. No Teeny behaviour in it. | `kernel/`, `vendor/openhuman` |
 | **Hands** | Small executables, one per outside capability. They are the only code Teeny owns. Every hard rule (gap, budgets, filter, dry run) is enforced inside a hand, never in a prompt. | `hands/` |
 | **Brain** | Identity, skills, agent definitions, job prompts, schedules and the record. Memory is OpenHuman's CortexDB engine. All of OpenHuman's own state is in one SQLite file. | `workspace/` |
 
@@ -70,11 +78,11 @@ container. Configuration:
 
 | Concern | How | Reference |
 |---|---|---|
-| Home in the repo | `OPENHUMAN_WORKSPACE=/srv/teeny/workspace`, with **no `config.toml` inside it**. OpenHuman then uses `workspace/` as its files directory (SOUL.md, skills, agents) and keeps its config at `/srv/teeny/.openhuman/config.toml`, which the entrypoint renders from `deploy/openhuman.toml` and which is gitignored. If `config.toml` is put inside `workspace/`, OpenHuman treats it as the home and nests a second `workspace/workspace/`. Both behaviours were measured on a build of `6741ea4b41`. There is no `--home` flag. | `$C/config/README.md` |
+| Home in the repo | `OPENHUMAN_WORKSPACE=/srv/teeny/workspace`, with **no `config.toml` inside it**. OpenHuman then uses `workspace/` as its files directory (SOUL.md, skills, agents) and keeps its config at `/srv/teeny/.openhuman/config.toml`, which is gitignored. The core writes it itself, and `bin/kernel` sets the model and memory over RPC at every boot, so there is no template to render. If `config.toml` is put inside `workspace/`, OpenHuman treats it as the home and nests a second `workspace/workspace/`. Both behaviours were measured on a build of `6741ea4b41`. There is no `--home` flag. | `$C/config/README.md` |
 | One state file | `OPENHUMAN_STORAGE_URL=sqlite:/srv/teeny/workspace/storage.db`. This holds sessions, threads and memory state. Every store is a row in one `docs` table (`scope, coll, id, body` JSON), and crons are `coll = 'cron_jobs'` and `'cron_runs'`. Verified on a build of `6741ea4b41` (§6). | `$C/storage/config.rs:95`, `$C/cron/documents_port.rs:44-53` |
 | Tool working dir | `OPENHUMAN_ACTION_DIR=/srv/teeny`, so `hands/*` resolves | |
 | RPC auth | `OPENHUMAN_CORE_TOKEN` from a file. `bin/oh` reads it, and so does every script. | `$C/core/auth.rs:70` |
-| Model | `LOCAL_OPENAI_URL=http://ladder:6969/v1`, with tiers pinned as `local-openai:<tier>` | `docs/gitbooks/en/features/cloud-deploy.md` |
+| Model | The core's `local-openai` runtime, which needs no TinyHumans account. A custom cloud provider set through `inference_url` does need one: every turn fails `SESSION_EXPIRED` without a sign-in (measured). `bin/kernel` exports `LOCAL_OPENAI_URL=$LADDER_URL`, stores the key with `config_update_local_ai_settings`, and pins every workload to `local-openai:$KERNEL_MODEL` with `config_update_model_settings` | OpenHuman `docs/gitbooks/en/features/cloud-deploy.md`, "Headless without a TinyHumans account" |
 | Memory | `[memory] engine = "cortexdb"` and `[memory.engines.cortexdb] endpoint`. The key goes in the keyring via `openhuman.memory_engine_set`. Recall is injected into every turn. | `$C/config/schema/memory.rs` |
 | Keyring | **File store**: `OPENHUMAN_KEYRING_BACKEND=file` and `OPENHUMAN_KEYRING_MASTER_KEY_FILE=/srv/teeny/secrets/openhuman.key` (64 hex characters, mode 0400, outside `workspace/`). Every secret OpenHuman holds (the CortexDB key, the model key) is a row in `storage.db` (`coll = 'secrets'`, encrypted `enc2:` ciphertext) under that key. Measured: the core logs "master key loaded from OPENHUMAN_KEYRING_MASTER_KEY_FILE", and the CortexDB key survives a restart. Without the variable it looks for a host source and then a workspace key file. Unset, the backend is `memory`. Back up `storage.db` and the key file together. | `$C/security/secret_storage/store.rs:189-197`, `encrypted_file_backend.rs:31-35` |
 | Persona | `workspace/SOUL.md` and `IDENTITY.md`, read every turn | `$C/prompts/workspace_files.rs` |
@@ -100,8 +108,13 @@ view). MCP is used for exactly one server, `hands/mcp` (§5).
   error.
 - **Secrets never reach the model.** A hand reads `/srv/teeny/secrets/*.env`
   itself. That directory is outside `workspace/`, mode 0400, and owned by the
-  service uid. Shell jobs start with a stripped environment
-  (`$C/cron/README.md`), which suits this.
+  service uid.
+- **Jobs find everything from the repository root.** Cron shell jobs run from
+  `OPENHUMAN_ACTION_DIR` (the checkout) with an allowlisted environment:
+  `HOME`, `PATH` and `LANG`, with no `OPENHUMAN_*` or `TEENY_*` (measured). So
+  a job locates `state/` and `secrets/` from where it runs, reads the core
+  token from `secrets/core.token`, and reads the core's URL from
+  `state/core.url`, which `bin/kernel` writes at boot.
 - **State lives in `/srv/teeny/state/hands.db`** (SQLite, WAL), separate from
   OpenHuman's `storage.db`, so a kernel upgrade or reset never touches the
   mention queue or the post ledger. Every rule that spans calls is a
@@ -261,12 +274,19 @@ All schedules are read in `CALENDAR_TZ`, matching today.
 
 ## 8. Deploy
 
-- One image, `deploy/Dockerfile`. It copies the `openhuman-core` binary built
-  from `upstream/main` at a pinned commit, Chromium, `jq`, `sqlite3`,
-  `curl`, `hands/` and `bin/`. The repo and the two state paths
-  (`workspace/storage.db`, `state/hands.db`) are on one volume.
-- The entrypoint renders `.openhuman/config.toml` from `deploy/openhuman.toml`,
-  then runs `bin/seed-agents` and `bin/seed-cron` once `serve` is healthy.
+- One image, the root `Dockerfile`, in three stages:
+  - build `teeny-kernel` from `vendor/openhuman`;
+  - stage OpenHuman's pinned, digest-checked module releases with its own
+    `stage-modules.mjs` (TinyBox among them, which cron shell jobs need);
+  - a slim runtime with `jq`, `sqlite3` and `python3`.
+- Nothing of Teeny's is baked in: `deploy/compose.yaml` mounts the checkout at
+  `/srv/teeny`, so a job or `cron.toml` change is a pull and a restart, not a
+  rebuild.
+- The entrypoint is `bin/kernel`. It mints `secrets/core.token` and
+  `secrets/openhuman.key` on first boot, starts `serve`, configures the model
+  and memory from `secrets/kernel.env` (read in a subshell, so the keys never
+  enter the core's environment, which jobs inherit), runs `bin/seed-cron`,
+  and later `bin/seed-agents`.
 - Gone: Mongo (its collections move into `hands.db`; see `hands.md`), the
   axum server and its feeds (`web/` reads `record/`), and the `opencompany`
   and `brain-sync` services.
@@ -274,14 +294,16 @@ All schedules are read in `CALENDAR_TZ`, matching today.
   Rust bot"): the new stack runs beside the live bot with `DRY_RUN=1` and its
   own memory root, and its drafts are compared before cutover.
 
-## 9. What is removed
+## 9. What was removed
 
-Removed outright:
-- `crates/` (all 11 crates), `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`
-  and `scripts/check-dup-crates.sh`;
-- `vendor/openhuman`, since the binary is built or pulled by commit instead;
-- `legacy/`;
-- the Mongo service.
+The rewrite removed (see `55c2c75` for the code):
+- the Rust bot: `crates/` (11 crates), its `Dockerfile`, `docker/` and
+  `scripts/`;
+- the bot's fork of OpenHuman, replaced by upstream at `vendor/openhuman`;
+- the TypeScript service, `legacy/`;
+- the OpenCompany brain, `brain/`;
+- the bot's deploy: `compose.prod.yaml`, `deploy.sh` and the
+  deploy-on-merge workflow.
 
 Where each crate's job goes:
 
@@ -303,8 +325,10 @@ The invariants each hand inherits are listed in `hands.md`.
 
 ## 10. Migration (one PR each)
 
-1. The kernel boots in compose from `workspace/`, with `bin/seed-cron`,
-   `bin/crons`, `bin/oh` and `bin/ask`. No jobs act.
+1. **Done.** The kernel boots in compose from `workspace/`, with
+   `bin/kernel`, `bin/seed-cron`, `bin/crons`, `bin/oh` and `bin/ask`. Its
+   only job is `bin/heartbeat`. `bin/test/kernel_live_test.sh` runs all of it
+   against a real core and a stub model.
 2. `hands/guard`, `hands/cadence` and `hands/x` with `hands.db`, each with the
    tests ported from `crates/teeny-safety`, `teeny-cadence` and
    `teeny-x`/`teeny-store`.
@@ -313,4 +337,6 @@ The invariants each hand inherits are listed in `hands.md`.
 4. Morning and the two slots.
 5. Telegram.
 6. Backrooms and narrative.
-7. Cutover, then delete `crates/`, `legacy/`, `vendor/openhuman` and Mongo.
+7. Cutover: retire the old stack still running on the box (its containers
+   outlive the code, which is already gone from `main`) and its Mongo, after
+   copying the live collections with `bin/migrate-mongo`.

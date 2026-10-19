@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+# Make OpenHuman's cron match workspace/cron.toml.
+#
+#   bin/seed-cron [--dry-run] [--file workspace/cron.toml]
+#
+# OpenHuman cannot load jobs from a file (docs/oh-gaps.md, G2), so this
+# reconciles by name: a job in the file and not in the core is added, one that
+# differs is updated in place, and one in the core and not in the file is
+# removed. It only ever touches jobs whose name starts with `teeny.`; the
+# core's own system jobs (memory_background, ...) are left alone. Running it
+# twice changes nothing the second time.
+#
+# Every job is a shell job running an operator script under bin/. A turn
+# that cron starts may only use read-only tools (docs/architecture.md, §1), so
+# the scripts act and the models only draft; an agent job here would be a job
+# that cannot do its work.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need jq python3
+
+file="$TEENY_WORKSPACE/cron.toml"
+dry_run=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dry-run) dry_run=1 ;;
+    --file) file="$2"; shift ;;
+    *) die "usage: bin/seed-cron [--dry-run] [--file PATH]" ;;
+  esac
+  shift
+done
+[ -r "$file" ] || die "no schedule file at $file"
+
+# The file, validated and flattened to one JSON array:
+#   [{name, expr, tz, command, enabled}]
+desired="$(python3 - "$file" "${CALENDAR_TZ:-}" <<'PY'
+import json, re, sys, tomllib
+
+path, env_tz = sys.argv[1], sys.argv[2]
+with open(path, "rb") as fh:
+    doc = tomllib.load(fh)
+
+unknown = set(doc) - {"tz", "jobs"}
+if unknown:
+    sys.exit(f"{path}: unknown top-level keys: {', '.join(sorted(unknown))}")
+default_tz = doc.get("tz") or env_tz or "UTC"
+out = []
+for name, job in sorted((doc.get("jobs") or {}).items()):
+    where = f"{path}: jobs.{name}"
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name):
+        sys.exit(f"{where}: name must be lowercase letters, digits and dashes")
+    extra = set(job) - {"schedule", "command", "tz", "enabled"}
+    if extra:
+        sys.exit(f"{where}: unknown keys: {', '.join(sorted(extra))}")
+    expr = str(job.get("schedule", "")).strip()
+    if len(expr.split()) != 5:
+        sys.exit(f"{where}: schedule must be a five-field cron expression, got {expr!r}")
+    command = str(job.get("command", "")).strip()
+    # Operator scripts only: the command is what cron runs with no model in
+    # the loop, so it must be something reviewed in this repository.
+    if not re.fullmatch(r"bin/[A-Za-z0-9._/-]+( .*)?", command) or ".." in command.split()[0]:
+        sys.exit(f"{where}: command must run a script under bin/, got {command!r}")
+    enabled = job.get("enabled", True)
+    if not isinstance(enabled, bool):
+        sys.exit(f"{where}: enabled must be true or false")
+    out.append({
+        "name": f"teeny.{name}",
+        "expr": expr,
+        "tz": job.get("tz") or default_tz,
+        "command": command,
+        "enabled": enabled,
+    })
+print(json.dumps(out))
+PY
+)" || die "invalid schedule file"
+
+# The core's jobs that this script owns, in the same shape plus their id.
+# (`.enabled // true` would read a disabled job as enabled: `//` treats false
+# as missing.)
+current="$(oh cron_list | jq -c '[.[] | select((.name // "") | startswith("teeny.")) |
+  {id, name, expr: .schedule.expr, tz: (.schedule.tz // null), command,
+   enabled: (if .enabled == null then true else .enabled end)}]')"
+
+plan="$(jq -cn --argjson want "$desired" --argjson have "$current" '
+  ($have | group_by(.name) | map({key: .[0].name, value: .}) | from_entries) as $byname
+  | [ $want[] as $w
+      | ($byname[$w.name] // []) as $hs
+      | if ($hs | length) == 0 then {op: "add", job: $w}
+        elif ($hs[0] | {expr, tz, command, enabled}) == ($w | {expr, tz, command, enabled}) then {op: "keep", job: $w}
+        else {op: "update", id: $hs[0].id, job: $w} end ]
+  + [ $have | group_by(.name)[] as $g
+      | if ([$want[].name] | index($g[0].name)) == null then $g[] | {op: "remove", id, job: .}
+        else $g[1:][] | {op: "remove", id, job: .} end ]')"
+
+schedule() { jq -c '{kind: "cron", expr: .expr, tz: .tz}' <<<"$1"; }
+changed=0
+while IFS= read -r step; do
+  op="$(jq -r .op <<<"$step")"
+  job="$(jq -c .job <<<"$step")"
+  name="$(jq -r .name <<<"$job")"
+  if [ "$op" = keep ]; then
+    log "$(printf '%-6s %s' keep "$name")"
+    continue
+  fi
+  log "$(printf '%-6s %s  %s' "$op" "$name" "$(jq -r '"\(.expr) \(.tz) \(.command)"' <<<"$job")")"
+  changed=$((changed + 1))
+  [ "$dry_run" = 1 ] && continue
+  case "$op" in
+    add)
+      id="$(oh cron_add "$(jq -c --argjson s "$(schedule "$job")" \
+        '{name, job_type: "shell", command, schedule: $s, delivery: {mode: "none"}}' <<<"$job")" | jq -r .id)"
+      # A job is created enabled; one the file disables is switched off after.
+      if [ "$(jq -r .enabled <<<"$job")" = false ]; then
+        oh cron_update "$(jq -cn --arg id "$id" '{job_id: $id, patch: {enabled: false}}')" >/dev/null
+      fi
+      ;;
+    update)
+      oh cron_update "$(jq -cn --arg id "$(jq -r .id <<<"$step")" --argjson s "$(schedule "$job")" \
+        --argjson j "$job" '{job_id: $id, patch: {command: $j.command, schedule: $s, enabled: $j.enabled}}')" >/dev/null
+      ;;
+    remove)
+      oh cron_remove "$(jq -cn --arg id "$(jq -r .id <<<"$step")" '{job_id: $id}')" >/dev/null
+      ;;
+  esac
+done < <(jq -c '.[]' <<<"$plan")
+
+if [ "$dry_run" = 1 ]; then
+  log "dry run: $changed change(s) not applied"
+else
+  log "$changed change(s) applied"
+fi
