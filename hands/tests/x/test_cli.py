@@ -49,6 +49,9 @@ class Cli(Scratch):
     def guarded_shim(self) -> Path:
         """hands/x over a scratch lib/ with the stand-in guard."""
         hands = self.root / "scratch-hands"
+        shim = hands / "x"
+        if shim.exists():
+            return shim
         lib = hands / "lib" / "teeny_hands"
         (lib / "guard").mkdir(parents=True)
         shutil.copy(LIB / "teeny_hands" / "__init__.py", lib / "__init__.py")
