@@ -86,7 +86,7 @@ def _draft(body: Any, *, quote: bool) -> tuple[str, list[str], str | None, str |
 
 
 def _dry(text: str, kind: str, **extra: Any) -> Json:
-    print(f"hands/x: dry run: would have published a {kind}: {text!r}", file=sys.stderr)
+    """What a rehearsal says: the guard's text, after every rule ran."""
     return {"ok": True, "dry_run": True, "would_post": text, "kind": kind, **extra}
 
 
