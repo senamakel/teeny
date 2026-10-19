@@ -174,9 +174,12 @@ def reply(to: str, body: Any, x: XApi | None = None) -> Json:
                 rules.release_reply(conn, to)
             raise
         # The reply is out: say so before anything else can fail or stop, so
-        # nothing from here on can ever answer this post a second time.
-        rules.record_reply_id(conn, to, reply_id)
+        # nothing from here on can ever answer this post a second time. If
+        # even that write fails, the claim row still stands and refuses a
+        # second reply; the failure is logged, never raised, because an error
+        # now would invite a retry of a reply that is already out.
         for step, record in (
+            ("reply id", lambda: rules.record_reply_id(conn, to, reply_id)),
             ("pacing", lambda: rules.advance_pacing(conn, random.random())),
             ("ledger", lambda: rules.record_post(conn, reply_id, "reply", text, in_reply_to=to, media=media_ids)),
         ):
