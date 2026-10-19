@@ -207,26 +207,28 @@ class CachedReads:
 
     # --- the reads ------------------------------------------------------------------------
 
+    def _known_post(self, post_id: str) -> Any:
+        """The stored post, None when X recently said it was not there, or
+        `_MISS` when neither is known."""
+        hit = self._read(f"post:{post_id}")
+        if hit is not _MISS:
+            return hit
+        return None if self._read(f"missing:{post_id}") is not _MISS else _MISS
+
     def get_post(self, post_id: str) -> Json | None:
-        key = f"post:{post_id}"
-        missing = f"missing:{post_id}"
-        for _ in (0, 1):
-            hit = self._read(key)
-            if hit is not _MISS:
-                return hit
-            if self._read(missing) is not _MISS:
-                return None
-            if _ == 0:
-                with self._flight(key):
-                    if self._read(key) is not _MISS or self._read(missing) is not _MISS:
-                        continue
-                    post = self._x.get_post(post_id)
-                    if post is None:
-                        self._write(missing, "missing", None)
-                    else:
-                        self._write(key, "post", post)
-                    return post
-        return None
+        known = self._known_post(post_id)
+        if known is not _MISS:
+            return known
+        with self._flight(f"post:{post_id}"):
+            known = self._known_post(post_id)
+            if known is not _MISS:
+                return known
+            post = self._x.get_post(post_id)
+            if post is None:
+                self._write(f"missing:{post_id}", "missing", None)
+            else:
+                self._write(f"post:{post_id}", "post", post)
+            return post
 
     def search_posts(self, query: str, options: SearchOptions) -> list[Json]:
         def fetch() -> list[Json]:
