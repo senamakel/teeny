@@ -5,6 +5,8 @@ request, and the store failing costs a hit, never a read."""
 
 from __future__ import annotations
 
+import contextlib
+import io
 import threading
 from datetime import datetime, timezone
 
@@ -110,9 +112,11 @@ class CacheTest(Scratch):
     def test_goes_to_x_when_the_store_is_broken(self):
         (self.root / "state").mkdir(exist_ok=True)
         (self.root / "state" / "hands.db").write_bytes(b"this is not a database" * 100)
-        self.assertEqual(cache.reads().get_post("7")["id"], "7")
-        self.assertEqual(cache.reads().get_post("7")["id"], "7")
+        with contextlib.redirect_stderr(io.StringIO()) as warned:
+            self.assertEqual(cache.reads().get_post("7")["id"], "7")
+            self.assertEqual(cache.reads().get_post("7")["id"], "7")
         self.assertEqual(self.calls(self.get7), 2)
+        self.assertIn("could not read", warned.getvalue())
 
     def test_a_failed_read_is_not_cached(self):
         failing = self.x.route("GET", "/2/tweets/search/recent", {"title": "Service Unavailable"}, status=503)
