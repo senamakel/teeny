@@ -12,6 +12,7 @@ import os
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.parse
 from dataclasses import dataclass, field
@@ -66,6 +67,7 @@ class Route:
     when: Callable[[Seen], bool] | None = None
     raw: bytes | None = None
     content_type: str = "application/json"
+    delay: float = 0.0
     times: list[int] = field(default_factory=lambda: [0])
 
 
@@ -100,6 +102,9 @@ class FakeX:
                     status, data, ctype = 404, json.dumps({"title": "Not Routed"}).encode(), "application/json"
                 else:
                     route.times[0] += 1
+                if route is not None and route.delay:
+                    time.sleep(route.delay)
+                if route is not None:
                     status = route.status
                     ctype = route.content_type
                     data = route.raw if route.raw is not None else json.dumps(route.body).encode()
@@ -128,8 +133,9 @@ class FakeX:
         when: Callable[[Seen], bool] | None = None,
         raw: bytes | None = None,
         content_type: str = "application/json",
+        delay: float = 0.0,
     ) -> Route:
-        route = Route(method, path, status, body, when, raw, content_type)
+        route = Route(method, path, status, body, when, raw, content_type, delay)
         with self._lock:
             # Newest first, so a test can override a default route.
             self.routes.insert(0, route)
