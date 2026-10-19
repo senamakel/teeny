@@ -19,10 +19,10 @@ from .. import hand
 
 
 def open_db(schema: str) -> sqlite3.Connection:
-    """state/hands.db with `schema` in place. Two hands opening a fresh file
-    at the same moment can both try to switch it to WAL, and SQLite answers
-    the loser "database is locked" before any busy timeout applies; that one
-    open is retried rather than failing a post over it."""
+    """state/hands.db with `schema` in place. Creating the schema while other
+    hands write can still answer "database is locked"; that one step is
+    retried rather than failing a post over it. (Opening a fresh file from
+    many processes at once is covered by hand.db and its test.)"""
     for attempt in range(20):
         try:
             conn = hand.db()
