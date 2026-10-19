@@ -188,3 +188,34 @@ def reply(to: str, body: Any, x: XApi | None = None) -> Json:
             except Exception as exc:  # noqa: BLE001
                 print(f"hands/x: replied {reply_id} but could not record the {step}: {type(exc).__name__}", file=sys.stderr)
     return {"id": reply_id, "in_reply_to": to, "kind": "reply", "text": text}
+
+
+def like(post_id: str, x: XApi | None = None) -> Json:
+    """Likes a post as the account. Nothing is said, so there is no guard;
+    under DRY_RUN nothing reaches X, not even "who am I"."""
+    if not rules.is_x_id(post_id):
+        raise hand.HandError("the post to like must be a numeric X post id")
+    if hand.dry_run():
+        return {"dry_run": True, "would_like": post_id}
+    x = x or XApi.from_settings()
+    x.like_post(post_id, user_id=cache.reads(x).identity()["id"])
+    return {"liked": post_id}
+
+
+def unsay(post_id: str, confirm: bool, x: XApi | None = None) -> Json:
+    """Deletes one of the account's own posts. Without `confirm` it only
+    shows what would go, so a deletion is always a second, deliberate call."""
+    if not rules.is_x_id(post_id):
+        raise hand.HandError("the post to unsay must be a numeric X post id")
+    x = x or XApi.from_settings()
+    reads = cache.reads(x)
+    post = reads.get_post(post_id)
+    if post is None:
+        raise hand.Refused(f"X does not have post {post_id}; nothing to unsay", rule="target")
+    if post.get("authorId") != reads.identity()["id"]:
+        raise hand.Refused(f"post {post_id} is not the account's own; only its own posts can be unsaid", rule="self")
+    if not confirm:
+        return {"preview": True, "would_delete": post_id, "post": post}
+    if hand.dry_run():
+        return {"dry_run": True, "would_delete": post_id}
+    return {"id": post_id, "deleted": x.delete_post(post_id)}
