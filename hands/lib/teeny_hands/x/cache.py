@@ -30,6 +30,7 @@ from datetime import datetime
 from typing import Any, Callable, Iterator
 
 from .. import hand
+from . import open_db
 from .client import XApi, number_setting
 from .model import Json, SearchOptions
 
@@ -136,9 +137,7 @@ class CachedReads:
 
     def _store(self) -> sqlite3.Connection:
         if self._conn is None:
-            conn = hand.db()
-            conn.executescript(_SCHEMA)
-            self._conn = conn
+            self._conn = open_db(_SCHEMA)
         return self._conn
 
     def _read(self, key: str) -> Any:

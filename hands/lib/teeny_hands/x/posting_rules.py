@@ -38,7 +38,7 @@ from .model import utf16_length
 #: The hard cap, as X counts it for plain text.
 MAX_POST_LENGTH = 280
 
-_SCHEMA = """
+SCHEMA = """
 CREATE TABLE IF NOT EXISTS x_posts (
     id          TEXT PRIMARY KEY,
     kind        TEXT NOT NULL CHECK (kind IN ('post', 'reply', 'quote')),
@@ -65,7 +65,7 @@ _MEDIA_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
-    conn.executescript(_SCHEMA)
+    conn.executescript(SCHEMA)
 
 
 def iso(seconds: float) -> str:

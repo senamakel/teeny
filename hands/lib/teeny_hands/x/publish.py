@@ -15,6 +15,7 @@ import sys
 from typing import Any, Mapping
 
 from .. import hand
+from . import open_db
 from . import posting_rules as rules
 from .client import XApi, number_setting
 
@@ -91,9 +92,7 @@ def _dry(text: str, kind: str, **extra: Any) -> Json:
 
 
 def _db():
-    conn = hand.db()
-    rules.ensure_schema(conn)
-    return conn
+    return open_db(rules.SCHEMA)
 
 
 def post(body: Any, x: XApi | None = None) -> Json:
