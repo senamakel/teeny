@@ -197,6 +197,16 @@ class RecordFirstTest(Replying):
             publish.reply("5", {"text": "again"})
         self.assertEqual(len(self.posted()), 1, "answered once")
 
+    def test_a_reply_id_that_cannot_be_written_still_blocks_a_second_reply(self):
+        broken = mock.patch.object(posting_rules, "record_reply_id", side_effect=sqlite3.OperationalError("disk I/O error"))
+        with broken, contextlib.redirect_stderr(io.StringIO()) as stderr:
+            self.assertEqual(publish.reply("5", {"text": "hi"})["id"], "99")
+        self.assertIn("could not record the reply id", stderr.getvalue())
+        self.at(T0 + HOUR)
+        with self.assertRaises(hand.Refused):
+            publish.reply("5", {"text": "again"})
+        self.assertEqual(len(self.posted()), 1, "answered once")
+
     def test_a_reply_x_refused_may_be_tried_again(self):
         self.x.route("POST", "/2/tweets", {"title": "Forbidden"}, status=403)
         with self.assertRaisesRegex(XError, "403"):
