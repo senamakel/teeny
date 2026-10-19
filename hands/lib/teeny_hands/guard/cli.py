@@ -110,7 +110,8 @@ def links_list(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
 
 def links_approve(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     entry = args.entry.strip().lower()
-    if not parse_allowlist([entry]) or not parse_allowlist([entry])[0].host:
+    parsed = parse_allowlist([entry])
+    if not parsed or not parsed[0].host:
         raise hand.HandError("give a host, or host/path, to allow")
     holds.allow_link(entry, None)
     gate.refresh_approved_links()

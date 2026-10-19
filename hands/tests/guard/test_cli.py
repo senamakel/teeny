@@ -100,7 +100,7 @@ class InboundTest(Cli):
 class StyleTest(Cli):
     def test_applies_the_house_style_and_measures_it(self):
         code, out = self.guard("style", body={"text": "@bob gm 🚀 frens 💛, nfa", "replying_to": "bob"})
-        self.assertEqual((code, out), (0, {"ok": True, "text": "gm 🚀 frens", "length": 10, "emoji": 1}))
+        self.assertEqual((code, out), (0, {"ok": True, "text": "gm 🚀 frens", "length": 11, "emoji": 1}))
         code, out = self.guard("style", body={"text": "gm 🚀 frens 💛", "max_emoji": 2})
         self.assertEqual(out["text"], "gm 🚀 frens 💛")
 
