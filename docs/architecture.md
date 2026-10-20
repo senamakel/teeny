@@ -156,10 +156,12 @@ brain/
 `narrative/`, `assets/` and `calendar.json` move under `brain/` as they
 are. The calendar items become `cron.toml` entries.
 
-**Self-improvement** is the existing daily brief. The `learnings` job drafts
-`record/brief.md` from the post ledger, the journal and memory, and every job
-prompt starts with "read `record/brief.md`". `record/` is plain files, so the
-brief is in the next turn with no restart.
+**Self-improvement** is Teeny's own: it edits its brain (`SOUL.md`,
+`CONTEXT.md`, the lore, skills, playbooks, `cron.toml`) and adds hands,
+driven by the goals in `narrative/LORE.md` and tracked in
+`narrative/ARCS.md`. A candidate brain is judged against the current one and
+merged only if it wins, behind rules in code the brain cannot edit. The spec
+is [`evolve.md`](evolve.md).
 
 ## 5. Roster
 
@@ -201,6 +203,17 @@ That's gap G4.
 | `cal-<item>` | per item | as calendar items do today |
 
 All schedules are read in `CALENDAR_TZ`, matching today.
+
+**What the brain may schedule.** Teeny owns `brain/cron.toml` and may add,
+remove or reschedule any job in it, its heartbeat included. A brain job runs
+`bin/heartbeat` or `bin/act <playbook>`: `bin/act` gathers the playbook's
+inputs from hand read verbs (with `DRY_RUN=1` forced), drafts as the tool-less
+`act` agent (`brain/agents/act.toml`), and acts through a hand. The rules it
+cannot change are in `bin/lib/cron_policy.py`: no job more often than every 5
+minutes, at most 24 jobs, at most 400 `bin/act` runs a day, and the jobs in
+`evals/cron.pinned.toml` are always merged in. `bin/doctor` checks all of it,
+and `bin/spine` will not boot a checkout the doctor fails. See
+[`evolve.md`](evolve.md).
 
 - **Seeding.** OpenHuman has no file-declared crons (gap G2). `bin/seed-cron`
   reconciles `cron.toml` against `openhuman.cron_list` by name, adding,
