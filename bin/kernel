@@ -114,6 +114,26 @@ curl -fsS -o /dev/null "$OPENHUMAN_CORE_URL/health" || die "the core did not ans
       {default_model: $m, chat_provider: $p, reasoning_provider: $p, agentic_provider: $p,
        coding_provider: $p, vision_provider: $p, memory_provider: $p}')" >/dev/null
     log "model: $LADDER_URL as local-openai:$KERNEL_MODEL"
+    # The core never asks a local-openai endpoint for the model's window and
+    # budgets an unknown one at a few thousand tokens: less than its own
+    # system prompt, so the trim drops the user's message and the model
+    # answers an empty turn. KERNEL_CONTEXT_WINDOW wins; else the endpoint's
+    # own listing (the ladder reports `context_length`). The key goes in a
+    # header file, never in curl's argv.
+    window="${KERNEL_CONTEXT_WINDOW:-}"
+    if [ -z "$window" ]; then
+      window="$(curl -fsS -m 10 -H @<(printf 'authorization: Bearer %s\n' "${LADDER_API_KEY:-}") \
+        "${LADDER_URL%/}/models" 2>/dev/null | jq -r --arg m "$KERNEL_MODEL" \
+        '[.data[]? | select(.id == $m or ((.aliases // []) | index($m)))
+          | (.context_length // .context_window // empty)][0] // empty' 2>/dev/null)" || window=""
+    fi
+    if [[ "$window" =~ ^[1-9][0-9]*$ ]]; then
+      oh inference_update_model_settings "$(jq -cn --arg m "$KERNEL_MODEL" --argjson w "$window" \
+        '{model_registry: [{id: $m, provider: "local-openai", context_window: $w}]}')" >/dev/null
+      log "model: $KERNEL_MODEL has a $window-token window"
+    else
+      log "model: no window for $KERNEL_MODEL from the endpoint; keeping the stored one (set KERNEL_CONTEXT_WINDOW if turns come back empty)"
+    fi
   else
     log "model: not configured (no LADDER_URL in $env_file)"
   fi

@@ -60,13 +60,19 @@ class Model(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    # The window is reported the way the ladder reports it. The core does not
+    # ask a local-openai endpoint for it; bin/kernel must.
     def do_GET(self):
-        self._json({"object": "list", "data": [{"id": "stub", "object": "model"}]})
+        self._json({"object": "list", "data": [{"id": "stub", "object": "model", "context_length": 128000}]})
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers.get("content-length", 0))) or b"{}")
         with open(sys.argv[2], "a") as log:
             log.write(self.path + "\n")
+        # What the model was actually asked: the last user message it received.
+        users = [m for m in body.get("messages", []) if m.get("role") == "user"]
+        with open(sys.argv[3], "a") as log:
+            log.write(json.dumps(users[-1].get("content") if users else None) + "\n")
         base = {"id": "stub-1", "created": int(time.time()), "model": body.get("model", "stub")}
         if body.get("stream"):
             self.send_response(200)
@@ -89,7 +95,7 @@ class Model(BaseHTTPRequestHandler):
 
 ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), Model).serve_forever()
 PY
-python3 -I "$scratch/model.py" "$model_port" "$scratch/model-calls.log" &
+python3 -I "$scratch/model.py" "$model_port" "$scratch/model-calls.log" "$scratch/model-asked.log" &
 model_pid=$!
 
 # --- a scratch copy of the checkout, laid out as on the box ---------------------
@@ -175,9 +181,19 @@ else
   pass "bin/oh is refused with the wrong token"
 fi
 
-answer="$("$root/bin/ask" "say hello" 2>"$scratch/ask.log" || true)"
+answer="$("$root/bin/ask" "please say hello" 2>"$scratch/ask.log" || true)"
 check "bin/ask completes a turn through the configured model" grep -q 'teeny kernel says hello' <<<"$answer"
 check "the turn went to the configured endpoint" grep -q 'chat/completions' "$scratch/model-calls.log"
+# The core budgets a local-openai model it knows nothing about at a few
+# thousand tokens; its own system prompt is bigger, so the trim drops the
+# user's message and the model answers a turn with nothing in it.
+check "the model is asked what bin/ask asked" grep -q 'please say hello' "$scratch/model-asked.log"
+registered_window() {
+  python3 -c 'import sys, tomllib
+cfg = tomllib.load(open(sys.argv[1], "rb"))
+print(next((e.get("context_window") for e in cfg.get("model_registry", []) if e.get("id") == "stub"), None))' "$root/.openhuman/config.toml"
+}
+check "the model's window comes from the endpoint" test "$(registered_window)" = 128000
 
 # --- the keyring survives a restart ---------------------------------------------
 kill -TERM "$kernel_pid"
