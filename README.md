@@ -179,9 +179,7 @@ shellcheck and the landing page's checks.
 ## Bumping OpenHuman
 
 1. Move `vendor/openhuman` to the new `upstream/main` commit and run
-   `git submodule update --init --recursive vendor/openhuman` in the same
-   command. (The auto-commit hook would otherwise record a half-updated
-   pointer.)
+   `git submodule update --init --recursive vendor/openhuman`.
 2. Re-copy its root `[patch]` tables into `Cargo.toml`, with paths rebased
    onto `vendor/openhuman/`.
 3. Run `cargo build --release -p teeny-spine`.
