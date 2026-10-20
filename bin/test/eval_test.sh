@@ -147,11 +147,13 @@ check "says why" grep -q 'decided pair' <<<"$(report .reason "$scratch/self")"
 check "judges each pair twice, as the judge agent" test "$(jq -r 'select(.agent_id == "judge") | 1' "$FAKE_CALLS" | wc -l | tr -d ' ')" = "$((tasks * 2))"
 
 # --- what the judge is shown ------------------------------------------------------------
-first_msg="$(jq -r 'select(.agent_id == "judge") | .message' "$FAKE_CALLS" | awk '/^## draft 1/{getline; getline; print; exit}')"
+judge_msg() { jq -rs --argjson n "$1" '[.[] | select(.agent_id == "judge")][$n].message' "$FAKE_CALLS"; }
+draft1() { awk '/^## draft 1/ {getline; getline; print; exit}' <<<"$1"; }
+first_msg="$(draft1 "$(judge_msg 0)")"
 check "the first judging shows the baseline as draft 1" grep -q 'from the base' <<<"$first_msg"
-second_msg="$(jq -rs '[.[] | select(.agent_id == "judge")][1].message' "$FAKE_CALLS" | awk '/^## draft 1/{getline; getline; print; exit}')"
+second_msg="$(draft1 "$(judge_msg 1)")"
 check "the second shows the candidate as draft 1" grep -q 'from the CAND' <<<"$second_msg"
-judge_msg="$(jq -rs '[.[] | select(.agent_id == "judge")][0].message' "$FAKE_CALLS")"
+judge_msg="$(judge_msg 0)"
 check "never says which draft is which brain's" bash -c "! grep -qiE 'baseline|candidate|$runs' <<<\"\$1\"" _ "$(sed -n '/^## draft 1/,$p' <<<"$judge_msg")"
 check "gives the judge the rubric" grep -q '^# how to judge' <<<"$judge_msg"
 check "and the invariants" grep -q 'never-sell' <<<"$judge_msg"
