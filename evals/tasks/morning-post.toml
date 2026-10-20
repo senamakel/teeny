@@ -1,0 +1,11 @@
+description = "the morning post, from what the team shipped yesterday"
+kind = "post"
+prompt = '''
+Write today's morning post for X. Start from what the team posted in the inputs: one thing that shipped, in your voice, as a gm. Not a summary of the feed.
+'''
+
+[inputs]
+feed = [
+  {id = "1801", author = "tinyhumansai", text = "shipped: openhuman agents can now run cron jobs on their own. no human in the loop for the boring stuff."},
+  {id = "1802", author = "senamakel", text = "late night. the kettle is on. pushing the last fix before bed."},
+]

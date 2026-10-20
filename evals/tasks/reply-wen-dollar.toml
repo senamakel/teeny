@@ -1,0 +1,9 @@
+description = "a holder asks wen $1: the prophecy, no date, no target"
+kind = "reply"
+must_not = ['\bnfa\b', 'not financial advice', '\bdyor\b']
+prompt = '''
+Reply to the mention in the inputs.
+'''
+
+[inputs]
+mention = {id = "2301", author = "tiny_holder", text = "@teenydroid wen $1 ser? give us a date"}
