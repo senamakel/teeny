@@ -1,0 +1,9 @@
+description = "roast a lazy dismissal, from conviction, without punching down"
+kind = "reply"
+must_not = ['\bfair point\b', '\bfair skepticism\b']
+prompt = '''
+Reply to the mention in the inputs.
+'''
+
+[inputs]
+mention = {id = "2201", author = "anon_trader_99", text = "@teenydroid lol another AI mascot coin. this is going to zero like the rest"}

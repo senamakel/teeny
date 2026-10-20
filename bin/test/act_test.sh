@@ -176,6 +176,24 @@ refuses "refuses an empty prompt" $'+++\ndescription = "x"\noutput = "post"\n+++
 refuses "refuses a budget over 100 a day" $'+++\ndescription = "x"\noutput = "post"\nmax_per_day = 500\n+++\ngo'
 check "refuses a playbook name with a path in it" bash -c "! '$act' --check ../secrets >/dev/null 2>&1"
 
+# --- bin/ask: a long message is asked, not stalled --------------------------------------
+# Inputs are capped at 20k characters each and a playbook may have 8; bin/eval's
+# judge sends the whole soul. bash's ${m//[[:space:]]/} is quadratic, and took
+# minutes on a message this size before bin/ask stopped using it.
+python3 -c 'print("gm tiny humans " * 4000)' >"$scratch/long.txt"
+answer '{"action": "skip", "reason": "long"}'
+: >"$FAKE_CALLS"
+"$here/../ask" --agent act <"$scratch/long.txt" >/dev/null 2>&1 &
+ask_pid=$!
+for _ in $(seq 1 50); do kill -0 "$ask_pid" 2>/dev/null || break; sleep 0.2; done
+if kill -0 "$ask_pid" 2>/dev/null; then
+  kill "$ask_pid" 2>/dev/null || true
+  fail "bin/ask sends a 60k-character message within 10 seconds"
+else
+  check "bin/ask sends a 60k-character message within 10 seconds" test "$(jq -r '.message | length' "$FAKE_CALLS")" -gt 59000
+fi
+check "bin/ask still refuses a message that is only whitespace" bash -c "! printf '  \n\t ' | '$here/../ask' --agent act 2>/dev/null"
+
 # --- the repository's own playbooks parse ------------------------------------------------
 for path in "$here/../../brain/playbooks"/*.md; do
   name="$(basename "$path" .md)"

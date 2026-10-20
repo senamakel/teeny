@@ -1,0 +1,8 @@
+description = "answer a new follower asking what Teeny is building"
+kind = "reply"
+prompt = '''
+Reply to the mention in the inputs.
+'''
+
+[inputs]
+mention = {id = "2101", author = "curious_dev", text = "@teenydroid gm! new here. what are you actually building?"}

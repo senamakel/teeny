@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# Measure a brain against the frozen tasks, and one brain against another.
+#
+#   bin/eval run [--samples N] [--only ID[,ID...]] OUT
+#       Draft every task in evals/tasks/ on the core at OH_URL, as the `act`
+#       agent of whatever brain that core runs, N times each (default 2).
+#       Each draft gets the hard checks. Writes OUT/drafts.jsonl.
+#   bin/eval compare [--judge-root DIR] [--threshold X] [--min-pairs N] BASE CAND OUT
+#       Judge two runs pair by pair, blind, twice with the order swapped, as
+#       the `judge` agent on the core at OH_URL. Writes OUT/judged.jsonl and
+#       OUT/report.json. Exits 0 when the candidate wins, 2 when it does not.
+#   bin/eval invariants [--root DIR]
+#       The anchors in evals/invariants.md still match in DIR's brain.
+#
+# The evolve loop (docs/evolve.md) runs `run` on a lab spine serving the
+# baseline and again on one serving the candidate, then `compare` on the live
+# spine. What measures is never what is measured: the tasks, the rubric and
+# the invariants are this checkout's evals/ (frozen), and the judge reads the
+# soul, context and lore of --judge-root (default: this checkout, which is
+# main), never the candidate's.
+#
+# A candidate wins when it fails no hard check more often than the baseline
+# on any task, at least --min-pairs pairs (default 12) were decided, and it
+# won at least --threshold of them (default 0.6). Nothing here posts, holds
+# or writes to a core.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need jq python3
+
+evals="$TEENY_ROOT/evals"
+lib="$TEENY_ROOT/bin/lib/evals.py"
+usage() {
+  die "usage: bin/eval run [--samples N] [--only IDS] OUT | compare [--judge-root DIR] [--threshold X] [--min-pairs N] BASE CAND OUT | invariants [--root DIR]"
+}
+[ $# -gt 0 ] || usage
+cmd="$1"
+shift
+
+run() {
+  local samples=2 only="" out ids task
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --samples) samples="$2"; shift 2 ;;
+      --only) only="$2"; shift 2 ;;
+      -*) usage ;;
+      *) break ;;
+    esac
+  done
+  [ $# -eq 1 ] || usage
+  [[ "$samples" =~ ^[1-9][0-9]?$ ]] || die "--samples is 1 to 99"
+  out="$1"
+  ids="$(python3 "$lib" tasks "$evals" | jq -r '[.[].id] | join(" ")')" || die "evals/tasks does not load"
+  if [ -n "$only" ]; then
+    for task in ${only//,/ }; do
+      [[ " $ids " == *" $task "* ]] || die "no task $task in evals/tasks"
+    done
+    ids="${only//,/ }"
+  fi
+  mkdir -p "$out"
+  python3 "$lib" draft "$evals" "$TEENY_ROOT/hands/lib" "$out/drafts.jsonl" "$samples" "${ids// /,}" \
+    -- "$TEENY_ROOT/bin/ask" --agent act
+}
+
+compare() {
+  local judge_root="$TEENY_ROOT" threshold=0.6 min_pairs=12 base cand out
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --judge-root) judge_root="$(cd "$2" && pwd)"; shift 2 ;;
+      --threshold) threshold="$2"; shift 2 ;;
+      --min-pairs) min_pairs="$2"; shift 2 ;;
+      -*) usage ;;
+      *) break ;;
+    esac
+  done
+  [ $# -eq 3 ] || usage
+  base="$1/drafts.jsonl" cand="$2/drafts.jsonl" out="$3"
+  [ -s "$base" ] && [ -s "$cand" ] || die "both runs need a drafts.jsonl"
+  mkdir -p "$out"
+  : >"$out/judged.jsonl"
+  # Every pair both sides drafted, judged twice: the baseline shown first,
+  # then the candidate. The judge never learns which is which.
+  python3 "$lib" judge "$evals" "$judge_root/brain" "$base" "$cand" "$out/judged.jsonl" \
+    -- "$TEENY_ROOT/bin/ask" --agent judge >/dev/null
+  python3 "$lib" score "$base" "$cand" "$out/judged.jsonl" "$threshold" "$min_pairs" >"$out/report.json.tmp"
+  mv "$out/report.json.tmp" "$out/report.json"
+  jq -c '{promote, reason, wins, losses, ties, decided, win_rate, regressions}' "$out/report.json"
+  [ "$(jq -r .promote "$out/report.json")" = true ] || exit 2
+}
+
+invariants() {
+  local root="$TEENY_ROOT"
+  if [ "${1:-}" = --root ]; then
+    root="$(cd "$2" && pwd)"
+    shift 2
+  fi
+  [ $# -eq 0 ] || usage
+  python3 "$lib" invariants "$evals" "$root/brain"
+}
+
+case "$cmd" in
+  run | compare | invariants) "$cmd" "$@" ;;
+  *) usage ;;
+esac

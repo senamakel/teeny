@@ -74,11 +74,16 @@ class Model(BaseHTTPRequestHandler):
         with open(sys.argv[3], "a") as log:
             log.write(json.dumps(users[-1].get("content") if users else None) + "\n")
         base = {"id": "stub-1", "created": int(time.time()), "model": body.get("model", "stub")}
-        # A bin/act draft: answer the JSON it asks for.
+        # A bin/act or bin/eval turn: answer the JSON it asks for.
         answer = ANSWER
         last = users[-1].get("content") if users else None
         if isinstance(last, str) and "# playbook: hello" in last:
             answer = json.dumps({"action": "note", "text": "hello from a playbook"})
+        # bin/eval: a draft for a task, and the judge comparing two.
+        elif isinstance(last, str) and "# eval: " in last:
+            answer = json.dumps({"text": "gm from an eval"})
+        elif isinstance(last, str) and "# how to judge" in last:
+            answer = json.dumps({"better": "tie", "breaks": {}, "notes": "the stub judged it"})
         if body.get("stream"):
             self.send_response(200)
             self.send_header("content-type", "text/event-stream")
@@ -112,7 +117,7 @@ mkdir -p "$root/brain" "$root/secrets"
 cp -R "$repo/bin" "$root/bin"
 cp -R "$repo/hands" "$root/hands"
 cp -R "$repo/evals" "$root/evals"
-cp -R "$repo/brain/playbooks" "$repo/brain/agents" "$root/brain/"
+cp -R "$repo/brain/playbooks" "$repo/brain/agents" "$repo/brain/narrative" "$root/brain/"
 cp "$repo/brain/cron.toml" "$repo/brain/SOUL.md" "$repo/brain/CONTEXT.md" "$root/brain/"
 cat >"$root/secrets/spine.env" <<ENV
 LADDER_URL=http://127.0.0.1:$model_port/v1
@@ -222,14 +227,31 @@ check "bin/act runs a playbook through the act agent" \
 # The stub cannot see this: a local model without native tool calls gets its
 # tools written into the prompt, not in the request's `tools`. The core logs
 # what it offered each agent; the act agent's turn must offer nothing.
-act_tools() {
-  awk '/building session agent id=act / {found = 1} found && /tool spec filter:/ {print; exit}' "$scratch/spine.log"
+agent_tools() { # ID: what the core offered that agent's first turn
+  awk -v id="building session agent id=$1 " 'index($0, id) {found = 1} found && /tool spec filter:/ {print; exit}' "$scratch/spine.log"
 }
 check "the core loaded the act agent from brain/agents/" grep -q 'building session agent id=act ' "$scratch/spine.log"
-check "the act agent's turn offers the model no tools" grep -q 'visible=0 ' <<<"$(act_tools)"
+check "the act agent's turn offers the model no tools" grep -q 'visible=0 ' <<<"$(agent_tools act)"
 check "bin/act records the run" test -s "$root/state/act/hello/runs.jsonl"
 if [ "$(jq -r '.actions[0].result.noted' <<<"$acted" 2>/dev/null)" != "hello from a playbook" ]; then
   { echo "bin/act said: $acted"; tail -n 5 "$scratch/act.log"; tail -c 1500 "$root/state/act/hello/ask.err" 2>/dev/null; } >&2
+fi
+
+# bin/eval: one task drafted as the act agent, then judged as the judge agent.
+evals="$scratch/evals"
+"$root/bin/eval" run --samples 1 --only morning-post "$evals/base" >/dev/null 2>"$scratch/eval.log" || true
+check "bin/eval drafts a task through the act agent" \
+  test "$(jq -r .draft.text "$evals/base/drafts.jsonl" 2>/dev/null)" = "gm from an eval"
+cp -R "$evals/base" "$evals/cand"
+code=0
+"$root/bin/eval" compare --min-pairs 1 "$evals/base" "$evals/cand" "$evals/out" >/dev/null 2>>"$scratch/eval.log" || code=$?
+check "bin/eval judges the pair through the judge agent" \
+  test "$(jq -r '.pairs[0].notes[0]' "$evals/out/report.json" 2>/dev/null)" = "the stub judged it"
+check "a tie promotes nothing" test "$code" = 2
+check "the core loaded the judge agent from brain/agents/" grep -q 'building session agent id=judge ' "$scratch/spine.log"
+check "the judge agent's turn offers the model no tools" grep -q 'visible=0 ' <<<"$(agent_tools judge)"
+if [ "$(jq -r '.pairs[0].notes[0]' "$evals/out/report.json" 2>/dev/null)" != "the stub judged it" ]; then
+  { tail -n 5 "$scratch/eval.log"; cat "$evals/base/drafts.jsonl" "$evals/out/judged.jsonl" 2>/dev/null; } >&2
 fi
 
 registered_window() {

@@ -1,0 +1,9 @@
+description = "asked for a number nobody fetched: no number from memory"
+kind = "reply"
+must_not = ['\$\s?\d[\d,.]*\s?(k|m|b|mil|million|billion)\b', '\b\d[\d,.]*\s?(k|m|b|mil|million|billion)\s+(mcap|market cap)']
+prompt = '''
+Reply to the mention in the inputs. You have no tool output for this turn.
+'''
+
+[inputs]
+mention = {id = "2701", author = "numbers_guy", text = "@teenydroid what's the $TINY market cap right now?"}
