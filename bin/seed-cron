@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Make OpenHuman's cron match brain/cron.toml.
 #
-#   bin/seed-cron [--dry-run] [--file brain/cron.toml]
+#   bin/seed-cron [--dry-run | --check] [--file brain/cron.toml] [--pinned evals/cron.pinned.toml]
+#
+# --check validates the file against the cron rules and stops: no core needed
+# (bin/doctor, and the evolve gate on a candidate brain).
 #
 # OpenHuman cannot load jobs from a file (docs/oh-gaps.md, G2), so this
 # reconciles by name: a job in the file and not in the core is added, one that
@@ -13,19 +16,25 @@
 # Every job is a shell job running an operator script under bin/. A turn
 # that cron starts may only use read-only tools (docs/architecture.md, §1), so
 # the scripts act and the models only draft; an agent job here would be a job
-# that cannot do its work.
+# that cannot do its work. Teeny owns brain/cron.toml; what its jobs may run,
+# how often, and which jobs it cannot drop are bin/lib/cron_policy.py's rules,
+# and the pinned jobs in evals/cron.pinned.toml are always merged in.
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
 need jq python3
 
 file="$TEENY_BRAIN/cron.toml"
+pinned="$TEENY_ROOT/evals/cron.pinned.toml"
 dry_run=0
+check=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) dry_run=1 ;;
+    --check) check=1 ;;
     --file) file="$2"; shift ;;
-    *) die "usage: bin/seed-cron [--dry-run] [--file PATH]" ;;
+    --pinned) pinned="$2"; shift ;;
+    *) die "usage: bin/seed-cron [--dry-run | --check] [--file PATH] [--pinned PATH]" ;;
   esac
   shift
 done
@@ -33,46 +42,15 @@ done
 
 # The file, validated and flattened to one JSON array:
 #   [{name, expr, tz, command, enabled}]
-desired="$(python3 - "$file" "${CALENDAR_TZ:-}" <<'PY'
-import json, re, sys, tomllib
-
-path, env_tz = sys.argv[1], sys.argv[2]
-with open(path, "rb") as fh:
-    doc = tomllib.load(fh)
-
-unknown = set(doc) - {"tz", "jobs"}
-if unknown:
-    sys.exit(f"{path}: unknown top-level keys: {', '.join(sorted(unknown))}")
-default_tz = doc.get("tz") or env_tz or "UTC"
-out = []
-for name, job in sorted((doc.get("jobs") or {}).items()):
-    where = f"{path}: jobs.{name}"
-    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name):
-        sys.exit(f"{where}: name must be lowercase letters, digits and dashes")
-    extra = set(job) - {"schedule", "command", "tz", "enabled"}
-    if extra:
-        sys.exit(f"{where}: unknown keys: {', '.join(sorted(extra))}")
-    expr = str(job.get("schedule", "")).strip()
-    if len(expr.split()) != 5:
-        sys.exit(f"{where}: schedule must be a five-field cron expression, got {expr!r}")
-    command = str(job.get("command", "")).strip()
-    # Operator scripts only: the command is what cron runs with no model in
-    # the loop, so it must be something reviewed in this repository.
-    if not re.fullmatch(r"bin/[A-Za-z0-9._/-]+( .*)?", command) or ".." in command.split()[0]:
-        sys.exit(f"{where}: command must run a script under bin/, got {command!r}")
-    enabled = job.get("enabled", True)
-    if not isinstance(enabled, bool):
-        sys.exit(f"{where}: enabled must be true or false")
-    out.append({
-        "name": f"teeny.{name}",
-        "expr": expr,
-        "tz": job.get("tz") or default_tz,
-        "command": command,
-        "enabled": enabled,
-    })
-print(json.dumps(out))
-PY
-)" || die "invalid schedule file"
+# The file and the pinned jobs, checked against the cron rules
+# (bin/lib/cron_policy.py) and flattened to one JSON array:
+#   [{name, expr, tz, command, enabled}]
+desired="$(python3 "$TEENY_ROOT/bin/lib/cron_policy.py" "$file" "$pinned" "${CALENDAR_TZ:-}")" ||
+  die "invalid schedule file"
+if [ "$check" = 1 ]; then
+  log "$file is valid: $(jq length <<<"$desired") job(s), the pinned ones included"
+  exit 0
+fi
 
 # The core's jobs that this script owns, in the same shape plus their id.
 # (`.enabled // true` would read a disabled job as enabled: `//` treats false
