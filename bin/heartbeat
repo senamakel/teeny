@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The kernel's only job until the hands land: prove cron fires a shell job in
+# The spine's only job until the hands land: prove cron fires a shell job in
 # this checkout, and leave the time it last did in state/heartbeat. It touches
 # nothing outside state/.
 set -euo pipefail

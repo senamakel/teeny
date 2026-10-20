@@ -17,7 +17,7 @@ because cron shell jobs run with an allowlisted environment and no TEENY_*
   secrets/teeny.env   the hands' keys and switches (KEY=VALUE), read by the hand
                       itself so the model never sees them
   secrets/core.token  the core's RPC bearer
-  state/core.url      where the core answers (written by bin/kernel)
+  state/core.url      where the core answers (written by bin/spine)
   state/hands.db      every rule that spans calls is a transaction here
   state/locks/        flock files for what must not run twice at once
 

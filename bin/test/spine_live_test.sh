@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Boots a real OpenHuman core through bin/kernel over a scratch root and checks
+# Boots a real OpenHuman core through bin/spine over a scratch root and checks
 # the whole step-1 surface: first-boot minting, the single storage file, the
-# file keyring, cron seeded from workspace/cron.toml, a shell job that runs,
+# file keyring, cron seeded from brain/cron.toml, a shell job that runs,
 # bin/crons reading storage.db, bin/oh, and bin/ask completing a turn against
 # a stub OpenAI-compatible model.
 #
-#   OPENHUMAN_CORE_BIN=/path/to/openhuman-core bin/test/kernel_live_test.sh
+#   OPENHUMAN_CORE_BIN=/path/to/openhuman-core bin/test/spine_live_test.sh
 #
 # Skips (exit 0) when no core binary is given; CI runs bin/test/seed_cron_test.sh
 # instead. Build one from upstream/main with
@@ -19,16 +19,16 @@ if [ -z "${OPENHUMAN_CORE_BIN:-}" ]; then
   exit 0
 fi
 
-# bin/kernel runs from a scratch copy, so a relative path would not resolve.
+# bin/spine runs from a scratch copy, so a relative path would not resolve.
 OPENHUMAN_CORE_BIN="$(python3 -c 'import os, sys; print(os.path.abspath(sys.argv[1]))' "$OPENHUMAN_CORE_BIN")"
 export OPENHUMAN_CORE_BIN
 [ -x "$OPENHUMAN_CORE_BIN" ] || { echo "FAIL no executable at $OPENHUMAN_CORE_BIN" >&2; exit 1; }
 
-scratch="$(mktemp -d "${TMPDIR:-/tmp}/teeny-kernel.XXXXXX")"
-kernel_pid=""
+scratch="$(mktemp -d "${TMPDIR:-/tmp}/teeny-spine.XXXXXX")"
+spine_pid=""
 model_pid=""
 cleanup() {
-  [ -n "$kernel_pid" ] && kill -TERM "$kernel_pid" 2>/dev/null && wait "$kernel_pid" 2>/dev/null
+  [ -n "$spine_pid" ] && kill -TERM "$spine_pid" 2>/dev/null && wait "$spine_pid" 2>/dev/null
   [ -n "$model_pid" ] && kill "$model_pid" 2>/dev/null
   if [ "${KEEP_SCRATCH:-0}" = 1 ]; then echo "scratch kept at $scratch"; else rm -rf "$scratch"; fi
 }
@@ -46,7 +46,7 @@ cat >"$scratch/model.py" <<'PY'
 import json, sys, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-ANSWER = "teeny kernel says hello"
+ANSWER = "teeny spine says hello"
 
 class Model(BaseHTTPRequestHandler):
     def log_message(self, *args):
@@ -61,7 +61,7 @@ class Model(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     # The window is reported the way the ladder reports it. The core does not
-    # ask a local-openai endpoint for it; bin/kernel must.
+    # ask a local-openai endpoint for it; bin/spine must.
     def do_GET(self):
         self._json({"object": "list", "data": [{"id": "stub", "object": "model", "context_length": 128000}]})
 
@@ -103,44 +103,47 @@ model_pid=$!
 # so a job finds state/ and secrets/ only from the root it runs in. Relocating
 # those with TEENY_* variables would test something production never does.
 root="$scratch/root"
-mkdir -p "$root/workspace" "$root/secrets"
+mkdir -p "$root/brain" "$root/secrets"
 cp -R "$repo/bin" "$root/bin"
-cp "$repo/workspace/cron.toml" "$root/workspace/cron.toml"
-cp "$repo/workspace/SOUL.md" "$root/workspace/SOUL.md"
-cat >"$root/secrets/kernel.env" <<ENV
+cp "$repo/brain/cron.toml" "$root/brain/cron.toml"
+cp "$repo/brain/SOUL.md" "$root/brain/SOUL.md"
+cat >"$root/secrets/spine.env" <<ENV
 LADDER_URL=http://127.0.0.1:$model_port/v1
 LADDER_API_KEY=stub-key
-KERNEL_MODEL=stub
+SPINE_MODEL=stub
 ENV
 
 core_port="$(free_port)"
-export OPENHUMAN_CORE_PORT="$core_port" KERNEL_BOOT_SECS=90
+export OPENHUMAN_CORE_PORT="$core_port" SPINE_BOOT_SECS=90
 unset OPENHUMAN_CORE_TOKEN OPENHUMAN_CORE_URL OPENHUMAN_WORKSPACE CALENDAR_TZ \
-  TEENY_ROOT TEENY_WORKSPACE TEENY_STORAGE TEENY_SECRETS TEENY_STATE
-"$root/bin/kernel" >"$scratch/kernel.log" 2>&1 &
-kernel_pid=$!
+  TEENY_ROOT TEENY_BRAIN TEENY_STORAGE TEENY_SECRETS TEENY_STATE
+"$root/bin/spine" >"$scratch/spine.log" 2>&1 &
+spine_pid=$!
 for _ in $(seq 1 120); do
-  grep -q '\[kernel\] ready' "$scratch/kernel.log" && break
-  kill -0 "$kernel_pid" 2>/dev/null || break
+  grep -q '\[spine\] ready' "$scratch/spine.log" && break
+  kill -0 "$spine_pid" 2>/dev/null || break
   sleep 1
 done
-if ! grep -q '\[kernel\] ready' "$scratch/kernel.log"; then
-  cat "$scratch/kernel.log" >&2
-  echo "FAIL the kernel never became ready" >&2
+if ! grep -q '\[spine\] ready' "$scratch/spine.log"; then
+  cat "$scratch/spine.log" >&2
+  echo "FAIL the spine never became ready" >&2
   exit 1
 fi
-pass "the kernel boots and reports ready"
+pass "the spine boots and reports ready"
 
 # --- first boot -----------------------------------------------------------------
 check "mints the core token" test -s "$root/secrets/core.token"
 check "mints the keyring master key" test -s "$root/secrets/openhuman.key"
 check "keeps the token private" test "$(stat -c %a "$root/secrets/core.token" 2>/dev/null || stat -f %Lp "$root/secrets/core.token")" = 600
-check "writes one storage file in the workspace" test -s "$root/workspace/storage.db"
-check "leaves Teeny's SOUL.md exactly as it was" cmp -s "$repo/workspace/SOUL.md" "$root/workspace/SOUL.md"
-check "keeps config out of the workspace" test ! -e "$root/workspace/config.toml"
-check "puts config beside the workspace" test -s "$root/.openhuman/config.toml"
+check "writes one storage file in the brain" test -s "$root/brain/storage.db"
+check "leaves Teeny's SOUL.md exactly as it was" cmp -s "$repo/brain/SOUL.md" "$root/brain/SOUL.md"
+# OpenHuman only treats a folder named `workspace` as a workspace beside its
+# config; anything else nests one inside it unless the config already exists.
+check "the core uses brain/ itself, not a folder nested in it" test ! -e "$root/brain/workspace"
+check "keeps config out of the brain" test ! -e "$root/brain/config.toml"
+check "puts config beside the brain" test -s "$root/.openhuman/config.toml"
 check "never exports the model key to the core" \
-  bash -c "! grep -q stub-key /proc/$kernel_pid/environ 2>/dev/null"
+  bash -c "! grep -q stub-key /proc/$spine_pid/environ 2>/dev/null"
 
 # --- cron, seeded and visible as a query ----------------------------------------
 crons="$("$root/bin/crons" 2>&1)"
@@ -161,7 +164,7 @@ check "bin/crons runs shows the run ok" grep -q ' ok ' <<<"$("$root/bin/crons" r
 
 TEENY_OH="$root/bin/oh" "$root/bin/seed-cron" 2>"$scratch/reseed.log"
 check "re-seeding an unchanged file changes nothing" grep -q '0 change(s) applied' "$scratch/reseed.log"
-sed -i.bak 's#\*/5 \* \* \* \*#*/10 * * * *#' "$root/workspace/cron.toml"
+sed -i.bak 's#\*/5 \* \* \* \*#*/10 * * * *#' "$root/brain/cron.toml"
 "$root/bin/seed-cron" 2>"$scratch/reseed.log"
 check "a changed schedule is updated on the real core" \
   test "$("$root/bin/oh" cron_list | jq -r '.[] | select(.name == "teeny.heartbeat") | .schedule.expr')" = "*/10 * * * *"
@@ -182,12 +185,14 @@ else
 fi
 
 answer="$("$root/bin/ask" "please say hello" 2>"$scratch/ask.log" || true)"
-check "bin/ask completes a turn through the configured model" grep -q 'teeny kernel says hello' <<<"$answer"
+check "bin/ask completes a turn through the configured model" grep -q 'teeny spine says hello' <<<"$answer"
 check "the turn went to the configured endpoint" grep -q 'chat/completions' "$scratch/model-calls.log"
 # The core budgets a local-openai model it knows nothing about at a few
 # thousand tokens; its own system prompt is bigger, so the trim drops the
 # user's message and the model answers a turn with nothing in it.
 check "the model is asked what bin/ask asked" grep -q 'please say hello' "$scratch/model-asked.log"
+# The first turn writes the core's persona defaults beside SOUL.md.
+check "the core writes its persona defaults into brain/ on the first turn" test -s "$root/brain/IDENTITY.md"
 registered_window() {
   python3 -c 'import sys, tomllib
 cfg = tomllib.load(open(sys.argv[1], "rb"))
@@ -196,22 +201,22 @@ print(next((e.get("context_window") for e in cfg.get("model_registry", []) if e.
 check "the model's window comes from the endpoint" test "$(registered_window)" = 128000
 
 # --- the keyring survives a restart ---------------------------------------------
-kill -TERM "$kernel_pid"
-wait "$kernel_pid" 2>/dev/null || true
-kernel_pid=""
-check "the kernel stops on SIGTERM" bash -c "! curl -fsS -o /dev/null http://127.0.0.1:$core_port/health"
+kill -TERM "$spine_pid"
+wait "$spine_pid" 2>/dev/null || true
+spine_pid=""
+check "the spine stops on SIGTERM" bash -c "! curl -fsS -o /dev/null http://127.0.0.1:$core_port/health"
 : >"$scratch/model-calls.log"
-# A second boot with the key gone from kernel.env must still reach the model.
-sed -i.bak '/^LADDER_API_KEY=/d' "$root/secrets/kernel.env"
-"$root/bin/kernel" >"$scratch/kernel2.log" 2>&1 &
-kernel_pid=$!
-for _ in $(seq 1 120); do grep -q '\[kernel\] ready' "$scratch/kernel2.log" && break; sleep 1; done
+# A second boot with the key gone from spine.env must still reach the model.
+sed -i.bak '/^LADDER_API_KEY=/d' "$root/secrets/spine.env"
+"$root/bin/spine" >"$scratch/spine2.log" 2>&1 &
+spine_pid=$!
+for _ in $(seq 1 120); do grep -q '\[spine\] ready' "$scratch/spine2.log" && break; sleep 1; done
 answer="$("$root/bin/ask" "say hello" 2>/dev/null || true)"
-check "the model key survives a restart in the encrypted store" grep -q 'teeny kernel says hello' <<<"$answer"
+check "the model key survives a restart in the encrypted store" grep -q 'teeny spine says hello' <<<"$answer"
 
 if [ "$failures" -gt 0 ]; then
-  printf '%d failure(s); kernel log:\n' "$failures" >&2
-  tail -40 "$scratch/kernel.log" >&2
+  printf '%d failure(s); spine log:\n' "$failures" >&2
+  tail -40 "$scratch/spine.log" >&2
   exit 1
 fi
 echo "all passed"

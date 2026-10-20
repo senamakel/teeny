@@ -11,7 +11,7 @@ and are safe to expose to a drafting agent; acting verbs (A) only go through
   A  reply --to ID          stdin {"text", "media_ids"?, "gif_id"?}
   A  like ID                skipped under DRY_RUN
   A  unsay ID [--confirm]   delete an own post; previews unless confirmed
-  A  upload --file PATH     from state/media/ or workspace/assets/ only
+  A  upload --file PATH     from state/media/ or brain/assets/ only
 """
 
 from __future__ import annotations
@@ -103,7 +103,7 @@ def parser() -> argparse.ArgumentParser:
     unsay = verb("unsay", _unsay, "delete an own post")
     unsay.add_argument("id")
     unsay.add_argument("--confirm", action="store_true")
-    verb("upload", _upload, "upload a file from state/media/ or workspace/assets/").add_argument("--file", required=True)
+    verb("upload", _upload, "upload a file from state/media/ or brain/assets/").add_argument("--file", required=True)
     return root
 
 

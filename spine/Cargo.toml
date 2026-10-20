@@ -1,18 +1,18 @@
 [package]
-name = "teeny-kernel"
-description = "Teeny's kernel: OpenHuman's command-line host, built from the library"
+name = "teeny-spine"
+description = "Teeny's spine: OpenHuman's command-line host, built from the library"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [[bin]]
-name = "teeny-kernel"
+name = "teeny-spine"
 path = "src/main.rs"
 
 [dependencies]
 # The same host `openhuman-cli` builds (`openhuman-core` there), with its
-# product feature set minus `os-keyring`: the kernel keeps secrets in the file
+# product feature set minus `os-keyring`: the spine keeps secrets in the file
 # store under a master key file, never an OS keychain, which a container does
 # not have (docs/architecture.md, "Keyring"). Desktop-only features (voice,
 # whatsapp-web, wallet) stay off.

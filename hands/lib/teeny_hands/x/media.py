@@ -3,7 +3,7 @@ by its id. Ported from crates/teeny-x/src/media.rs and the attach step of
 crates/teeny-agent/src/tools/post.rs (over teeny-media's giphy.rs).
 
 Only two things ever become an attachment: a file under `state/media/` or
-`workspace/assets/` that this hand uploaded and recorded (its id in
+`brain/assets/` that this hand uploaded and recorded (its id in
 `x_media`), or a GIF Giphy names by id. Never a URL a caller passed: a model
 must not be able to make the account post an arbitrary picture, and a path
 must not reach anything else on the box (the secrets sit one folder over).
@@ -50,7 +50,7 @@ CATEGORIES = {
 }
 
 #: The folders an upload may come from, relative to the checkout.
-UPLOAD_ROOTS = ("state/media", "workspace/assets")
+UPLOAD_ROOTS = ("state/media", "brain/assets")
 
 GIPHY_API_BASE = "https://api.giphy.com"
 #: X rejects an animated GIF over 15 MB, so the largest usable rendition wins.
@@ -71,7 +71,7 @@ def resolve_upload_path(path: str) -> Path:
     if not candidate.is_absolute():
         candidate = root / candidate
     refusal = hand.Refused(
-        "upload takes only a file under state/media/ or workspace/assets/", rule="path", allowed=list(UPLOAD_ROOTS)
+        "upload takes only a file under state/media/ or brain/assets/", rule="path", allowed=list(UPLOAD_ROOTS)
     )
     try:
         resolved = candidate.resolve(strict=True)

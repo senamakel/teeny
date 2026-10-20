@@ -24,7 +24,7 @@ class Uploading(Scratch):
         super().setUp()
         self.at(T0)
         self.media_dir = self.root / "state" / "media"
-        self.assets_dir = self.root / "workspace" / "assets"
+        self.assets_dir = self.root / "brain" / "assets"
         self.media_dir.mkdir(parents=True)
         self.assets_dir.mkdir(parents=True)
 
@@ -106,10 +106,10 @@ class UploadVerbTest(Uploading):
         [row] = self.minted()
         self.assertEqual((row["media_id"], row["mime"], row["dry_run"]), ("m1", "image/png", 0))
 
-    def test_takes_a_path_relative_to_the_checkout_and_workspace_assets(self):
+    def test_takes_a_path_relative_to_the_checkout_and_brain_assets(self):
         self.simple_upload()
         (self.assets_dir / "logo.gif").write_bytes(GIF)
-        self.assertEqual(media.upload("workspace/assets/logo.gif")["mime"], "image/gif")
+        self.assertEqual(media.upload("brain/assets/logo.gif")["mime"], "image/gif")
 
     def test_refuses_anything_outside_the_two_folders(self):
         (self.root / "secrets" / "x.png").write_bytes(PNG)

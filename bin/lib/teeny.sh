@@ -1,18 +1,18 @@
 # shellcheck shell=bash
 # Shared by every script under bin/. Sourced, never run.
 #
-# The layout (docs/architecture.md, "Kernel"): the repository checkout is the
-# root; `workspace/` is OpenHuman's workspace, `secrets/` and `state/` sit
+# The layout (docs/architecture.md, "Spine"): the repository checkout is the
+# root; `brain/` is OpenHuman's workspace (OPENHUMAN_WORKSPACE), `secrets/` and `state/` sit
 # beside it and are gitignored. Every path can be moved with an environment
 # variable, which is how the tests point the scripts at a scratch root.
 
 TEENY_ROOT="${TEENY_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-TEENY_WORKSPACE="${OPENHUMAN_WORKSPACE:-$TEENY_ROOT/workspace}"
-TEENY_STORAGE="${TEENY_STORAGE:-$TEENY_WORKSPACE/storage.db}"
+TEENY_BRAIN="${OPENHUMAN_WORKSPACE:-$TEENY_ROOT/brain}"
+TEENY_STORAGE="${TEENY_STORAGE:-$TEENY_BRAIN/storage.db}"
 TEENY_SECRETS="${TEENY_SECRETS:-$TEENY_ROOT/secrets}"
 TEENY_STATE="${TEENY_STATE:-$TEENY_ROOT/state}"
 # Where the core answers. Cron shell jobs run with an allowlisted environment
-# (no OPENHUMAN_* or TEENY_*), so bin/kernel also leaves the URL in
+# (no OPENHUMAN_* or TEENY_*), so bin/spine also leaves the URL in
 # state/core.url for them; everything else a job needs it finds from the
 # repository root it runs in.
 if [ -n "${OPENHUMAN_CORE_URL:-}" ]; then
@@ -22,7 +22,7 @@ elif [ -r "$TEENY_STATE/core.url" ]; then
 else
   OH_URL="http://127.0.0.1:${OPENHUMAN_CORE_PORT:-7788}"
 fi
-export TEENY_ROOT TEENY_WORKSPACE TEENY_STORAGE TEENY_SECRETS TEENY_STATE OH_URL
+export TEENY_ROOT TEENY_BRAIN TEENY_STORAGE TEENY_SECRETS TEENY_STATE OH_URL
 
 log() { printf '[%s] %s\n' "${0##*/}" "$*" >&2; }
 die() {
