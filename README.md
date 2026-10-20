@@ -181,6 +181,9 @@ shellcheck and the landing page's checks.
 1. Move `vendor/openhuman` to the new `upstream/main` commit and run
    `git submodule update --init --recursive vendor/openhuman`.
 2. Re-copy its root `[patch]` tables into `Cargo.toml`, with paths rebased
-   onto `vendor/openhuman/`.
+   onto `vendor/openhuman/`. Drop any entry that `cargo metadata` warns "was
+   not used in the crate graph". Cargo records those in `Cargo.lock` in an
+   order that differs between macOS and Linux, which breaks the image's
+   `--locked` build.
 3. Run `cargo build --release -p teeny-spine`.
 4. Run the live test against the new binary.
