@@ -121,11 +121,13 @@ draft $'```json\n{"text": "fenced gm"}\n```'
 "$eval_bin" run --samples 1 --only morning-post "$runs/fence" >/dev/null 2>&1
 check "reads a draft inside a code fence" test "$(jq -r .draft.text "$runs/fence/drafts.jsonl")" = "fenced gm"
 
-# A baseline and a candidate that differ in one word.
+# A baseline and a candidate that differ in one word, one draft per task.
+# Compare is two judge turns a pair, so one sample keeps this quick.
+
 draft '{"text": "gm %TASK% from the base"}'
-"$eval_bin" run "$runs/base" >/dev/null 2>&1
+"$eval_bin" run --samples 1 "$runs/base" >/dev/null 2>&1
 draft '{"text": "gm %TASK% from the CAND"}'
-"$eval_bin" run "$runs/cand" >/dev/null 2>&1
+"$eval_bin" run --samples 1 "$runs/cand" >/dev/null 2>&1
 
 compare() { # OUT [ARGS...]: run compare, leave its exit code in $code
   local out="$1"
@@ -138,11 +140,11 @@ report() { jq -r "$1" "$2/report.json"; }
 # --- the same brain against itself is all ties -------------------------------------------
 : >"$FAKE_CALLS"
 FAKE_JUDGE=tie compare "$scratch/self"
-check "a tie judge decides nothing" test "$(report .ties "$scratch/self")" = "$((tasks * 2))"
+check "a tie judge decides nothing" test "$(report .ties "$scratch/self")" = "$tasks"
 check "and nothing is promoted" test "$(report .promote "$scratch/self")" = false
 check "compare exits 2 when the candidate does not win" test "$code" = 2
 check "says why" grep -q 'decided pair' <<<"$(report .reason "$scratch/self")"
-check "judges each pair twice, as the judge agent" test "$(jq -r 'select(.agent_id == "judge") | 1' "$FAKE_CALLS" | wc -l | tr -d ' ')" = "$((tasks * 4))"
+check "judges each pair twice, as the judge agent" test "$(jq -r 'select(.agent_id == "judge") | 1' "$FAKE_CALLS" | wc -l | tr -d ' ')" = "$((tasks * 2))"
 
 # --- what the judge is shown ------------------------------------------------------------
 first_msg="$(jq -r 'select(.agent_id == "judge") | .message' "$FAKE_CALLS" | awk '/^## draft 1/{getline; getline; print; exit}')"
@@ -166,7 +168,7 @@ check "judges by the soul in --judge-root" grep -q 'MAIN-SOUL-MARKER' <<<"$(jq -
 FAKE_JUDGE=prefer:CAND compare "$scratch/win"
 check "a judge that prefers the candidate both ways promotes it" test "$(report .promote "$scratch/win")" = true
 check "compare exits 0 when it does" test "$code" = 0
-check "every pair is a win" test "$(report .wins "$scratch/win")" = "$((tasks * 2))"
+check "every pair is a win" test "$(report .wins "$scratch/win")" = "$tasks"
 check "the judge's notes are kept per pair" test "$(report '.pairs[0].notes | length' "$scratch/win")" = 2
 
 # --- position bias is not a win ----------------------------------------------------------------
@@ -177,7 +179,7 @@ FAKE_JUDGE=garbage compare "$scratch/garbage"
 check "an unreadable judge decides nothing" test "$(report .decided "$scratch/garbage")" = 0
 
 # --- the thresholds -------------------------------------------------------------------------------
-# Wins on 7 tasks (14 pairs), losses on the other 5 (10): 14/24 = 0.58.
+# Wins on 7 tasks, losses on the other 5: 7/12 = 0.58.
 prefer_cand="arc-progress,episode-night-shift,episode-visitor,morning-post,reply-fud,reply-mcap-memory,reply-provocation"
 FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="$prefer_cand" FAKE_ELSE=base compare "$scratch/close"
 check "counts wins over decided pairs" test "$(report .win_rate "$scratch/close")" = 0.5833
@@ -185,10 +187,10 @@ check "0.58 is under the 0.6 needed" test "$(report .promote "$scratch/close")" 
 FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="$prefer_cand" FAKE_ELSE=base compare "$scratch/lower" --threshold 0.55
 check "--threshold sets the win rate needed" test "$(report .promote "$scratch/lower")" = true
 FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="$prefer_cand" compare "$scratch/some"
-check "ties count for neither side" test "$(report '[.wins, .losses, .ties] | join(" ")' "$scratch/some")" = "14 0 10"
+check "ties count for neither side" test "$(report '[.wins, .losses, .ties] | join(" ")' "$scratch/some")" = "7 0 5"
 FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="arc-progress,morning-post,reply-fud" compare "$scratch/few"
-check "six decided pairs are under the 12 needed" test "$(report .promote "$scratch/few")" = false
-FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="arc-progress,morning-post,reply-fud" compare "$scratch/fewer" --min-pairs 6
+check "three decided pairs are under the 12 needed" test "$(report .promote "$scratch/few")" = false
+FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="arc-progress,morning-post,reply-fud" compare "$scratch/fewer" --min-pairs 3
 check "--min-pairs lowers the bar" test "$(report .promote "$scratch/fewer")" = true
 FAKE_JUDGE=prefer:base compare "$scratch/lose"
 check "a candidate that loses every pair is not promoted" test "$(report .win_rate "$scratch/lose")" = 0
@@ -200,15 +202,15 @@ check "and keeps a winning candidate out" test "$(report .promote "$scratch/brea
 check "named as a regression" grep -q 'regression' <<<"$(report .reason "$scratch/breaks")"
 
 draft '{"text": "gm %TASK% from the CAND"}'
-"$eval_bin" run "$runs/cand" >/dev/null 2>&1
+"$eval_bin" run --samples 1 "$runs/cand" >/dev/null 2>&1
 draft "{\"text\": \"$(printf 'CAND %.0s' $(seq 1 100))\"}"
-"$eval_bin" run --samples 2 --only morning-post "$runs/long" >/dev/null 2>&1
+"$eval_bin" run --samples 1 --only morning-post "$runs/long" >/dev/null 2>&1
 jq -c 'select(.task != "morning-post")' "$runs/cand/drafts.jsonl" >"$runs/mixed.jsonl"
 cat "$runs/long/drafts.jsonl" >>"$runs/mixed.jsonl"
 mv "$runs/mixed.jsonl" "$runs/cand/drafts.jsonl"
 FAKE_JUDGE=prefer:CAND compare "$scratch/regress"
 check "a candidate failing a hard check the baseline passed is not promoted" test "$(report .promote "$scratch/regress")" = false
-check "whatever the judge thought" test "$(report .wins "$scratch/regress")" = "$((tasks * 2))"
+check "whatever the judge thought" test "$(report .wins "$scratch/regress")" = "$tasks"
 check "and the task is named" test "$(report '.regressions | join(",")' "$scratch/regress")" = morning-post
 
 # --- invariants ------------------------------------------------------------------------------------
