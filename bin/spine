@@ -39,6 +39,15 @@ mkdir -p "$TEENY_BRAIN" "$TEENY_STATE"
 # for its home and nest a second workspace/ inside it.
 [ ! -e "$TEENY_BRAIN/config.toml" ] ||
   die "$TEENY_BRAIN/config.toml must not exist; the core keeps its config in $(dirname "$TEENY_BRAIN")/.openhuman/"
+# The core takes the sibling .openhuman/ for its config only when the folder is
+# named `workspace` or that config already exists; for brain/ on a first boot
+# it would nest brain/workspace/ and never read SOUL.md. An empty config is
+# the core's defaults, and it fills the file in itself.
+config_dir="$(dirname "$TEENY_BRAIN")/.openhuman"
+if [ ! -e "$config_dir/config.toml" ]; then
+  mkdir -p "$config_dir"
+  : >"$config_dir/config.toml"
+fi
 
 mint() {
   local file="$1" what="$2"
