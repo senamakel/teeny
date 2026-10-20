@@ -54,7 +54,10 @@ run() {
   out="$1"
   ids="$(python3 "$lib" tasks "$evals" | jq -r '.[].id')" || die "evals/tasks does not load"
   if [ -n "$only" ]; then
-    ids="$(tr ',' '\n' <<<"$only")"
+    for task in ${only//,/ }; do
+      grep -qx "$task" <<<"$ids" || die "no task $task in evals/tasks"
+    done
+    ids="${only//,/ }"
   fi
   mkdir -p "$out"
   : >"$out/drafts.jsonl"
@@ -104,9 +107,7 @@ compare() {
       '{task: $t, sample: $s, first: $f, second: $g}' >>"$out/judged.jsonl"
     log "$task #$sample judged"
   done < <(jq -cn --slurpfile b "$base" --slurpfile c "$cand" '
-    ($c | map({task, sample})) as $cands
-    | $b[] | select(.draft != null) | {task, sample} as $k
-    | select($cands | index([$k]))
+    $b[] | select(.draft != null) | {task, sample} as $k
     | select(any($c[]; .task == $k.task and .sample == $k.sample and .draft != null))
     | $k')
   python3 "$lib" score "$base" "$cand" "$out/judged.jsonl" "$threshold" "$min_pairs" >"$out/report.json.tmp"
