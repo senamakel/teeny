@@ -45,8 +45,13 @@ hands read them from `secrets/teeny.env` themselves.
   a hand). `morning` and `mentions` are scheduled but switched off; only
   `heartbeat` runs.
 - **Doctor:** `bin/doctor` checks the brain, the crons, the playbooks, the
-  guard, the storage and the secrets. `bin/spine` won't boot a checkout it
-  fails.
+  invariants, the guard, the storage and the secrets. `bin/spine` won't boot a
+  checkout it fails.
+- **Evals:** `bin/eval` drafts the frozen tasks in `evals/tasks/` and has the
+  tool-less `judge` agent compare two brains pair by pair, blind and twice
+  with the order swapped, by the incumbent's soul. The anchors in
+  `evals/invariants.md` (never sell $TINY, no buy calls, one token, zero
+  toxicity, and more) must hold in every brain.
 - **Next:** the self-improvement loop ([`docs/evolve.md`](docs/evolve.md)).
   Teeny edits its own brain, crons included, driven by its lore. A model judges
   each change against the current brain, and a change that wins is merged.
@@ -91,6 +96,9 @@ bin/seed-cron --check              # is brain/cron.toml within the cron rules? (
 bin/act morning                    # run one playbook now (DRY_RUN still applies)
 bin/act --check morning            # does it parse?
 bin/doctor                         # is this checkout safe to boot? (--live: is the spine healthy?)
+bin/eval run state/eval/now        # draft every eval task on the running spine
+bin/eval compare A B OUT           # judge two runs; exit 0 when B beats A
+bin/eval invariants                # does the brain still say what Teeny is?
 
 hands/x whoami                                        # who the X keys belong to
 hands/x search '@teenydroid'                          # a recent search, cached
@@ -154,8 +162,8 @@ The database is unreadable without its key.
 ```
 spine/               teeny-spine, the one Rust package (OpenHuman's host, built from the library)
 vendor/openhuman     upstream tinyhumansai/openhuman, pinned by commit on upstream/main
-bin/                 spine, doctor, act, oh, ask, crons, seed-cron, heartbeat; bin/lib/ shared shell and policy; bin/test/
-evals/               frozen: what Teeny cannot edit about itself (cron.pinned.toml; the evals to come)
+bin/                 spine, doctor, act, eval, oh, ask, crons, seed-cron, heartbeat; bin/lib/ shared shell and policy; bin/test/
+evals/               frozen: what Teeny cannot edit about itself (tasks/, judge.md, invariants.md, cron.pinned.toml)
 hands/               guard, x: Python 3.11 stdlib, no dependencies; hands/lib/teeny_hands, hands/tests/
 brain/               SOUL.md, CONTEXT.md, skills/, playbooks/, agents/, narrative/ (LORE, ARCS), assets/, calendar.json, cron.toml
 deploy/              compose.yaml, spine.env.example, teeny.env.example, the landing page's nginx vhost
@@ -180,6 +188,7 @@ python3 -m unittest discover -s hands/tests -t hands/tests   # the hands; X and 
 bin/test/seed_cron_test.sh                                   # cron reconciliation and rules; no core needed
 bin/test/act_test.sh                                         # playbooks; the core and hands faked
 bin/test/doctor_test.sh                                      # each thing the doctor catches; spine refuses to boot
+bin/test/eval_test.sh                                        # hard checks, blind swapped judging, scoring; the core faked
 OPENHUMAN_CORE_BIN=target/release/teeny-spine bin/test/spine_live_test.sh
 ```
 
@@ -193,6 +202,8 @@ a stub model. It checks:
 - the model's context window;
 - the doctor passing at boot, and `bin/doctor --live` on the running spine;
 - `bin/act` running a playbook, with the `act` agent offering the model no tools;
+- `bin/eval` drafting a task and judging a pair, with the `judge` agent offering
+  the model no tools;
 - the key surviving a restart.
 
 CI (`.github/workflows/check.yml`) builds the spine and runs every test above, plus
