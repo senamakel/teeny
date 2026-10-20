@@ -191,6 +191,8 @@ a stub model. It checks:
 - `bin/crons`, `bin/oh` and `bin/ask`, and that the model receives the
   question it was asked;
 - the model's context window;
+- the doctor passing at boot, and `bin/doctor --live` on the running spine;
+- `bin/act` running a playbook, with the `act` agent offering the model no tools;
 - the key surviving a restart.
 
 CI (`.github/workflows/check.yml`) builds the spine and runs every test above, plus
