@@ -137,6 +137,10 @@ check "mints the keyring master key" test -s "$root/secrets/openhuman.key"
 check "keeps the token private" test "$(stat -c %a "$root/secrets/core.token" 2>/dev/null || stat -f %Lp "$root/secrets/core.token")" = 600
 check "writes one storage file in the brain" test -s "$root/brain/storage.db"
 check "leaves Teeny's SOUL.md exactly as it was" cmp -s "$repo/brain/SOUL.md" "$root/brain/SOUL.md"
+# OpenHuman only treats a folder named `workspace` as a workspace beside its
+# config; anything else nests one inside it unless the config already exists.
+check "the core uses brain/ itself, not a folder nested in it" test ! -e "$root/brain/workspace"
+check "the core writes its persona defaults into brain/" test -s "$root/brain/IDENTITY.md"
 check "keeps config out of the brain" test ! -e "$root/brain/config.toml"
 check "puts config beside the brain" test -s "$root/.openhuman/config.toml"
 check "never exports the model key to the core" \
