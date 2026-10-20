@@ -2,7 +2,7 @@
 # Shared by every script under bin/. Sourced, never run.
 #
 # The layout (docs/architecture.md, "Spine"): the repository checkout is the
-# root; `brain/` is OpenHuman's brain, `secrets/` and `state/` sit
+# root; `brain/` is OpenHuman's workspace (OPENHUMAN_WORKSPACE), `secrets/` and `state/` sit
 # beside it and are gitignored. Every path can be moved with an environment
 # variable, which is how the tests point the scripts at a scratch root.
 

@@ -36,7 +36,7 @@ port="${OPENHUMAN_CORE_PORT:-7788}"
 mkdir -p "$TEENY_BRAIN" "$TEENY_STATE"
 (umask 077 && mkdir -p "$TEENY_SECRETS")
 # Never a config.toml inside the brain: the core would take the brain
-# for its home and nest a second brain/ inside it.
+# for its home and nest a second workspace/ inside it.
 [ ! -e "$TEENY_BRAIN/config.toml" ] ||
   die "$TEENY_BRAIN/config.toml must not exist; the core keeps its config in $(dirname "$TEENY_BRAIN")/.openhuman/"
 
