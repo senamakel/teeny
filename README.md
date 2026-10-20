@@ -157,7 +157,7 @@ vendor/openhuman     upstream tinyhumansai/openhuman, pinned by commit on upstre
 bin/                 spine, doctor, act, oh, ask, crons, seed-cron, heartbeat; bin/lib/ shared shell and policy; bin/test/
 evals/               frozen: what Teeny cannot edit about itself (cron.pinned.toml; the evals to come)
 hands/               guard, x: Python 3.11 stdlib, no dependencies; hands/lib/teeny_hands, hands/tests/
-brain/               SOUL.md, CONTEXT.md, skills/, narrative/, assets/, calendar.json, cron.toml
+brain/               SOUL.md, CONTEXT.md, skills/, playbooks/, agents/, narrative/ (LORE, ARCS), assets/, calendar.json, cron.toml
 deploy/              compose.yaml, spine.env.example, teeny.env.example, the landing page's nginx vhost
 web/                 the landing page (Next.js), its own image
 docs/                architecture, hands, upstream gaps
@@ -193,7 +193,7 @@ a stub model. It checks:
 - the model's context window;
 - the key surviving a restart.
 
-CI (`.github/workflows/check.yml`) builds the spine and runs all three, plus
+CI (`.github/workflows/check.yml`) builds the spine and runs every test above, plus
 shellcheck and the landing page's checks.
 
 ## Bumping OpenHuman
