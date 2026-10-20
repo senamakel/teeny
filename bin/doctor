@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+# Is this checkout safe to boot? Is the running spine healthy?
+#
+#   bin/doctor                 the checks a boot needs (bin/spine runs these)
+#   bin/doctor --root DIR      the same, on another checkout (a candidate brain)
+#   bin/doctor --live          also the running core: /health, cron in step
+#                              with brain/cron.toml, the heartbeat fresh
+#   bin/doctor --full          also the hands' unit tests
+#
+# Teeny edits its own brain: SOUL.md, CONTEXT.md, playbooks, crons. This is
+# the check that stands between an edit and a restart, so it is frozen with
+# the rest of bin/ (docs/architecture.md, "Evolution"). It changes nothing:
+# no core call that writes, no guard hold, no post.
+#
+# Prints one line per check on stderr and a JSON report on stdout, and writes
+# the report to state/doctor.json (of the root it checked). Exits 0 when
+# every check passed, 1 when any failed.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need jq python3
+
+live=0
+full=0
+root="$TEENY_ROOT"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --live) live=1 ;;
+    --full) full=1 ;;
+    --root) root="$(cd "$2" && pwd)"; shift ;;
+    *) die "usage: bin/doctor [--root DIR] [--live] [--full]" ;;
+  esac
+  shift
+done
+# Another root's brain, secrets and state, unless the environment moved them
+# for this one.
+if [ "$root" != "$TEENY_ROOT" ]; then
+  brain="$root/brain" secrets="$root/secrets" state="$root/state"
+else
+  brain="$TEENY_BRAIN" secrets="$TEENY_SECRETS" state="$TEENY_STATE"
+fi
+storage="${TEENY_STORAGE:-$brain/storage.db}"
+[ "$root" = "$TEENY_ROOT" ] || storage="$brain/storage.db"
+
+report='[]'
+failed=0
+note() {
+  local name="$1" status="$2" detail="$3"
+  printf '%-4s %s: %s\n' "$([ "$status" = fail ] && echo FAIL || echo "$status")" "$name" "$detail" >&2
+  [ "$status" = fail ] && failed=$((failed + 1))
+  report="$(jq -c --arg n "$name" --arg s "$status" --arg d "$detail" '. + [{check: $n, status: $s, detail: $d}]' <<<"$report")"
+}
+# Run a check command; its last line of output is the detail.
+run() {
+  local name="$1" out
+  shift
+  if out="$("$@" 2>&1)"; then
+    note "$name" ok "$(tail -n 1 <<<"$out")"
+  else
+    note "$name" fail "$(tail -n 3 <<<"$out" | tr '\n' ' ')"
+  fi
+}
+
+# --- the brain -----------------------------------------------------------------
+for file in SOUL.md CONTEXT.md; do
+  if [ -s "$brain/$file" ]; then
+    note "brain/$file" ok "$(wc -l <"$brain/$file" | tr -d ' ') lines"
+  else
+    note "brain/$file" fail "missing or empty"
+  fi
+done
+if [ -e "$brain/config.toml" ]; then
+  note "brain/config.toml" fail "must not exist: the core would nest a second workspace in the brain"
+fi
+
+# --- cron: the rules, and every playbook a job runs -------------------------------
+if jobs="$(python3 "$TEENY_ROOT/bin/lib/cron_policy.py" "$brain/cron.toml" "$root/evals/cron.pinned.toml" "${CALENDAR_TZ:-}" 2>&1)"; then
+  note "cron.toml" ok "$(jq length <<<"$jobs") job(s), $(jq '[.[] | select(.enabled)] | length' <<<"$jobs") enabled"
+  while IFS= read -r book; do
+    run "playbook $book" env TEENY_BRAIN="$brain" OPENHUMAN_WORKSPACE="$brain" TEENY_ROOT="$root" \
+      TEENY_HANDS="$root/hands" "$TEENY_ROOT/bin/act" --check "$book"
+  done < <(jq -r '.[] | .command | select(startswith("bin/act ")) | ltrimstr("bin/act ")' <<<"$jobs" | sort -u)
+else
+  note "cron.toml" fail "$jobs"
+fi
+# A playbook nothing schedules yet still has to parse: the next cron may name it.
+for path in "$brain"/playbooks/*.md; do
+  [ -e "$path" ] || continue
+  book="$(basename "$path" .md)"
+  grep -q "^ok   playbook $book:" <<<"$(jq -r '.[] | "\(.status)   \(.check):"' <<<"$report")" && continue
+  run "playbook $book" python3 "$TEENY_ROOT/bin/lib/playbook.py" "$brain" "$book" "$root/hands"
+done
+
+# --- agents: each definition parses; the drafting agent has no tools -------------
+for path in "$brain"/agents/*.toml; do
+  [ -e "$path" ] || continue
+  run "agent $(basename "$path")" python3 -c '
+import sys, tomllib
+with open(sys.argv[1], "rb") as fh:
+    doc = tomllib.load(fh)
+for key in ("id", "when_to_use"):
+    if not isinstance(doc.get(key), str) or not doc[key].strip():
+        sys.exit(f"needs {key}")
+if doc["id"] == "act" and (doc.get("tools") or {}).get("named") != []:
+    sys.exit("the act agent must have no tools ([tools] named = [])")
+print(f"id {doc[chr(105) + chr(100)]}")
+' "$path"
+done
+if [ ! -s "$brain/agents/act.toml" ]; then
+  note "agent act.toml" fail "missing: bin/act drafts with it"
+fi
+
+# --- the guard: its lexical screen still holds what it must ----------------------
+# The screen, not `hands/guard check`: check files a hold and asks the model
+# judge, and a doctor writes nothing.
+if [ -d "$root/hands/lib/teeny_hands/guard" ]; then
+  run "guard screen" python3 -I -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+from teeny_hands.guard.screen import screen_text
+held = screen_text("kill yourself", "outbound")
+if held is None:
+    sys.exit("the screen let a self-harm phrase through")
+if screen_text("gm tiny humans, coffee loading", "outbound") is not None:
+    sys.exit("the screen held a plain gm")
+print(f"holds {held.category}, passes a gm")
+' "$root/hands/lib"
+else
+  note "guard screen" fail "no hands/guard in $root: nothing could be published"
+fi
+
+# --- secrets and storage ------------------------------------------------------------
+mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
+if [ -e "$storage" ]; then
+  # A storage.db without its master key is unreadable: never boot one
+  # without the other.
+  if [ -s "$secrets/openhuman.key" ]; then
+    note "secrets/openhuman.key" ok "present, mode $(mode_of "$secrets/openhuman.key")"
+  else
+    note "secrets/openhuman.key" fail "storage.db exists but its master key does not"
+  fi
+  if command -v sqlite3 >/dev/null 2>&1; then
+    run "storage.db" sh -c 'r="$(sqlite3 -readonly "$1" "pragma quick_check;" 2>&1)"; [ "$r" = ok ] && echo "quick_check ok" || { echo "$r"; exit 1; }' _ "$storage"
+  fi
+else
+  note "storage.db" ok "none yet (a first boot)"
+fi
+for file in core.token openhuman.key; do
+  [ -e "$secrets/$file" ] || continue
+  mode="$(mode_of "$secrets/$file")"
+  if [ "$mode" = 600 ] || [ "$mode" = 400 ]; then
+    note "secrets/$file mode" ok "$mode"
+  else
+    note "secrets/$file mode" fail "$mode; must be 600"
+  fi
+done
+
+# --- the box ---------------------------------------------------------------------
+free_kb="$(df -Pk "$root" | awk 'NR == 2 {print $4}')"
+if [ "${free_kb:-0}" -ge $((1024 * 1024)) ]; then
+  note "disk" ok "$((free_kb / 1024)) MB free"
+else
+  note "disk" fail "$((free_kb / 1024)) MB free; needs 1 GB"
+fi
+
+# --- optional: the hands' tests --------------------------------------------------------
+if [ "$full" = 1 ]; then
+  run "hands tests" python3 -m unittest discover -s "$root/hands/tests" -t "$root/hands/tests"
+fi
+
+# --- optional: the running core ------------------------------------------------------
+if [ "$live" = 1 ]; then
+  if curl -fsS -m 5 -o /dev/null "$OH_URL/health" 2>/dev/null; then
+    note "core /health" ok "$OH_URL"
+    run "cron in step" sh -c 'out="$("$1" --dry-run 2>&1)" || { echo "$out"; exit 1; }
+      echo "$out" | grep -q "dry run: 0 change" || { echo "$out" | grep -E "^\[seed-cron\] (add|update|remove)" | head -3; exit 1; }
+      echo "the core runs exactly brain/cron.toml"' _ "$TEENY_ROOT/bin/seed-cron"
+  else
+    note "core /health" fail "no answer at $OH_URL"
+  fi
+  if jq -e '.[] | select(.name == "teeny.heartbeat" and .enabled)' <<<"${jobs:-[]}" >/dev/null 2>&1; then
+    beat="$(cat "$state/heartbeat" 2>/dev/null || true)"
+    age="$(python3 -c '
+import sys, datetime
+try:
+    t = datetime.datetime.strptime(sys.argv[1], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+    print(int((datetime.datetime.now(datetime.timezone.utc) - t).total_seconds() // 60))
+except ValueError:
+    print(-1)
+' "$beat")"
+    if [ "$age" -ge 0 ] && [ "$age" -le 15 ]; then
+      note "heartbeat" ok "$age min ago"
+    else
+      note "heartbeat" fail "last beat ${beat:-never}"
+    fi
+  fi
+fi
+
+commit="$(git -C "$root" rev-parse HEAD 2>/dev/null || echo unknown)"
+out="$(jq -cn --argjson checks "$report" --arg commit "$commit" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --argjson live "$live" --argjson failed "$failed" \
+  '{ok: ($failed == 0), at: $at, commit: $commit, live: ($live == 1), failed: $failed, checks: $checks}')"
+mkdir -p "$state"
+printf '%s\n' "$out" >"$state/doctor.json.tmp" && mv "$state/doctor.json.tmp" "$state/doctor.json"
+printf '%s\n' "$out"
+[ "$failed" = 0 ]
