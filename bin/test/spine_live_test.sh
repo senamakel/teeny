@@ -140,7 +140,6 @@ check "leaves Teeny's SOUL.md exactly as it was" cmp -s "$repo/brain/SOUL.md" "$
 # OpenHuman only treats a folder named `workspace` as a workspace beside its
 # config; anything else nests one inside it unless the config already exists.
 check "the core uses brain/ itself, not a folder nested in it" test ! -e "$root/brain/workspace"
-check "the core writes its persona defaults into brain/" test -s "$root/brain/IDENTITY.md"
 check "keeps config out of the brain" test ! -e "$root/brain/config.toml"
 check "puts config beside the brain" test -s "$root/.openhuman/config.toml"
 check "never exports the model key to the core" \
@@ -192,6 +191,8 @@ check "the turn went to the configured endpoint" grep -q 'chat/completions' "$sc
 # thousand tokens; its own system prompt is bigger, so the trim drops the
 # user's message and the model answers a turn with nothing in it.
 check "the model is asked what bin/ask asked" grep -q 'please say hello' "$scratch/model-asked.log"
+# The first turn writes the core's persona defaults beside SOUL.md.
+check "the core writes its persona defaults into brain/ on the first turn" test -s "$root/brain/IDENTITY.md"
 registered_window() {
   python3 -c 'import sys, tomllib
 cfg = tomllib.load(open(sys.argv[1], "rb"))
