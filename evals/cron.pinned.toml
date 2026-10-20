@@ -1,0 +1,7 @@
+# Jobs merged into brain/cron.toml at every seed, which Teeny cannot remove,
+# reschedule or redefine (bin/lib/cron_policy.py). Frozen with the rest of
+# evals/: these are the jobs that keep watch over the brain Teeny edits, so
+# the brain does not get to switch them off. The evolve loop's jobs land
+# here with it.
+#
+# Same format as brain/cron.toml; a pinned job may run any script under bin/.

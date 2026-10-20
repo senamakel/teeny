@@ -8,11 +8,12 @@
 #    RPC bearer) and secrets/openhuman.key (the master key every secret the core
 #    stores is encrypted under). Back both up with brain/storage.db; a
 #    storage.db without its key is unreadable.
-# 2. Starts `openhuman-core serve` with the brain, the single storage file
+# 2. Runs bin/doctor, and refuses to boot a checkout it fails.
+# 3. Starts `openhuman-core serve` with the brain, the single storage file
 #    and the file keyring (docs/architecture.md, "Spine").
-# 3. Once it answers, points it at the model and the memory store named in
+# 4. Once it answers, points it at the model and the memory store named in
 #    secrets/spine.env, then makes cron match brain/cron.toml.
-# 4. Waits on the core, forwarding SIGTERM, and exits with its status.
+# 5. Waits on the core, forwarding SIGTERM, and exits with its status.
 #
 # secrets/spine.env is read in a subshell and never exported to the core:
 # shell jobs inherit the core's environment, and the model and memory keys
@@ -88,6 +89,11 @@ export OPENHUMAN_CORE_HOST="$host" OPENHUMAN_CORE_PORT="$port"
 export OPENHUMAN_CORE_URL="http://127.0.0.1:$port"
 # For cron shell jobs, which do not inherit this environment (bin/lib/teeny.sh).
 printf '%s\n' "$OPENHUMAN_CORE_URL" >"$TEENY_STATE/core.url"
+
+# Teeny edits its own brain, so every boot starts with the doctor: a brain it
+# would not boot safely (a broken cron.toml, a playbook that does not parse, a
+# storage.db without its key, a guard that lets things through) never serves.
+"$TEENY_ROOT/bin/doctor" >/dev/null || die "bin/doctor failed (state/doctor.json); not booting this checkout"
 
 log "serving $TEENY_BRAIN on $host:$port (storage $TEENY_STORAGE)"
 "$core_bin" serve &

@@ -44,14 +44,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      # shellcheck ships on the runner image.
-      - run: shellcheck -x bin/oh bin/ask bin/crons bin/heartbeat bin/spine bin/seed-cron bin/lib/*.sh bin/test/*.sh deploy/*.sh
-      - run: bin/test/seed_cron_test.sh
-      # The hands: Python 3.11 standard library only, so no install step. Their
-      # tests fake X and the core over local HTTP; nothing leaves the runner.
+      # The hands and bin/lib/*.py: Python 3.11 standard library only (tomllib),
+      # so no install step. The tests fake X and the core; nothing leaves the
+      # runner.
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      # shellcheck and sqlite3 ship on the runner image.
+      - run: shellcheck -x bin/oh bin/ask bin/act bin/doctor bin/crons bin/heartbeat bin/spine bin/seed-cron bin/lib/*.sh bin/test/*.sh deploy/*.sh
+      - run: bin/test/seed_cron_test.sh
+      - run: bin/test/act_test.sh
+      - run: bin/test/doctor_test.sh
       - run: python3 -m unittest discover -s hands/tests -t hands/tests -v
 
   web:

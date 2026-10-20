@@ -40,9 +40,16 @@ hands read them from `secrets/teeny.env` themselves.
 - **First live run:** the spine booted, the heartbeat ran from cron,
   `bin/ask` drafted a post in Teeny's voice, `hands/guard` passed it, and
   `hands/x post` returned `dry_run: true`.
-- **Next:** the job scripts (morning post, replies), and mention intake
-  through the event ledger (built separately). The only scheduled job today is
-  `heartbeat`.
+- **Playbooks:** `bin/act` runs a playbook from `brain/playbooks/` (inputs from
+  hand read verbs, a draft from the tool-less `act` agent, the action through
+  a hand). `morning` and `mentions` are scheduled but switched off; only
+  `heartbeat` runs.
+- **Doctor:** `bin/doctor` checks the brain, the crons, the playbooks, the
+  guard, the storage and the secrets. `bin/spine` won't boot a checkout it
+  fails.
+- **Next:** the self-improvement loop ([`docs/evolve.md`](docs/evolve.md)).
+  Teeny edits its own brain, crons included, driven by its lore. A model judges
+  each change against the current brain, and a change that wins is merged.
 - **`DRY_RUN` is on** until `secrets/teeny.env` says `DRY_RUN=0`.
 
 ## Run it
@@ -80,6 +87,10 @@ bin/crons runs heartbeat           # one job's recent runs
 bin/ask "who are you?"             # one agent turn, as Teeny
 bin/oh cron_list                   # any JSON-RPC method on the running core
 bin/seed-cron --dry-run            # what seeding brain/cron.toml would change
+bin/seed-cron --check              # is brain/cron.toml within the cron rules? (no core needed)
+bin/act morning                    # run one playbook now (DRY_RUN still applies)
+bin/act --check morning            # does it parse?
+bin/doctor                         # is this checkout safe to boot? (--live: is the spine healthy?)
 
 hands/x whoami                                        # who the X keys belong to
 hands/x search '@teenydroid'                          # a recent search, cached
@@ -92,14 +103,20 @@ Every hand prints one JSON object. The exit code is `0` when it's done, `2`
 when a rule refused (the JSON says which), and `1` on an error. Add `--help` to
 any hand or verb for its flags.
 
-To schedule something, add it to `brain/cron.toml` and restart the spine:
+To schedule something, write a playbook in `brain/playbooks/`, add a job that
+runs it to `brain/cron.toml`, and restart the spine:
 
 ```toml
 [jobs.morning]
 schedule = "0 7 * * *"
 tz = "Asia/Kolkata"
-command = "bin/morning"
+command = "bin/act morning"
 ```
+
+A brain job runs `bin/heartbeat` or `bin/act <playbook>`. No job may run more
+often than every 5 minutes, there can be at most 24 jobs, and `bin/act` can run
+at most 400 times a day. The jobs in `evals/cron.pinned.toml` are always added.
+These rules live in `bin/lib/cron_policy.py`.
 
 ## Configure it
 
@@ -137,9 +154,10 @@ The database is unreadable without its key.
 ```
 spine/               teeny-spine, the one Rust package (OpenHuman's host, built from the library)
 vendor/openhuman     upstream tinyhumansai/openhuman, pinned by commit on upstream/main
-bin/                 spine, oh, ask, crons, seed-cron, heartbeat; bin/lib/ shared shell; bin/test/
+bin/                 spine, doctor, act, oh, ask, crons, seed-cron, heartbeat; bin/lib/ shared shell and policy; bin/test/
+evals/               frozen: what Teeny cannot edit about itself (cron.pinned.toml; the evals to come)
 hands/               guard, x: Python 3.11 stdlib, no dependencies; hands/lib/teeny_hands, hands/tests/
-brain/               SOUL.md, CONTEXT.md, skills/, narrative/, assets/, calendar.json, cron.toml
+brain/               SOUL.md, CONTEXT.md, skills/, playbooks/, agents/, narrative/ (LORE, ARCS), assets/, calendar.json, cron.toml
 deploy/              compose.yaml, spine.env.example, teeny.env.example, the landing page's nginx vhost
 web/                 the landing page (Next.js), its own image
 docs/                architecture, hands, upstream gaps
@@ -159,7 +177,9 @@ These are gitignored and created at run time:
 
 ```sh
 python3 -m unittest discover -s hands/tests -t hands/tests   # the hands; X and the core are faked
-bin/test/seed_cron_test.sh                                   # cron reconciliation; no core needed
+bin/test/seed_cron_test.sh                                   # cron reconciliation and rules; no core needed
+bin/test/act_test.sh                                         # playbooks; the core and hands faked
+bin/test/doctor_test.sh                                      # each thing the doctor catches; spine refuses to boot
 OPENHUMAN_CORE_BIN=target/release/teeny-spine bin/test/spine_live_test.sh
 ```
 
@@ -171,9 +191,11 @@ a stub model. It checks:
 - `bin/crons`, `bin/oh` and `bin/ask`, and that the model receives the
   question it was asked;
 - the model's context window;
+- the doctor passing at boot, and `bin/doctor --live` on the running spine;
+- `bin/act` running a playbook, with the `act` agent offering the model no tools;
 - the key surviving a restart.
 
-CI (`.github/workflows/check.yml`) builds the spine and runs all three, plus
+CI (`.github/workflows/check.yml`) builds the spine and runs every test above, plus
 shellcheck and the landing page's checks.
 
 ## Bumping OpenHuman

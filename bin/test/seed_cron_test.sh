@@ -46,13 +46,17 @@ chmod +x "$fake"
 export TEENY_OH="$fake" FAKE_JOBS="$scratch/jobs.json" FAKE_CALLS="$scratch/calls.log"
 unset CALENDAR_TZ
 toml="$scratch/cron.toml"
+pinned="$scratch/pinned.toml"
+: >"$pinned"
+mkdir -p "$scratch/playbooks"
+printf '+++\ndescription = "x"\noutput = "post"\n+++\ndraft it\n' >"$scratch/playbooks/morning.md"
 
 reset() {
   # The core's own system job is always present and never ours to touch.
   echo '[{"id":"sys-1","name":"memory_background","job_type":"flow","command":"system:memory_background","schedule":{"kind":"every"},"enabled":true}]' >"$FAKE_JOBS"
   : >"$FAKE_CALLS"
 }
-seed() { "$seed" --file "$toml" "$@" 2>"$scratch/stderr"; }
+seed() { "$seed" --file "$toml" --pinned "$pinned" "$@" 2>"$scratch/stderr"; }
 jobs() { cat "$FAKE_JOBS"; }
 calls() { grep -c "^$1 " "$FAKE_CALLS" || true; }
 job_field() { jq -r --arg n "$1" ".[] | select(.name == \$n) | $2" "$FAKE_JOBS"; }
@@ -66,7 +70,7 @@ command = "bin/heartbeat"
 
 [jobs.morning]
 schedule = "0 7 * * *"
-command = "bin/job morning"
+command = "bin/act morning"
 tz = "Asia/Kolkata"
 TOML
 seed
@@ -148,16 +152,54 @@ refuses() {
   printf '%s\n' "$body" >"$toml"
   if seed; then fail "$name"; elif [ "$(calls cron_add)" = 0 ]; then pass "$name"; else fail "$name (still wrote)"; fi
 }
-refuses "refuses a command outside bin/" $'[jobs.x]\nschedule = "* * * * *"\ncommand = "curl https://example.com"'
-refuses "refuses a bin/ path that climbs out" $'[jobs.x]\nschedule = "* * * * *"\ncommand = "bin/../secrets/run"'
+refuses "refuses a command outside bin/" $'[jobs.x]\nschedule = "*/5 * * * *"\ncommand = "curl https://example.com"'
+refuses "refuses a bin/ path that climbs out" $'[jobs.x]\nschedule = "*/5 * * * *"\ncommand = "bin/../secrets/run"'
 refuses "refuses a four-field schedule" $'[jobs.x]\nschedule = "* * * *"\ncommand = "bin/heartbeat"'
-refuses "refuses an unknown job key" $'[jobs.x]\nschedule = "* * * * *"\ncommand = "bin/heartbeat"\nprompt = "post something"'
-refuses "refuses an uppercase name" $'[jobs.X]\nschedule = "* * * * *"\ncommand = "bin/heartbeat"'
-refuses "refuses a non-boolean enabled" $'[jobs.x]\nschedule = "* * * * *"\ncommand = "bin/heartbeat"\nenabled = "no"'
+refuses "refuses an unknown job key" $'[jobs.x]\nschedule = "*/5 * * * *"\ncommand = "bin/heartbeat"\nprompt = "post something"'
+refuses "refuses an uppercase name" $'[jobs.X]\nschedule = "*/5 * * * *"\ncommand = "bin/heartbeat"'
+refuses "refuses a non-boolean enabled" $'[jobs.x]\nschedule = "*/5 * * * *"\ncommand = "bin/heartbeat"\nenabled = "no"'
+
+# --- the rules Teeny cannot edit: what a brain job runs, how often, how many ---
+refuses "refuses a job every minute" $'[jobs.x]\nschedule = "* * * * *"\ncommand = "bin/heartbeat"'
+refuses "refuses a job every 3 minutes" $'[jobs.x]\nschedule = "*/3 * * * *"\ncommand = "bin/heartbeat"'
+refuses "refuses two firings 2 minutes apart" $'[jobs.x]\nschedule = "0,2 9 * * *"\ncommand = "bin/heartbeat"'
+refuses "refuses a brain job running any other bin/ script" $'[jobs.x]\nschedule = "*/5 * * * *"\ncommand = "bin/spine"'
+refuses "refuses bin/act with a playbook that does not exist" $'[jobs.x]\nschedule = "*/5 * * * *"\ncommand = "bin/act nope"'
+refuses "refuses bin/act with a path for a playbook" $'[jobs.x]\nschedule = "*/5 * * * *"\ncommand = "bin/act ../secrets"'
+refuses "refuses more bin/act runs a day than the budget" \
+  $'[jobs.a]\nschedule = "*/5 * * * *"\ncommand = "bin/act morning"\n[jobs.b]\nschedule = "*/5 * * * *"\ncommand = "bin/act morning"'
+many=""
+for i in $(seq 1 25); do many+=$'[jobs.j'"$i"$']\nschedule = "0 * * * *"\ncommand = "bin/heartbeat"\n'; done
+refuses "refuses more than 24 jobs" "$many"
+
+reset
+printf '[jobs.a]\nschedule = "*/5 * * * *"\ncommand = "bin/act morning"\nenabled = false\n[jobs.b]\nschedule = "*/5 * * * *"\ncommand = "bin/act morning"\n' >"$toml"
+seed
+check "a disabled job does not count against the bin/act budget" test "$(calls cron_add)" = 2
+
+# --- pinned jobs: always merged in, never redefined -----------------------------
+printf '[jobs.watch]\nschedule = "0 * * * *"\ncommand = "bin/doctor --live"\n' >"$pinned"
+reset
+printf '[jobs.heartbeat]\nschedule = "*/5 * * * *"\ncommand = "bin/heartbeat"\n' >"$toml"
+seed
+check "seeds the pinned jobs beside the brain's" test "$(job_field teeny.watch .command)" = "bin/doctor --live"
+printf '' >"$toml"
+seed
+check "keeps the pinned jobs when the brain drops every job of its own" test -n "$(job_field teeny.watch .id)"
+check "and removes the brain's heartbeat when the brain drops it" test -z "$(job_field teeny.heartbeat .id)"
+refuses "refuses a brain job that takes a pinned job's name" $'[jobs.watch]\nschedule = "0 * * * *"\ncommand = "bin/heartbeat"'
+: >"$pinned"
+
+# --- --check validates without asking the core anything --------------------------
+reset
+printf '[jobs.heartbeat]\nschedule = "*/5 * * * *"\ncommand = "bin/heartbeat"\n' >"$toml"
+seed --check
+check "--check reads nothing from the core" test ! -s "$FAKE_CALLS"
+check "--check says the file is valid" grep -q 'is valid' "$scratch/stderr"
 
 # --- the repository's own schedule file is valid ------------------------------
 reset
-"$seed" --dry-run --file "$here/../../brain/cron.toml" 2>"$scratch/stderr"
+"$seed" --dry-run --file "$here/../../brain/cron.toml" --pinned "$here/../../evals/cron.pinned.toml" 2>"$scratch/stderr"
 check "brain/cron.toml parses and plans" grep -q 'teeny.heartbeat' "$scratch/stderr"
 
 if [ "$failures" -gt 0 ]; then

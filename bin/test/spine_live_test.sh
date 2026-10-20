@@ -74,13 +74,18 @@ class Model(BaseHTTPRequestHandler):
         with open(sys.argv[3], "a") as log:
             log.write(json.dumps(users[-1].get("content") if users else None) + "\n")
         base = {"id": "stub-1", "created": int(time.time()), "model": body.get("model", "stub")}
+        # A bin/act draft: answer the JSON it asks for.
+        answer = ANSWER
+        last = users[-1].get("content") if users else None
+        if isinstance(last, str) and "# playbook: hello" in last:
+            answer = json.dumps({"action": "note", "text": "hello from a playbook"})
         if body.get("stream"):
             self.send_response(200)
             self.send_header("content-type", "text/event-stream")
             self.end_headers()
             chunks = [
                 {**base, "object": "chat.completion.chunk",
-                 "choices": [{"index": 0, "delta": {"role": "assistant", "content": ANSWER}, "finish_reason": None}]},
+                 "choices": [{"index": 0, "delta": {"role": "assistant", "content": answer}, "finish_reason": None}]},
                 {**base, "object": "chat.completion.chunk",
                  "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
                  "usage": {"prompt_tokens": 1, "completion_tokens": 5, "total_tokens": 6}},
@@ -90,7 +95,7 @@ class Model(BaseHTTPRequestHandler):
             self.wfile.write(b"data: [DONE]\n\n")
             return
         self._json({**base, "object": "chat.completion",
-                    "choices": [{"index": 0, "message": {"role": "assistant", "content": ANSWER}, "finish_reason": "stop"}],
+                    "choices": [{"index": 0, "message": {"role": "assistant", "content": answer}, "finish_reason": "stop"}],
                     "usage": {"prompt_tokens": 1, "completion_tokens": 5, "total_tokens": 6}})
 
 ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), Model).serve_forever()
@@ -105,8 +110,10 @@ model_pid=$!
 root="$scratch/root"
 mkdir -p "$root/brain" "$root/secrets"
 cp -R "$repo/bin" "$root/bin"
-cp "$repo/brain/cron.toml" "$root/brain/cron.toml"
-cp "$repo/brain/SOUL.md" "$root/brain/SOUL.md"
+cp -R "$repo/hands" "$root/hands"
+cp -R "$repo/evals" "$root/evals"
+cp -R "$repo/brain/playbooks" "$repo/brain/agents" "$root/brain/"
+cp "$repo/brain/cron.toml" "$repo/brain/SOUL.md" "$repo/brain/CONTEXT.md" "$root/brain/"
 cat >"$root/secrets/spine.env" <<ENV
 LADDER_URL=http://127.0.0.1:$model_port/v1
 LADDER_API_KEY=stub-key
@@ -193,6 +200,38 @@ check "the turn went to the configured endpoint" grep -q 'chat/completions' "$sc
 check "the model is asked what bin/ask asked" grep -q 'please say hello' "$scratch/model-asked.log"
 # The first turn writes the core's persona defaults beside SOUL.md.
 check "the core writes its persona defaults into brain/ on the first turn" test -s "$root/brain/IDENTITY.md"
+# --- the doctor and bin/act ---------------------------------------------------
+check "the spine ran the doctor before serving, and it passed" \
+  test "$(jq -r .ok "$root/state/doctor.json" 2>/dev/null)" = true
+if "$root/bin/doctor" --live >/dev/null 2>"$scratch/doctor.log"; then
+  pass "bin/doctor --live passes on the running spine"
+else
+  fail "bin/doctor --live passes on the running spine"
+  grep '^FAIL' "$scratch/doctor.log" >&2 || true
+fi
+cat >"$root/brain/playbooks/hello.md" <<'MD'
++++
+description = "say hello, for the live test"
+output = "none"
++++
+Say hello.
+MD
+acted="$("$root/bin/act" hello 2>"$scratch/act.log" || true)"
+check "bin/act runs a playbook through the act agent" \
+  test "$(jq -r '.actions[0].result.noted' <<<"$acted" 2>/dev/null)" = "hello from a playbook"
+# The stub cannot see this: a local model without native tool calls gets its
+# tools written into the prompt, not in the request's `tools`. The core logs
+# what it offered each agent; the act agent's turn must offer nothing.
+act_tools() {
+  awk '/building session agent id=act / {found = 1} found && /tool spec filter:/ {print; exit}' "$scratch/spine.log"
+}
+check "the core loaded the act agent from brain/agents/" grep -q 'building session agent id=act ' "$scratch/spine.log"
+check "the act agent's turn offers the model no tools" grep -q 'visible=0 ' <<<"$(act_tools)"
+check "bin/act records the run" test -s "$root/state/act/hello/runs.jsonl"
+if [ "$(jq -r '.actions[0].result.noted' <<<"$acted" 2>/dev/null)" != "hello from a playbook" ]; then
+  { echo "bin/act said: $acted"; tail -n 5 "$scratch/act.log"; tail -c 1500 "$root/state/act/hello/ask.err" 2>/dev/null; } >&2
+fi
+
 registered_window() {
   python3 -c 'import sys, tomllib
 cfg = tomllib.load(open(sys.argv[1], "rb"))
