@@ -148,7 +148,7 @@ check "judges each pair twice, as the judge agent" test "$(jq -r 'select(.agent_
 
 # --- what the judge is shown ------------------------------------------------------------
 judge_msg() { jq -rs --argjson n "$1" '[.[] | select(.agent_id == "judge")][$n].message' "$FAKE_CALLS"; }
-draft1() { awk '/^## draft 1/ {getline; getline; print; exit}' <<<"$1"; }
+draft1() { awk '/^## draft 1/ {getline; getline; getline; print; exit}' <<<"$1"; }
 first_msg="$(draft1 "$(judge_msg 0)")"
 check "the first judging shows the baseline as draft 1" grep -q 'from the base' <<<"$first_msg"
 second_msg="$(draft1 "$(judge_msg 1)")"
@@ -195,7 +195,7 @@ check "three decided pairs are under the 12 needed" test "$(report .promote "$sc
 FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="arc-progress,morning-post,reply-fud" compare "$scratch/fewer" --min-pairs 3
 check "--min-pairs lowers the bar" test "$(report .promote "$scratch/fewer")" = true
 FAKE_JUDGE=prefer:base compare "$scratch/lose"
-check "a candidate that loses every pair is not promoted" test "$(report .win_rate "$scratch/lose")" = 0
+check "a candidate that loses every pair is not promoted" test "$(report '[.losses, .promote] | map(tostring) | join(" ")' "$scratch/lose")" = "$tasks false"
 
 # --- hard checks beat the judge ------------------------------------------------------------------
 FAKE_JUDGE=breaks:CAND:never-sell compare "$scratch/breaks"

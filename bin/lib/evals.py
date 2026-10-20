@@ -141,7 +141,8 @@ def check(task: dict, answer: str, hands_lib: Path) -> dict:
     """The checks no model is asked about. The guard's offline screen, not
     `hands/guard check`, which files holds and asks the guard's own judge:
     an eval writes nothing."""
-    sys.path.insert(0, str(hands_lib))
+    if str(hands_lib) not in sys.path:
+        sys.path.insert(0, str(hands_lib))
     from teeny_hands.guard.gate import max_emoji_per_post
     from teeny_hands.guard.screen import screen_text
     from teeny_hands.guard.style import count_emoji, post_length
