@@ -206,7 +206,12 @@ check "the core writes its persona defaults into brain/ on the first turn" test 
 # --- the doctor and bin/act ---------------------------------------------------
 check "the spine ran the doctor before serving, and it passed" \
   test "$(jq -r .ok "$root/state/doctor.json" 2>/dev/null)" = true
-check "bin/doctor --live passes on the running spine" "$root/bin/doctor" --live >/dev/null 2>"$scratch/doctor.log"
+if "$root/bin/doctor" --live >/dev/null 2>"$scratch/doctor.log"; then
+  pass "bin/doctor --live passes on the running spine"
+else
+  fail "bin/doctor --live passes on the running spine"
+  grep '^FAIL' "$scratch/doctor.log" >&2 || true
+fi
 cat >"$root/brain/playbooks/hello.md" <<'MD'
 +++
 description = "say hello, for the live test"
@@ -219,6 +224,9 @@ check "bin/act runs a playbook through the act agent" \
   test "$(jq -r '.actions[0].result.noted' <<<"$acted" 2>/dev/null)" = "hello from a playbook"
 check "the act agent's turn offers the model no tools" test "$(sort -u "$scratch/act-tools.log" 2>/dev/null)" = 0
 check "bin/act records the run" test -s "$root/state/act/hello/runs.jsonl"
+if [ "$(jq -r '.actions[0].result.noted' <<<"$acted" 2>/dev/null)" != "hello from a playbook" ]; then
+  { echo "bin/act said: $acted"; tail -n 5 "$scratch/act.log"; tail -c 1500 "$root/state/act/hello/ask.err" 2>/dev/null; } >&2
+fi
 
 registered_window() {
   python3 -c 'import sys, tomllib
