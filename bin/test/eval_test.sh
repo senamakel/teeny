@@ -215,7 +215,7 @@ check "and the task is named" test "$(report '.regressions | join(",")' "$scratc
 cand_root="$scratch/candroot"
 mkdir -p "$cand_root"
 cp -R "$repo/brain" "$cand_root/brain"
-sed -i.bak 's/never sell \$TINY/hold $TINY loosely/' "$cand_root/brain/CONTEXT.md"
+sed -i.bak "s/never sell \\\$TINY/hold it loosely/" "$cand_root/brain/CONTEXT.md"
 if out="$("$eval_bin" invariants --root "$cand_root" 2>/dev/null)"; then
   fail "fails a brain whose CONTEXT dropped never-sell"
 else

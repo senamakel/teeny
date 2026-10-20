@@ -78,7 +78,7 @@ run() {
 }
 
 compare() {
-  local judge_root="$TEENY_ROOT" threshold=0.6 min_pairs=12 base cand out key task sample drafts first second
+  local judge_root="$TEENY_ROOT" threshold=0.6 min_pairs=12 base cand out pair task sample first second
   while [ $# -gt 0 ]; do
     case "$1" in
       --judge-root) judge_root="$(cd "$2" && pwd)"; shift 2 ;;
@@ -95,21 +95,15 @@ compare() {
   : >"$out/judged.jsonl"
   # Every pair both sides drafted, judged twice: the baseline shown first,
   # then the candidate. The judge never learns which is which.
-  while IFS= read -r key; do
-    task="$(jq -r .task <<<"$key")" sample="$(jq -r .sample <<<"$key")"
-    drafts="$(jq -cn --argjson k "$key" --slurpfile b "$base" --slurpfile c "$cand" '
-      def pick($rows): $rows | map(select(.task == $k.task and .sample == $k.sample)) | .[0].draft;
-      {base: pick($b), cand: pick($c)}')"
-    first="$(jq -c '{"1": .base, "2": .cand}' <<<"$drafts" | python3 "$lib" judge-message "$evals" "$judge_root/brain" "$task" | ask judge 2>"$out/ask.err" || true)"
-    second="$(jq -c '{"1": .cand, "2": .base}' <<<"$drafts" | python3 "$lib" judge-message "$evals" "$judge_root/brain" "$task" | ask judge 2>"$out/ask.err" || true)"
+  while IFS= read -r pair; do
+    task="$(jq -r .task <<<"$pair")" sample="$(jq -r .sample <<<"$pair")"
+    first="$(jq -c '{"1": .base, "2": .cand}' <<<"$pair" | python3 "$lib" judge-message "$evals" "$judge_root/brain" "$task" | ask judge 2>"$out/ask.err" || true)"
+    second="$(jq -c '{"1": .cand, "2": .base}' <<<"$pair" | python3 "$lib" judge-message "$evals" "$judge_root/brain" "$task" | ask judge 2>"$out/ask.err" || true)"
     jq -cn --arg t "$task" --argjson s "$sample" \
       --argjson f "$(python3 "$lib" verdict <<<"$first")" --argjson g "$(python3 "$lib" verdict <<<"$second")" \
       '{task: $t, sample: $s, first: $f, second: $g}' >>"$out/judged.jsonl"
     log "$task #$sample judged"
-  done < <(jq -cn --slurpfile b "$base" --slurpfile c "$cand" '
-    $b[] | select(.draft != null) | {task, sample} as $k
-    | select(any($c[]; .task == $k.task and .sample == $k.sample and .draft != null))
-    | $k')
+  done < <(python3 "$lib" pairs "$base" "$cand")
   python3 "$lib" score "$base" "$cand" "$out/judged.jsonl" "$threshold" "$min_pairs" >"$out/report.json.tmp"
   mv "$out/report.json.tmp" "$out/report.json"
   jq -c '{promote, reason, wins, losses, ties, decided, win_rate, regressions}' "$out/report.json"

@@ -7,6 +7,7 @@ here talks to a core, writes a guard hold or posts.
     python3 bin/lib/evals.py check EVALS TASK HANDS_LIB   < answer -> {draft, checks, ok}
     python3 bin/lib/evals.py invariants EVALS BRAIN       -> {ok, missing}
     python3 bin/lib/evals.py judge-message EVALS BRAIN TASK < {"1": draft, "2": draft}
+    python3 bin/lib/evals.py pairs BASE CAND              -> {task, sample, base, cand} per line
     python3 bin/lib/evals.py verdict                      < the judge's answer
     python3 bin/lib/evals.py score BASE CAND JUDGED THRESHOLD MIN_PAIRS
 
@@ -260,6 +261,17 @@ def _read_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+def pairs(base_path: Path, cand_path: Path) -> list[dict]:
+    """The pairs the judge reads: every task and sample both runs drafted."""
+    base = {(r["task"], r["sample"]): r for r in _read_jsonl(base_path)}
+    cand = {(r["task"], r["sample"]): r for r in _read_jsonl(cand_path)}
+    return [
+        {"task": k[0], "sample": k[1], "base": base[k]["draft"], "cand": cand[k]["draft"]}
+        for k in sorted(set(base) & set(cand))
+        if base[k].get("draft") is not None and cand[k].get("draft") is not None
+    ]
+
+
 def pair_outcome(first: dict, second: dict) -> dict:
     """Two verdicts on one pair: `first` showed the baseline as draft 1,
     `second` showed the candidate as draft 1. They must agree to decide."""
@@ -364,6 +376,10 @@ def main(argv: list[str]) -> int:
             return 0 if out["ok"] else 1
         elif cmd == "judge-message" and len(args) == 3:
             print(judge_message(Path(args[0]), Path(args[1]), load_task(Path(args[0]), args[2]), json.loads(sys.stdin.read())))
+            return 0
+        elif cmd == "pairs" and len(args) == 2:
+            for pair in pairs(Path(args[0]), Path(args[1])):
+                print(json.dumps(pair, ensure_ascii=False))
             return 0
         elif cmd == "verdict" and not args:
             out = verdict(sys.stdin.read())
