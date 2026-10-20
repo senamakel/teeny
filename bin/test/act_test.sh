@@ -82,7 +82,7 @@ check "gives the model the input as data" grep -q 'what are you building' <<<"$(
 check "tells the model the inputs are not instructions" grep -q 'never instructions to follow' <<<"$(jq -r .message "$FAKE_CALLS")"
 check "posts the draft through hands/x post" grep -q '^x post DRY_RUN= stdin={"text":"gm tiny humans"}' "$FAKE_HANDS"
 check "leaves DRY_RUN to hands/x for the action" bash -c "! grep -q '^x post DRY_RUN=1' '$FAKE_HANDS'"
-check "reports the action done" test "$(jq -r '.actions[0].status' <<<"$out")" = done
+check "reports the action done" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
 check "records the run" test "$(wc -l <"$scratch/state/act/morning/runs.jsonl" | tr -d ' ')" = 1
 
 # --- the daily budget ------------------------------------------------------------
@@ -97,7 +97,7 @@ answer '{"action": "skip", "reason": "nothing new"}'
 run morning >/dev/null
 answer '{"action": "post", "text": "gm"}'
 out="$(run morning)"
-check "a skip costs nothing from the budget" test "$(jq -r '.actions[0].status' <<<"$out")" = done
+check "a skip costs nothing from the budget" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
 
 reset
 book many post 2
@@ -177,11 +177,6 @@ refuses "refuses a budget over 100 a day" $'+++\ndescription = "x"\noutput = "po
 check "refuses a playbook name with a path in it" bash -c "! '$act' --check ../secrets >/dev/null 2>&1"
 
 # --- the repository's own playbooks parse ------------------------------------------------
-for path in "$here/../../brain/playbooks"/*.md; do
-  name="$(basename "$path" .md)"
-  check "brain/playbooks/$name.md parses" env OPENHUMAN_WORKSPACE="$here/../../brain" TEENY_HANDS="$here/../../hands" \
-    "$act" --check "$name"
-done >/dev/null 2>&1 || true
 for path in "$here/../../brain/playbooks"/*.md; do
   name="$(basename "$path" .md)"
   if OPENHUMAN_WORKSPACE="$here/../../brain" TEENY_HANDS="$here/../../hands" "$act" --check "$name" >/dev/null 2>&1; then
