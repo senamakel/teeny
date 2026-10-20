@@ -61,6 +61,23 @@ run() {
   fi
 }
 
+quick_check() {
+  local result
+  result="$(sqlite3 -readonly "$1" "pragma quick_check;" 2>&1)"
+  [ "$result" = ok ] || { echo "$result"; return 1; }
+  echo "quick_check ok"
+}
+# The core's teeny.* jobs are exactly what seeding would make them.
+cron_in_step() {
+  local plan
+  plan="$("$TEENY_ROOT/bin/seed-cron" --dry-run 2>&1)" || { echo "$plan"; return 1; }
+  if ! grep -q "dry run: 0 change" <<<"$plan"; then
+    grep -E "^\[seed-cron\] (add|update|remove)" <<<"$plan" | head -3
+    return 1
+  fi
+  echo "the core runs exactly brain/cron.toml"
+}
+
 # --- the brain -----------------------------------------------------------------
 for file in SOUL.md CONTEXT.md; do
   if [ -s "$brain/$file" ]; then
@@ -142,7 +159,7 @@ if [ -e "$storage" ]; then
     note "secrets/openhuman.key" fail "storage.db exists but its master key does not"
   fi
   if command -v sqlite3 >/dev/null 2>&1; then
-    run "storage.db" sh -c 'r="$(sqlite3 -readonly "$1" "pragma quick_check;" 2>&1)"; [ "$r" = ok ] && echo "quick_check ok" || { echo "$r"; exit 1; }' _ "$storage"
+    run "storage.db" quick_check "$storage"
   fi
 else
   note "storage.db" ok "none yet (a first boot)"
@@ -174,9 +191,7 @@ fi
 if [ "$live" = 1 ]; then
   if curl -fsS -m 5 -o /dev/null "$OH_URL/health" 2>/dev/null; then
     note "core /health" ok "$OH_URL"
-    run "cron in step" sh -c 'out="$("$1" --dry-run 2>&1)" || { echo "$out"; exit 1; }
-      echo "$out" | grep -q "dry run: 0 change" || { echo "$out" | grep -E "^\[seed-cron\] (add|update|remove)" | head -3; exit 1; }
-      echo "the core runs exactly brain/cron.toml"' _ "$TEENY_ROOT/bin/seed-cron"
+    run "cron in step" cron_in_step
   else
     note "core /health" fail "no answer at $OH_URL"
   fi
