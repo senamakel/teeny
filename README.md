@@ -82,7 +82,7 @@ bin/oh cron_list                   # any JSON-RPC method on the running core
 bin/seed-cron --dry-run            # what seeding brain/cron.toml would change
 
 hands/x whoami                                        # who the X keys belong to
-hands/x search --query '@teenydroid'                  # a recent search, cached
+hands/x search '@teenydroid'                          # a recent search, cached
 echo '{"text":"gm"}' | hands/guard check              # ok, or a hold with the reason
 echo '{"text":"gm"}' | hands/x post                   # guard, rules, then DRY_RUN or X
 hands/guard holds list                                # what the guard is holding for review
