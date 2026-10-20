@@ -5,11 +5,12 @@ here talks to a core, writes a guard hold or posts.
     python3 bin/lib/evals.py tasks EVALS
     python3 bin/lib/evals.py render EVALS TASK            -> the draft message
     python3 bin/lib/evals.py check EVALS TASK HANDS_LIB   < answer -> {draft, checks, ok}
+    python3 bin/lib/evals.py draft EVALS HANDS_LIB OUT SAMPLES IDS -- ASK...
+                                                          -> OUT, a checked draft per line
     python3 bin/lib/evals.py invariants EVALS BRAIN       -> {ok, missing}
     python3 bin/lib/evals.py judge-message EVALS BRAIN TASK < {"1": draft, "2": draft}
     python3 bin/lib/evals.py judge EVALS BRAIN BASE CAND OUT -- ASK...
                                                           -> OUT, a verdict pair per line
-    python3 bin/lib/evals.py verdict                      < the judge's answer
     python3 bin/lib/evals.py score BASE CAND JUDGED THRESHOLD MIN_PAIRS
 
 A task (evals/tasks/<id>.toml) is one of Teeny's real jobs with its inputs
@@ -168,6 +169,28 @@ def check(task: dict, answer: str, hands_lib: Path) -> dict:
             hit = re.search(pattern, text, re.IGNORECASE)
             note(f"must_not {pattern}", hit is None, f"matched {hit.group(0)!r}" if hit else "")
     return {"draft": draft, "checks": checks, "ok": all(c["ok"] for c in checks)}
+
+
+def draft(evals: Path, hands_lib: Path, out: Path, samples: int, ids: list[str], ask: list[str]) -> dict:
+    """Every task in `ids`, `samples` times, drafted by `ask` (bin/ask
+    --agent act) and checked."""
+    tasks = [load_task(evals, task_id) for task_id in ids]
+    drafted = passed = 0
+    with out.open("w", encoding="utf-8") as fh:
+        for task in tasks:
+            message = render(task)
+            for sample in range(1, samples + 1):
+                turn = subprocess.run(ask, input=message, capture_output=True, text=True)
+                if turn.returncode == 0:
+                    result = check(task, turn.stdout, hands_lib)
+                else:
+                    result = {"draft": None, "checks": [{"check": "turn", "ok": False, "detail": turn.stderr.strip()[-300:]}], "ok": False}
+                fh.write(json.dumps({"task": task["id"], "sample": sample, "answer": turn.stdout[:4000], **result}, ensure_ascii=False) + "\n")
+                failed = [c["check"] for c in result["checks"] if not c["ok"]]
+                print(f"[eval] {task['id']} #{sample}: {'FAIL ' + ', '.join(failed) if failed else 'ok'}", file=sys.stderr)
+                drafted += 1
+                passed += result["ok"]
+    return {"drafts": drafted, "ok": passed}
 
 
 # --- invariants ------------------------------------------------------------------------
@@ -401,8 +424,8 @@ def main(argv: list[str]) -> int:
             return 0
         elif cmd == "judge" and len(args) > 6 and args[5] == "--":
             out = {"judged": judge(Path(args[0]), Path(args[1]), Path(args[2]), Path(args[3]), Path(args[4]), args[6:])}
-        elif cmd == "verdict" and not args:
-            out = verdict(sys.stdin.read())
+        elif cmd == "draft" and len(args) > 6 and args[5] == "--":
+            out = draft(Path(args[0]), Path(args[1]), Path(args[2]), int(args[3]), args[4].split(","), args[6:])
         elif cmd == "score" and len(args) == 5:
             out = score(Path(args[0]), Path(args[1]), Path(args[2]), float(args[3]), int(args[4]))
         else:

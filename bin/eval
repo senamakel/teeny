@@ -37,10 +37,8 @@ usage() {
 cmd="$1"
 shift
 
-ask() { "$TEENY_ROOT/bin/ask" --agent "$1"; }
-
 run() {
-  local samples=2 only="" out ids task sample answer checked
+  local samples=2 only="" out ids task
   while [ $# -gt 0 ]; do
     case "$1" in
       --samples) samples="$2"; shift 2 ;;
@@ -52,29 +50,16 @@ run() {
   [ $# -eq 1 ] || usage
   [[ "$samples" =~ ^[1-9][0-9]?$ ]] || die "--samples is 1 to 99"
   out="$1"
-  ids="$(python3 "$lib" tasks "$evals" | jq -r '.[].id')" || die "evals/tasks does not load"
+  ids="$(python3 "$lib" tasks "$evals" | jq -r '[.[].id] | join(" ")')" || die "evals/tasks does not load"
   if [ -n "$only" ]; then
     for task in ${only//,/ }; do
-      grep -qx "$task" <<<"$ids" || die "no task $task in evals/tasks"
+      [[ " $ids " == *" $task "* ]] || die "no task $task in evals/tasks"
     done
     ids="${only//,/ }"
   fi
   mkdir -p "$out"
-  : >"$out/drafts.jsonl"
-  for task in $ids; do
-    for sample in $(seq 1 "$samples"); do
-      if answer="$(python3 "$lib" render "$evals" "$task" | ask act 2>"$out/ask.err")"; then
-        checked="$(python3 "$lib" check "$evals" "$task" "$TEENY_ROOT/hands/lib" <<<"$answer")"
-      else
-        checked="$(jq -cn --arg e "$(tail -c 300 "$out/ask.err")" \
-          '{draft: null, checks: [{check: "turn", ok: false, detail: $e}], ok: false}')"
-      fi
-      jq -c --arg t "$task" --argjson s "$sample" --arg a "${answer:0:4000}" \
-        '{task: $t, sample: $s, answer: $a} + .' <<<"$checked" >>"$out/drafts.jsonl"
-      log "$task #$sample: $(jq -r 'if .ok then "ok" else "FAIL " + ([.checks[] | select(.ok | not) | .check] | join(", ")) end' <<<"$checked")"
-    done
-  done
-  jq -cs '{drafts: length, ok: map(select(.ok)) | length}' "$out/drafts.jsonl"
+  python3 "$lib" draft "$evals" "$TEENY_ROOT/hands/lib" "$out/drafts.jsonl" "$samples" "${ids// /,}" \
+    -- "$TEENY_ROOT/bin/ask" --agent act
 }
 
 compare() {
