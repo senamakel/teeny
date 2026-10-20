@@ -29,7 +29,9 @@ if [ $# -gt 0 ]; then
 else
   message="$(cat)"
 fi
-[ -n "${message//[[:space:]]/}" ] || die "nothing to ask"
+# A regex, not ${message//[[:space:]]/}: that substitution is quadratic in
+# bash, and stalls for minutes on a long playbook or judge message.
+[[ "$message" =~ [^[:space:]] ]] || die "nothing to ask"
 
 params="$(jq -cn --arg m "$message" --arg a "$agent" --arg t "$thread" \
   '{message: $m} + (if $a != "" then {agent_id: $a} else {} end)
