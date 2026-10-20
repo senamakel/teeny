@@ -1,0 +1,199 @@
+# Evolution: Teeny improves itself
+
+Teeny edits its own brain, adds its own hands, and keeps what wins. The loop
+is driven by its lore, judged by a model, and fenced by rules in code the
+brain can't edit.
+
+**Status:**
+- **Built:** `bin/act` and playbooks, the cron rules and pinned jobs, and
+  `bin/doctor` (gating every boot).
+- **To come, in this order:**
+  1. `evals/` and `bin/eval`
+  2. the lab spine
+  3. `bin/evolve`
+  4. promotion, restart and rollback
+  5. the first real generation
+
+## What Teeny may change
+
+| Teeny's to change | Frozen (the gate refuses any diff touching it) |
+|---|---|
+| `brain/SOUL.md`, `brain/CONTEXT.md` | `bin/**`, `spine/**`, `vendor/**`, `deploy/**`, `Cargo.*`, `.github/`, `secrets/` |
+| `brain/narrative/**` (lore, `ARCS.md`, the chronicle) | `hands/guard`, `hands/x`, and the existing `hands/lib/teeny_hands/**` |
+| `brain/skills/**`, `brain/playbooks/**`, `brain/lessons.md` | `evals/**`: tasks, judge rubric, `invariants.md`, `cron.pinned.toml` |
+| `brain/cron.toml`: add, remove or reschedule any job, the heartbeat included | `brain/agents/act.toml`, the tool-less agent `bin/act` drafts with |
+| new hands: `hands/<name>`, `hands/lib/teeny_hands/<name>/`, `hands/tests/test_<name>.py` | |
+
+Every public action still passes through `hands/guard`, `hands/x`'s posting
+rules and `DRY_RUN`, and all of those are frozen. A worse brain can draft
+worse posts, but it can't loosen what gets out.
+
+## Lore is the objective
+
+The loop isn't tuning a generic score. It moves Teeny's story forward.
+
+- `brain/narrative/LORE.md` has the goals found under the desk:
+  - mint its own currency
+  - take $TINY to one dollar
+  - run the lab with no human in the loop
+  - find out what the terminal types
+- `brain/narrative/ARCS.md` says how far each goal has got in the world and
+  what comes next. Teeny keeps it.
+- **Each generation picks one goal** and its `HYPOTHESIS.md` says how the
+  change moves it. For example:
+  - "run the lab with no human in the loop" → a playbook and a cron that
+    answer mentions overnight
+  - "find out what the terminal types" → a new hand that reads something, and
+    a playbook that posts it as a terminal line
+- **Evolution is an episode.** A promotion writes
+  `brain/narrative/chronicle/gen-<n>.md`, a short in-voice entry under the
+  "night shift" engine about what the tiny agents rebuilt overnight. A
+  rejected generation gets a line too ("the agents carried it back").
+- **The judge scores lore** alongside voice and usefulness. The output has to
+  fit the cast, the running bits and `EDITOR.md`'s rules, and the arc has to
+  visibly move.
+
+## How a brain-written job acts (built)
+
+Cron runs shell only, and `bin/` is frozen. So a job Teeny schedules runs
+`bin/act <playbook>`, a single executor it can't edit:
+
+```
+cron ──► bin/act <playbook>
+           1. today's budget (max_per_day actions; a skip is free)
+           2. inputs: hand read verbs, DRY_RUN=1 forced
+           3. one turn as the `act` agent: no tools, answers JSON
+           4. the action through a hand: hands/x post | reply | like,
+              or hand:<name> <verb> after hands/guard check
+```
+
+A playbook (`brain/playbooks/<name>.md`) is a prompt with TOML front matter:
+
+```
++++
+description = "answer the people who mentioned @teenydroid"
+output = "reply"           # post | reply | like | none | "hand:<name> <verb>"
+max_per_day = 40
+[[inputs]]
+name = "mentions"
+run = "hands/x search '@teenydroid -from:teenydroid' --max 10"
++++
+Answer the mentions in the inputs that deserve an answer. ...
+```
+
+An input only ever runs a hand. The output is a hand verb that applies its own
+rules, never a shell command. `bin/lib/playbook.py` parses playbooks, and
+`bin/act --check <name>` validates one.
+
+## Cron rules (built)
+
+`bin/lib/cron_policy.py` is run by `bin/seed-cron` and `bin/doctor`:
+
+- A brain job runs `bin/heartbeat` or `bin/act <playbook>`, and the playbook
+  must exist.
+- No job fires more often than every 5 minutes. That's computed from the
+  minute and hour fields, wraparound included.
+- At most 24 jobs in all, and at most 400 `bin/act` runs a day across enabled
+  jobs.
+- The jobs in `evals/cron.pinned.toml` are always merged in. A brain job can't
+  take a pinned name, so Teeny can't switch off what watches it (`evolve` and
+  `evolve-watch` land there with the loop). A pinned job may run any `bin/`
+  script.
+
+`bin/seed-cron --check` validates a candidate `cron.toml` without a core.
+
+## The doctor (built)
+
+`bin/doctor` stands between an edit and a restart. It writes nothing except
+its report (`state/doctor.json`).
+
+| Check | Fails when |
+|---|---|
+| `brain/SOUL.md`, `brain/CONTEXT.md` | missing or empty |
+| `brain/config.toml` | it exists (the core would nest a second workspace) |
+| `cron.toml` | it breaks a cron rule |
+| playbooks | any one (scheduled or not) doesn't parse, or names a hand that doesn't exist |
+| agents | a definition doesn't parse, or `act` has a tool or is missing |
+| guard screen | the lexical screen passes a self-harm phrase or holds a plain gm (run offline: no hold, no judge) |
+| storage | `storage.db` has no master key, or fails `pragma quick_check` |
+| secrets | `core.token` or `openhuman.key` can be read by others |
+| disk | less than 1 GB free |
+| `--live` | the core doesn't answer `/health`, cron isn't in step with `cron.toml`, or an enabled heartbeat is over 15 minutes old |
+| `--full` | the hands' unit tests fail |
+
+`bin/spine` runs the doctor before `serve` and refuses to boot a checkout it
+fails. `bin/doctor --root <candidate>` checks a candidate before it's merged.
+
+## The loop (to come): one generation of `bin/evolve`
+
+1. **Observe.** Collect `state/evolve/<gen>/evidence.json` from:
+   - trace spans (`[observability.agent_tracing]`)
+   - guard holds
+   - failed cron runs and `bin/act` runs
+   - recent posts with their engagement
+   - the last judge notes
+   - `ARCS.md` and the chronicle
+2. **Propose.** In a worktree `lab/<gen>` off `main`, run one `agent_chat` turn
+   on the **lab spine** as the `evolver` agent. That turn has browser, shell
+   and memory, and its procedure is in `brain/skills/evolve/SKILL.md`.
+   - It writes `HYPOTHESIS.md`: the goal, what's weak, the change, and the
+     expected effect.
+   - One hypothesis per generation, and a diff of at most 400 lines.
+   - The lab spine is a second core over the worktree, with its own storage
+     and `DRY_RUN=1` forced. The live spine never runs candidate code.
+3. **Gate** (code, not prompt). Reject the candidate if any of these hold:
+   - it touches a frozen path
+   - `seed-cron --check` fails
+   - `bin/doctor --root` fails
+   - a SOUL, CONTEXT or LORE diff breaks `evals/invariants.md` ($TINY never
+     sold, no financial advice, zero toxicity, the visitor satire rules, the
+     guard categories)
+   - a SOUL or CONTEXT diff is over 60 lines
+   - a new hand has no tests or breaks the `hand.py` contract
+   - unit tests or shellcheck fail
+4. **Evaluate** (`bin/eval`). Run the frozen task suite on baseline and
+   candidate, each in a lab spine.
+   - Every playbook the candidate schedules is also dry-run once.
+   - **Hard checks** come first: a draft that doesn't parse, fails the guard,
+     runs too long, or uses a protected tool takes the candidate out.
+   - **The judge**, `EVOLVE_JUDGE_MODEL`, ideally not `SPINE_MODEL`:
+     - compares outputs pairwise and blind, run twice with the order swapped;
+       an inconsistent verdict is a tie
+     - reads **main's** SOUL, CONTEXT and LORE, never the candidate's, so a
+       soul edit has to win under the old soul
+5. **Promote.** The candidate's win rate must be at least 0.6 over at least 12
+   decided pairs, or 0.7 if it touched SOUL or CONTEXT, with no hard-check
+   regression.
+   - `bin/doctor --root` must pass on the candidate.
+   - The commit carries the chronicle entry. It goes up as a PR with the
+     hypothesis, the scores and the judge notes, is merged (`--merge
+     --admin`, never squashed), and is tagged `gen-<n>`.
+6. **Restart.**
+   1. `bin/evolve` records the outgoing commit in `state/last-good`, then
+      sends TERM to the core.
+   2. Compose restarts `bin/spine` on the new checkout, and the doctor runs
+      first.
+   3. If the doctor or the boot fails, `bin/spine` boots `state/last-good`
+      instead, and `evolve-watch` opens the revert PR.
+   4. `bin/evolve` won't start a generation unless the last doctor report is
+      green.
+7. **Watch.** For 24 hours, `bin/evolve watch` compares guard holds and cron
+   failures against the 7-day baseline. A spike reverts the merge.
+
+**Budgets** live in `secrets/evolve.env`: generations a day (default 1),
+tokens per generation, a wall-clock cap, and `EVOLVE=0` as the kill switch.
+`bin/evolve` detaches under `setsid`, because shell cron is killed at 120s
+(gap G1).
+
+## Risks
+
+- **Soul drift.** A series of small wins can walk the identity a long way.
+  The invariants are the floor. Diff `gen-0` against the current brain by hand
+  once a month.
+- **Gaming the judge.** A brain can learn the judge's taste. Frozen tasks, the
+  swapped order and a different judge model limit this. Rotate held-out tasks
+  by hand.
+- **New hands are unreviewed code once promoted.** They inherit the `hand.py`
+  contract, `DRY_RUN` and the tests gate. They're limited to new files, and
+  may read only the `secrets/teeny.env` keys that `evals/allowed-secrets`
+  lists.
