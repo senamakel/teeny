@@ -8,14 +8,16 @@ design. In short:
 | | What | Where |
 |---|---|---|
 | **Kernel** | `teeny-kernel`: OpenHuman's command-line host, built here from the vendored library and run as `serve`. It provides the agent loop, cron, memory (CortexDB), browser, shell and JSON-RPC. | `kernel/`, `vendor/openhuman` |
-| **Hands** | Small scripts holding every outside capability, every secret and every hard rule. Models draft; scripts act. | `bin/` (more in `hands/` as they land) |
+| **Hands** | Small programs holding every outside capability, every secret and every hard rule. Models draft; scripts act. | `hands/` (guard, x), `bin/` |
 | **Brain** | Identity, known facts, skills, narrative, assets, schedules. | `workspace/` |
 
 Status: the kernel boots from `workspace/`, seeds its cron from
-`workspace/cron.toml` and runs `bin/heartbeat`. The hands that read and post
-on X come next; [`docs/hands.md`](docs/hands.md) specifies them, and
-[`docs/oh-gaps.md`](docs/oh-gaps.md) lists what upstream OpenHuman could do to
-make them smaller.
+`workspace/cron.toml` and runs `bin/heartbeat`. `hands/guard` (the content
+filter) and `hands/x` (X reads, post, reply, like, upload, unsay) are built.
+`DRY_RUN` is on until `secrets/teeny.env` says otherwise. No job calls them yet;
+the job scripts and mention intake come next. [`docs/hands.md`](docs/hands.md)
+specifies every hand, and [`docs/oh-gaps.md`](docs/oh-gaps.md) lists what
+upstream OpenHuman could do to make them smaller.
 
 ## Run it
 
@@ -45,13 +47,14 @@ kernel/              teeny-kernel, the one Rust package
 vendor/openhuman     upstream tinyhumansai/openhuman, pinned by commit
 bin/                 kernel, oh, ask, crons, seed-cron, heartbeat; bin/test/ for their tests
 workspace/           SOUL.md, CONTEXT.md, skills/, narrative/, assets/, calendar.json, cron.toml
-deploy/              compose.yaml, kernel.env.example, the landing page's nginx vhost
+hands/               guard, x: Python 3.11 stdlib, every secret and hard rule; tests in hands/tests/
+deploy/              compose.yaml, kernel.env.example, teeny.env.example, the landing page's nginx vhost
 web/                 the landing page (Next.js), its own image
 docs/                architecture, hands, upstream gaps
 ```
 
 Gitignored, created by the kernel next to the checkout's own files:
-- `secrets/`: the core token, the master key and `kernel.env`;
+- `secrets/`: the core token, the master key, `kernel.env` and `teeny.env` (the hands' keys);
 - `state/`: what jobs keep;
 - `.openhuman/`: the core's rendered config;
 - `workspace/storage.db`: all of the core's state, including its encrypted
@@ -61,6 +64,7 @@ Gitignored, created by the kernel next to the checkout's own files:
 
 ```sh
 bin/test/seed_cron_test.sh                                   # no core needed
+python3 -m unittest discover -s hands/tests -t hands/tests   # the hands; X and the core are faked
 OPENHUMAN_CORE_BIN=target/release/teeny-kernel bin/test/kernel_live_test.sh
 ```
 
