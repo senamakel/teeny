@@ -1,20 +1,38 @@
 # Every scheduled job Teeny runs. `bin/seed-cron` makes OpenHuman's cron match
-# this file at every boot; `bin/crons` shows what the core has and when each
-# job last ran.
+# this file (plus the pinned jobs in evals/cron.pinned.toml) at every boot;
+# `bin/crons` shows what the core has and when each job last ran.
+#
+# Teeny owns this file: it may add, remove or reschedule any job here, the
+# heartbeat included. bin/lib/cron_policy.py holds the rules it cannot change:
 #
 #   [jobs.<name>]          becomes the core job `teeny.<name>`
-#   schedule = "m h dom mon dow"
-#   command  = "bin/..."   an operator script in this repository, run from the
-#                          repository root with no model in the loop
+#   schedule = "m h dom mon dow"   never more often than every 5 minutes
+#   command  = "bin/act <playbook>"   brain/playbooks/<playbook>.md
+#            | "bin/heartbeat"
 #   tz       = "..."       optional; else a top-level `tz = "..."`, else
-#                          CALENDAR_TZ (as the bot reads it today), else UTC
+#                          CALENDAR_TZ, else UTC
 #   enabled  = false       optional; keeps the job, does not run it
 #
+# At most 24 jobs in all, and at most 400 runs of bin/act a day.
+#
 # Jobs are shell jobs, never agent jobs: a turn cron starts may only use
-# read-only tools, so scripts act and models only draft
+# read-only tools, so bin/act gathers, the model drafts, and a hand acts
 # (docs/architecture.md, §1).
 
-# Proves cron fires in this checkout. The posting jobs arrive with the hands.
+# Proves cron fires in this checkout.
 [jobs.heartbeat]
 schedule = "*/5 * * * *"
 command = "bin/heartbeat"
+
+# The morning post. Off until DRY_RUN has been watched on the box.
+[jobs.morning]
+schedule = "0 7 * * *"
+tz = "Asia/Kolkata"
+command = "bin/act morning"
+enabled = false
+
+# Answer mentions. Off until DRY_RUN has been watched on the box.
+[jobs.mentions]
+schedule = "*/15 * * * *"
+command = "bin/act mentions"
+enabled = false
