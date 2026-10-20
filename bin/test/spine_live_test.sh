@@ -78,7 +78,7 @@ class Model(BaseHTTPRequestHandler):
         # tools the turn offered the model (the act agent must offer none).
         answer = ANSWER
         last = users[-1].get("content") if users else None
-        if isinstance(last, str) and last.startswith("# playbook:"):
+        if isinstance(last, str) and "# playbook: hello" in last:
             answer = json.dumps({"action": "note", "text": "hello from a playbook"})
             with open(sys.argv[4], "a") as log:
                 log.write(f"{len(body.get('tools') or [])}\n")
