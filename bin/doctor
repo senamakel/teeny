@@ -129,7 +129,7 @@ for key in ("id", "when_to_use"):
     if not isinstance(doc.get(key), str) or not doc[key].strip():
         sys.exit(f"needs {key}")
 if doc["id"] in ("act", "judge") and (doc.get("tools") or {}).get("named") != []:
-    sys.exit(f"the {doc['id']} agent must have no tools ([tools] named = [])")
+    sys.exit("the " + doc["id"] + " agent must have no tools ([tools] named = [])")
 print("id " + doc["id"])
 ' "$path"
 done
