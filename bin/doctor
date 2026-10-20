@@ -74,9 +74,11 @@ if [ -e "$brain/config.toml" ]; then
 fi
 
 # --- cron: the rules, and every playbook a job runs -------------------------------
+checked=" "
 if jobs="$(python3 "$TEENY_ROOT/bin/lib/cron_policy.py" "$brain/cron.toml" "$root/evals/cron.pinned.toml" "${CALENDAR_TZ:-}" 2>&1)"; then
   note "cron.toml" ok "$(jq length <<<"$jobs") job(s), $(jq '[.[] | select(.enabled)] | length' <<<"$jobs") enabled"
   while IFS= read -r book; do
+    checked+=" $book "
     run "playbook $book" env TEENY_BRAIN="$brain" OPENHUMAN_WORKSPACE="$brain" TEENY_ROOT="$root" \
       TEENY_HANDS="$root/hands" "$TEENY_ROOT/bin/act" --check "$book"
   done < <(jq -r '.[] | .command | select(startswith("bin/act ")) | ltrimstr("bin/act ")' <<<"$jobs" | sort -u)
@@ -87,7 +89,7 @@ fi
 for path in "$brain"/playbooks/*.md; do
   [ -e "$path" ] || continue
   book="$(basename "$path" .md)"
-  grep -q "^ok   playbook $book:" <<<"$(jq -r '.[] | "\(.status)   \(.check):"' <<<"$report")" && continue
+  case "$checked" in *" $book "*) continue ;; esac
   run "playbook $book" python3 "$TEENY_ROOT/bin/lib/playbook.py" "$brain" "$book" "$root/hands"
 done
 
@@ -103,7 +105,7 @@ for key in ("id", "when_to_use"):
         sys.exit(f"needs {key}")
 if doc["id"] == "act" and (doc.get("tools") or {}).get("named") != []:
     sys.exit("the act agent must have no tools ([tools] named = [])")
-print(f"id {doc[chr(105) + chr(100)]}")
+print("id " + doc["id"])
 ' "$path"
 done
 if [ ! -s "$brain/agents/act.toml" ]; then
