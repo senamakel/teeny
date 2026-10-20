@@ -74,14 +74,11 @@ class Model(BaseHTTPRequestHandler):
         with open(sys.argv[3], "a") as log:
             log.write(json.dumps(users[-1].get("content") if users else None) + "\n")
         base = {"id": "stub-1", "created": int(time.time()), "model": body.get("model", "stub")}
-        # A bin/act draft: answer the JSON it asks for, and note how many
-        # tools the turn offered the model (the act agent must offer none).
+        # A bin/act draft: answer the JSON it asks for.
         answer = ANSWER
         last = users[-1].get("content") if users else None
         if isinstance(last, str) and "# playbook: hello" in last:
             answer = json.dumps({"action": "note", "text": "hello from a playbook"})
-            with open(sys.argv[4], "a") as log:
-                log.write(f"{len(body.get('tools') or [])}\n")
         if body.get("stream"):
             self.send_response(200)
             self.send_header("content-type", "text/event-stream")
@@ -103,7 +100,7 @@ class Model(BaseHTTPRequestHandler):
 
 ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), Model).serve_forever()
 PY
-python3 -I "$scratch/model.py" "$model_port" "$scratch/model-calls.log" "$scratch/model-asked.log" "$scratch/act-tools.log" &
+python3 -I "$scratch/model.py" "$model_port" "$scratch/model-calls.log" "$scratch/model-asked.log" &
 model_pid=$!
 
 # --- a scratch copy of the checkout, laid out as on the box ---------------------
@@ -222,7 +219,14 @@ MD
 acted="$("$root/bin/act" hello 2>"$scratch/act.log" || true)"
 check "bin/act runs a playbook through the act agent" \
   test "$(jq -r '.actions[0].result.noted' <<<"$acted" 2>/dev/null)" = "hello from a playbook"
-check "the act agent's turn offers the model no tools" test "$(sort -u "$scratch/act-tools.log" 2>/dev/null)" = 0
+# The stub cannot see this: a local model without native tool calls gets its
+# tools written into the prompt, not in the request's `tools`. The core logs
+# what it offered each agent; the act agent's turn must offer nothing.
+act_tools() {
+  awk '/building session agent id=act / {found = 1} found && /tool spec filter:/ {print; exit}' "$scratch/spine.log"
+}
+check "the core loaded the act agent from brain/agents/" grep -q 'building session agent id=act ' "$scratch/spine.log"
+check "the act agent's turn offers the model no tools" grep -q 'visible=0 ' <<<"$(act_tools)"
 check "bin/act records the run" test -s "$root/state/act/hello/runs.jsonl"
 if [ "$(jq -r '.actions[0].result.noted' <<<"$acted" 2>/dev/null)" != "hello from a playbook" ]; then
   { echo "bin/act said: $acted"; tail -n 5 "$scratch/act.log"; tail -c 1500 "$root/state/act/hello/ask.err" 2>/dev/null; } >&2
