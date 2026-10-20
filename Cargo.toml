@@ -1,6 +1,6 @@
 # Teeny's one Rust package: the spine binary, OpenHuman's command-line host
 # built from the library (docs/architecture.md, "Spine"). Everything else
-# Teeny is lives in brain/, hands/ and bin/ (the scripts).
+# Teeny is lives in brain/, hands/ and bin/.
 #
 # OpenHuman is the git submodule at vendor/openhuman, pinned at a commit on
 # upstream tinyhumansai/openhuman main. `[patch]` is only honoured at a
