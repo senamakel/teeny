@@ -145,7 +145,7 @@ while IFS= read -r item; do
     continue
   fi
   if [ "$action" != "$expected" ]; then
-    results="$(jq -c --arg a "$action" '. + [{action: $a, refused: "this playbook only does \($ENV.expected)"}]' <<<"$results")"
+    results="$(jq -c --arg a "$action" --arg e "$expected" '. + [{action: $a, refused: "this playbook only does \($e)"}]' <<<"$results")"
     continue
   fi
   if [ "$(taken)" -ge "$max_per_day" ]; then
@@ -158,12 +158,12 @@ while IFS= read -r item; do
       result="$(jq -cn --arg t "$text" '{ok: true, noted: $t}')"
       ;;
     post)
-      result="$(jq -cn --arg t "$text" '{text: $t}' | (cd "$TEENY_ROOT" && "$hands/x" post)) " || status=$?
+      result="$(jq -cn --arg t "$text" '{text: $t}' | (cd "$TEENY_ROOT" && "$hands/x" post))" || status=$?
       ;;
     reply)
       to="$(jq -r '.to // ""' <<<"$item")"
       if [ -z "$to" ]; then
-        result='{"ok": false, "error": "a reply needs `to`"}'
+        result='{"ok": false, "error": "a reply needs a to"}'
         status=1
       else
         result="$(jq -cn --arg t "$text" '{text: $t}' | (cd "$TEENY_ROOT" && "$hands/x" reply --to "$to"))" || status=$?
@@ -172,7 +172,7 @@ while IFS= read -r item; do
     like)
       id="$(jq -r '.id // ""' <<<"$item")"
       if [ -z "$id" ]; then
-        result='{"ok": false, "error": "a like needs `id`"}'
+        result='{"ok": false, "error": "a like needs an id"}'
         status=1
       else
         result="$(cd "$TEENY_ROOT" && "$hands/x" like "$id" </dev/null)" || status=$?
