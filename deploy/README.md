@@ -12,6 +12,8 @@ From the checkout:
 git submodule update --init --recursive vendor/openhuman
 mkdir -p secrets && cp deploy/kernel.env.example secrets/kernel.env && chmod 600 secrets/kernel.env
 $EDITOR secrets/kernel.env            # LADDER_API_KEY, KERNEL_MODEL; CortexDB if wanted
+cp deploy/teeny.env.example secrets/teeny.env && chmod 600 secrets/teeny.env
+$EDITOR secrets/teeny.env             # the X keys; DRY_RUN stays 1 until you mean it
 docker compose -f deploy/compose.yaml up -d --build
 docker compose -f deploy/compose.yaml logs -f kernel     # "[kernel] ready" once seeded
 ```

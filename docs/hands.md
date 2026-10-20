@@ -5,6 +5,21 @@ bot at `55c2c75`, the code each hand replaces. See [`architecture.md`](architect
 contract: one JSON object out, exit `0`/`2`/other, secrets read by the hand,
 state in `state/hands.db`, `DRY_RUN=1` by default.
 
+**Status.** `guard` and the outbound and read half of `x` are built
+(`hands/guard`, `hands/x`, code in `hands/lib/teeny_hands/`, tests in
+`hands/tests/`). Mention intake and the queue (`x ingest`, `x queue`) belong to
+the event ledger, which is separate work. `article`, `auth` and the other hands
+are still to come. Rows below say which.
+
+**Language.** The hands are Python 3.11 standard library, with no
+dependencies. Python is already in the image for `bin/seed-cron`, and OAuth 1.0a
+signing, transactional SQLite and a guarded fetch are not jobs for bash. Each
+executable is a three-line shim that runs `python3 -I`, so no `PYTHONPATH` or
+planted module can change what it loads. The shared contract (outcomes, exit
+codes, secrets, dry run, state, the core client) is
+`hands/lib/teeny_hands/hand.py`. Run every test with
+`python3 -m unittest discover -s hands/tests -t hands/tests`.
+
 **R** marks a read verb. Read verbs are exposed to no-shell agents through
 `hands/mcp` as read-only tools. **A** marks an acting verb, which only
 `bin/job` scripts and the operator call.
@@ -13,16 +28,16 @@ state in `state/hands.db`, `DRY_RUN=1` by default.
 
 | Verb | | Does |
 |---|---|---|
-| `ingest` | A | Poll mentions since the cursor. Keep one-level-eligible mentions that aren't from the account. Insert as `pending`, unique on post id. Advance `since_id`. |
-| `queue claim` | A | Atomically move one `pending` row, or a stale `replying` row with no `replyId` and a lease over 15 minutes, to `replying` with `claimedAt`. |
-| `queue done/fail/hold` | A | Mark the outcome. A row that carries a `replyId` is never offered again. |
-| `get`, `thread`, `user`, `search` | R | X reads through the read cache (posts 30 days; searches and threads 10 minutes). |
-| `reply`, `post` | A | Run `guard check`, house style, the 280 limit (UTF-16) and the emoji cap. For a reply: the lane budget and 30–60s pacing. For an own post: the `cadence` gap under the posting lock. Then `DRY_RUN`, then X. **Record the post id first**, then the ledger, journal and memory. Never reply to the account's own post. Under `DRY_RUN`: no likes and no ledger row. |
+| `ingest` | A | *Event ledger, not built here.* Poll mentions since the cursor. Keep one-level-eligible mentions that aren't from the account. Insert as `pending`, unique on post id. Advance `since_id`. |
+| `queue claim` | A | *Event ledger, not built here.* Atomically move one `pending` row, or a stale `replying` row with no `replyId` and a lease over 15 minutes, to `replying` with `claimedAt`. |
+| `queue done/fail/hold` | A | *Event ledger, not built here.* Mark the outcome. A row that carries a `replyId` is never offered again. |
+| `get`, `thread`, `user`, `search`, `whoami` | R | X reads through the read cache (posts 30 days; searches and threads 10 minutes). |
+| `reply`, `post` | A | Run `guard check` (house style, the 280 limit in UTF-16, the emoji cap, links, lexicon, judge). Then the posting rules: for an own post, the gap (`POST_MIN_GAP_HOURS`, 20-minute tolerance) re-checked under the posting lock; for a reply, never twice to one post, never to the account's own post, and 30–60s pacing kept in `x_pacing` and refused with `wait_seconds` rather than slept through. Then `DRY_RUN`, then X. **The post id is recorded first** (`x_replies`, `x_posts`). A ledger write that fails after a post is logged, never retried. Under `DRY_RUN`: no X write, no like, no ledger row. *The reply budget lanes come with `cadence`.* |
 | `upload` | A | Media upload. Returns a media id that this hand minted, recorded in `hands.db`. `post` attaches only ids from that table or a Giphy id, never a URL, and never both. |
-| `article` | A | Publish an article (guard and the 48h article interval). |
+| `article` | A | *Not built yet.* Publish an article (guard and the 48h article interval). |
 | `like` | A | Like a mention (skipped under `DRY_RUN`). |
 | `unsay` | A | Delete an own post. Previews unless `--confirm`. |
-| `auth` | A | The three-legged OAuth flow (today's `teeny auth-x`). Operator only, interactive. |
+| `auth` | A | *Not built yet.* The three-legged OAuth flow (today's `teeny auth-x`). Operator only, interactive. |
 
 Replaces: `crates/teeny-x/*`, `teeny-agent/src/tools/{x,post}.rs`,
 `teeny/src/{mentions,stream}.rs`, `teeny/src/http/webhooks.rs`,
@@ -38,6 +53,18 @@ receive them. Bring them back only if a 5-minute poll proves too slow.
 | `inbound` | R | Screens third-party text before a model sees it. `bin/job` calls it before every draft. |
 | `style` | R | House style: strip leading @handles, replace dashes, straighten quotes, drop NFA/DYOR. |
 | `holds list/approve/reject/release` | A | Operator review. `release` atomically moves `pending` to `releasing`, publishes through `x`, and on failure goes back to `pending` with the error recorded. |
+
+**One deliberate change from the Rust.** The old screen collapsed every
+repeated letter, so the term `xxx` read as `x+` and held a lone "x" as sexual,
+and `kkk` held a lone "k". On X that meant "x.com" and "on X". A term made of
+one repeated letter now keeps its count (`x{3,}`), as a doubled vowel already
+did. `xxx`, `XXXX` and `kkk` are still held. This is pinned in
+`hands/tests/guard/test_screen.py`.
+
+The judge runs through the core (`inference_agent_chat_simple`), so the model
+key stays in the core's encrypted store. It fails closed: an unreachable core
+or an unreadable verdict is a hold. `SAFETY_JUDGE=0` turns it off, leaving the
+lexicon and the links.
 
 Replaces `crates/teeny-safety/*` and `teeny/src/http/{safety,release}.rs`.
 Holds are written best-effort and never turn into a publish.

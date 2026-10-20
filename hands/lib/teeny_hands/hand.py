@@ -146,8 +146,19 @@ def db() -> sqlite3.Connection:
     """state/hands.db, autocommit with explicit transactions (`transaction`)."""
     conn = sqlite3.connect(state_dir() / "hands.db", timeout=10, isolation_level=None)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=10000")
+    # Switching a fresh file to WAL needs an exclusive lock, and SQLite answers
+    # "database is locked" to the losers at once rather than waiting out the
+    # busy timeout. Many hands start at the same minute (cron), so retry that
+    # one statement briefly instead of failing a job over it.
+    for attempt in range(50):
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            break
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc) or attempt == 49:
+                raise
+            time.sleep(0.02 * (attempt + 1))
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
 

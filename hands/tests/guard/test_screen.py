@@ -116,14 +116,19 @@ class ScreenTest(unittest.TestCase):
     def test_ignores_blank_text(self):
         self.assertIsNone(screen_text("   ", OUTBOUND))
 
-    def test_reads_a_tripled_letter_term_as_any_run_of_that_letter(self):
-        # Inherited from the Rust (and the legacy filter) as it stood, not a
-        # choice made here: repeats collapse, so "xxx" is `x+` and "kkk" is
-        # `k+`, and a lone "x" or "k" is held. On X that includes "x.com" and
-        # "on X". Pinned so that changing it is a decision, not an accident.
-        self.assertEqual(screen_text("follow us on X", OUTBOUND).term, "xxx")
-        self.assertEqual(screen_text("see x.com/teenydroid", INBOUND).term, "xxx")
-        self.assertEqual(screen_text("ok k", INBOUND).term, "kkk")
+    def test_a_single_letter_term_keeps_its_count_so_a_lone_x_is_not_held(self):
+        # The Rust (and the legacy filter) collapsed every repeat, so "xxx"
+        # read as `x+` and a lone "x" was held as sexual: on X that is "x.com"
+        # and "on X", which an X mascot says every day. A term made of one
+        # repeated letter keeps its count, as a doubled vowel already does.
+        self.assertIsNone(screen_text("follow us on X", OUTBOUND))
+        self.assertIsNone(screen_text("see x.com/teenydroid", INBOUND))
+        self.assertIsNone(screen_text("ok k", INBOUND))
+        self.assertIsNone(screen_text("x", OUTBOUND))
+        # The terms themselves are still held, repeated or not.
+        self.assertEqual(screen_text("xxx", INBOUND).term, "xxx")
+        self.assertEqual(screen_text("XXXX links", INBOUND).term, "xxx")
+        self.assertEqual(screen_text("kkk rally", INBOUND).term, "kkk")
 
     def test_has_the_eight_categories_with_profanity_outbound_only(self):
         self.assertEqual(

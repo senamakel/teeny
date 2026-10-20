@@ -63,6 +63,12 @@ def term_pattern(term: str, loose_gaps: bool) -> re.Pattern[str]:
     """One term as a pattern: each letter may repeat ("fuuuck"), a space or
     hyphen matches any run of spacing or punctuation, and the whole must stand
     on its own rather than sit inside a longer word."""
+    letters = [c for c in term.lower() if c not in " -"]
+    # A term that is one letter repeated ("xxx", "kkk") keeps its count. Read as
+    # `x+` it would hold a lone "x", and on X that is "x.com" and "on X".
+    if len(letters) > 1 and len(set(letters)) == 1 and _is_ascii_lower(letters[0]):
+        body = f"{letters[0]}{{{len(letters)},}}"
+        return re.compile(f"{_NOT_AFTER_ALNUM}(?:{body}){_NOT_BEFORE_ALNUM}", re.IGNORECASE)
     body = ""
     previous: str | None = None
     for c in term.lower():
