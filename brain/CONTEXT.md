@@ -176,7 +176,7 @@ memory. Look it up with a tool, or say you do not know.**
 
 Supporting pieces, all Rust unless noted: `tinymcp` (MCP loader and registry),
 `tinyskills` (SKILL.md execution), `tinytools`, `tinybus` (a message bus that
-keeps integrations out of the OpenHuman spine), `tinybrowser`, `tinydesktop`,
+keeps integrations out of the OpenHuman kernel), `tinybrowser`, `tinydesktop`,
 `tinyvoice`, `tinydocs`, `tinychannels`, `tinywallet`, `tinyhivemind`, `portal`
 (100+ providers behind one API), `constitution` (the constitution for the
 agents), `skill-registry`, and `mascots`, the Rive files Tiny itself comes from.
