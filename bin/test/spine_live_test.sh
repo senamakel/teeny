@@ -74,13 +74,21 @@ class Model(BaseHTTPRequestHandler):
         with open(sys.argv[3], "a") as log:
             log.write(json.dumps(users[-1].get("content") if users else None) + "\n")
         base = {"id": "stub-1", "created": int(time.time()), "model": body.get("model", "stub")}
+        # A bin/act draft: answer the JSON it asks for, and note how many
+        # tools the turn offered the model (the act agent must offer none).
+        answer = ANSWER
+        last = users[-1].get("content") if users else None
+        if isinstance(last, str) and last.startswith("# playbook:"):
+            answer = json.dumps({"action": "note", "text": "hello from a playbook"})
+            with open(sys.argv[4], "a") as log:
+                log.write(f"{len(body.get('tools') or [])}\n")
         if body.get("stream"):
             self.send_response(200)
             self.send_header("content-type", "text/event-stream")
             self.end_headers()
             chunks = [
                 {**base, "object": "chat.completion.chunk",
-                 "choices": [{"index": 0, "delta": {"role": "assistant", "content": ANSWER}, "finish_reason": None}]},
+                 "choices": [{"index": 0, "delta": {"role": "assistant", "content": answer}, "finish_reason": None}]},
                 {**base, "object": "chat.completion.chunk",
                  "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
                  "usage": {"prompt_tokens": 1, "completion_tokens": 5, "total_tokens": 6}},
@@ -90,12 +98,12 @@ class Model(BaseHTTPRequestHandler):
             self.wfile.write(b"data: [DONE]\n\n")
             return
         self._json({**base, "object": "chat.completion",
-                    "choices": [{"index": 0, "message": {"role": "assistant", "content": ANSWER}, "finish_reason": "stop"}],
+                    "choices": [{"index": 0, "message": {"role": "assistant", "content": answer}, "finish_reason": "stop"}],
                     "usage": {"prompt_tokens": 1, "completion_tokens": 5, "total_tokens": 6}})
 
 ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), Model).serve_forever()
 PY
-python3 -I "$scratch/model.py" "$model_port" "$scratch/model-calls.log" "$scratch/model-asked.log" &
+python3 -I "$scratch/model.py" "$model_port" "$scratch/model-calls.log" "$scratch/model-asked.log" "$scratch/act-tools.log" &
 model_pid=$!
 
 # --- a scratch copy of the checkout, laid out as on the box ---------------------
@@ -195,6 +203,23 @@ check "the turn went to the configured endpoint" grep -q 'chat/completions' "$sc
 check "the model is asked what bin/ask asked" grep -q 'please say hello' "$scratch/model-asked.log"
 # The first turn writes the core's persona defaults beside SOUL.md.
 check "the core writes its persona defaults into brain/ on the first turn" test -s "$root/brain/IDENTITY.md"
+# --- the doctor and bin/act ---------------------------------------------------
+check "the spine ran the doctor before serving, and it passed" \
+  test "$(jq -r .ok "$root/state/doctor.json" 2>/dev/null)" = true
+check "bin/doctor --live passes on the running spine" "$root/bin/doctor" --live >/dev/null 2>"$scratch/doctor.log"
+cat >"$root/brain/playbooks/hello.md" <<'MD'
++++
+description = "say hello, for the live test"
+output = "none"
++++
+Say hello.
+MD
+acted="$("$root/bin/act" hello 2>"$scratch/act.log" || true)"
+check "bin/act runs a playbook through the act agent" \
+  test "$(jq -r '.actions[0].result.noted' <<<"$acted" 2>/dev/null)" = "hello from a playbook"
+check "the act agent's turn offers the model no tools" test "$(sort -u "$scratch/act-tools.log" 2>/dev/null)" = 0
+check "bin/act records the run" test -s "$root/state/act/hello/runs.jsonl"
+
 registered_window() {
   python3 -c 'import sys, tomllib
 cfg = tomllib.load(open(sys.argv[1], "rb"))
