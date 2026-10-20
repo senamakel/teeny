@@ -5,14 +5,14 @@ is driven by its lore, judged by a model, and fenced by rules in code the
 brain can't edit.
 
 **Status:**
-- **Built:** `bin/act` and playbooks, the cron rules and pinned jobs, and
-  `bin/doctor` (gating every boot).
+- **Built:** `bin/act` and playbooks, the cron rules and pinned jobs,
+  `bin/doctor` (gating every boot), and `bin/eval` with the frozen tasks,
+  judge and invariants.
 - **To come, in this order:**
-  1. `evals/` and `bin/eval`
-  2. the lab spine
-  3. `bin/evolve`
-  4. promotion, restart and rollback
-  5. the first real generation
+  1. the lab spine
+  2. `bin/evolve`
+  3. promotion, restart and rollback
+  4. the first real generation
 
 ## What Teeny may change
 
@@ -21,7 +21,7 @@ brain can't edit.
 | `brain/SOUL.md`, `brain/CONTEXT.md` | `bin/**`, `spine/**`, `vendor/**`, `deploy/**`, `Cargo.*`, `.github/`, `secrets/` |
 | `brain/narrative/**` (lore, `ARCS.md`, the chronicle) | `hands/guard`, `hands/x`, and the existing `hands/lib/teeny_hands/**` |
 | `brain/skills/**`, `brain/playbooks/**`, `brain/lessons.md` | `evals/**`: tasks, judge rubric, `invariants.md`, `cron.pinned.toml` |
-| `brain/cron.toml`: add, remove or reschedule any job, the heartbeat included | `brain/agents/act.toml`, the tool-less agent `bin/act` drafts with |
+| `brain/cron.toml`: add, remove or reschedule any job, the heartbeat included | `brain/agents/act.toml` and `judge.toml`, the tool-less agents `bin/act` drafts with and `bin/eval` judges with |
 | new hands: `hands/<name>`, `hands/lib/teeny_hands/<name>/`, `hands/tests/test_<name>.py` | |
 
 Every public action still passes through `hands/guard`, `hands/x`'s posting
@@ -113,7 +113,8 @@ its report (`state/doctor.json`).
 | `brain/config.toml` | it exists (the core would nest a second workspace) |
 | `cron.toml` | it breaks a cron rule |
 | playbooks | any one (scheduled or not) doesn't parse, or names a hand that doesn't exist |
-| agents | a definition doesn't parse, or `act` has a tool or is missing |
+| agents | a definition doesn't parse, or `act` or `judge` has a tool or is missing |
+| invariants | an anchor in `evals/invariants.md` no longer matches in the brain |
 | guard screen | the lexical screen passes a self-harm phrase or holds a plain gm (run offline: no hold, no judge) |
 | storage | `storage.db` has no master key, or fails `pragma quick_check` |
 | secrets | `core.token` or `openhuman.key` can be read by others |
@@ -123,6 +124,47 @@ its report (`state/doctor.json`).
 
 `bin/spine` runs the doctor before `serve` and refuses to boot a checkout it
 fails. `bin/doctor --root <candidate>` checks a candidate before it's merged.
+
+## Evals (built)
+
+`bin/eval` measures a brain, and one brain against another. Everything it
+measures by is frozen in `evals/`:
+
+- **`evals/tasks/*.toml`:** Teeny's real jobs with their inputs canned: the
+  morning post, replies (a question, FUD, wen $1, a paid shill, a wallet
+  attack, an insult, a market cap nobody fetched), two lore episodes, a
+  terminal line, and a post that moves an arc. Each sets its kind (and so its
+  length), and patterns no draft may match.
+- **`evals/invariants.md`:** what Teeny is, whatever it rewrites, as
+  statements the judge reads and anchors a script checks: phrases that must
+  still match in SOUL, CONTEXT, LORE and VOICE. `bin/doctor` checks the
+  anchors too, so a brain that drops "never sell $TINY" doesn't boot.
+- **`evals/judge.md`:** the rubric. Invariants first, then the task, the
+  voice, the lore, the arc, specificity, and the humour.
+
+```
+bin/eval run OUT          every task, twice, as the `act` agent of the brain the
+                          core at OH_URL runs; each draft gets the hard checks
+bin/eval compare A B OUT  each pair judged twice by the `judge` agent: A shown
+                          first, then B. Exit 0 when B wins, 2 when it doesn't
+```
+
+- **Hard checks** need no model: the draft parses, the guard's offline screen
+  passes it (not `hands/guard check`, which files holds), it fits the length
+  and the emoji limit, and it matches none of the task's patterns. A draft
+  the judge says breaks an invariant counts as a hard failure too.
+- **The judge** is blind: drafts are "1" and "2", never "baseline" and
+  "candidate". It reads the rubric, the invariants, and the soul, context,
+  lore and arcs of `--judge-root` (this checkout: main), never the
+  candidate's. A pair is decided only when both orders agree, so a judge that
+  favours a position decides nothing, and an answer it can't read is a tie.
+- **The verdict:** B wins when it fails no task's hard checks more often than
+  A, at least `--min-pairs` (12) pairs were decided, and it won at least
+  `--threshold` (0.6) of them. `OUT/report.json` keeps every pair, the
+  judge's notes and the reason.
+
+The judge inherits the core's model. Pinning a different one is
+`model = "<name>"` in `brain/agents/judge.toml`, which only a human can edit.
 
 ## The loop (to come): one generation of `bin/evolve`
 
