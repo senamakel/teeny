@@ -188,7 +188,12 @@ check "the turn went to the configured endpoint" grep -q 'chat/completions' "$sc
 # thousand tokens; its own system prompt is bigger, so the trim drops the
 # user's message and the model answers a turn with nothing in it.
 check "the model is asked what bin/ask asked" grep -q 'please say hello' "$scratch/model-asked.log"
-check "the model's window comes from the endpoint" grep -q 'context_window = 128000' "$root/.openhuman/config.toml"
+registered_window() {
+  python3 -c 'import sys, tomllib
+cfg = tomllib.load(open(sys.argv[1], "rb"))
+print(next((e.get("context_window") for e in cfg.get("model_registry", []) if e.get("id") == "stub"), None))' "$root/.openhuman/config.toml"
+}
+check "the model's window comes from the endpoint" test "$(registered_window)" = 128000
 
 # --- the keyring survives a restart ---------------------------------------------
 kill -TERM "$kernel_pid"
