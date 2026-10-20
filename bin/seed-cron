@@ -40,8 +40,6 @@ while [ $# -gt 0 ]; do
 done
 [ -r "$file" ] || die "no schedule file at $file"
 
-# The file, validated and flattened to one JSON array:
-#   [{name, expr, tz, command, enabled}]
 # The file and the pinned jobs, checked against the cron rules
 # (bin/lib/cron_policy.py) and flattened to one JSON array:
 #   [{name, expr, tz, command, enabled}]
