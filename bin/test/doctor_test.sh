@@ -31,7 +31,7 @@ fresh() {
   cp -R "$repo/brain/playbooks" "$repo/brain/agents" "$root/brain/"
   cp "$repo/brain/SOUL.md" "$repo/brain/CONTEXT.md" "$repo/brain/cron.toml" "$root/brain/"
 }
-doctor() { "$root/bin/doctor" "$@" >"$scratch/report.json" 2>"$scratch/doctor.log"; }
+doctor() { "$root/bin/doctor" >"$scratch/report.json" 2>"$scratch/doctor.log"; }
 fails() { # NAME CHECK-SUBSTRING: the doctor exits 1 and names the failing check
   local name="$1" what="$2"
   if doctor; then
