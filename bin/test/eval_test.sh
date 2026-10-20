@@ -187,7 +187,7 @@ check "0.58 is under the 0.6 needed" test "$(report .promote "$scratch/close")" 
 FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="$prefer_cand" FAKE_ELSE=base compare "$scratch/lower" --threshold 0.55
 check "--threshold sets the win rate needed" test "$(report .promote "$scratch/lower")" = true
 FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="$prefer_cand" compare "$scratch/some"
-check "ties count for neither side" test "$(report '[.wins, .losses, .ties] | join(" ")' "$scratch/some")" = "7 0 5"
+check "ties count for neither side" test "$(report '[.wins, .losses, .ties] | map(tostring) | join(" ")' "$scratch/some")" = "7 0 5"
 FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="arc-progress,morning-post,reply-fud" compare "$scratch/few"
 check "three decided pairs are under the 12 needed" test "$(report .promote "$scratch/few")" = false
 FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="arc-progress,morning-post,reply-fud" compare "$scratch/fewer" --min-pairs 3
