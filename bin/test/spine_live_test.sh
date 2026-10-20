@@ -105,8 +105,10 @@ model_pid=$!
 root="$scratch/root"
 mkdir -p "$root/brain" "$root/secrets"
 cp -R "$repo/bin" "$root/bin"
-cp "$repo/brain/cron.toml" "$root/brain/cron.toml"
-cp "$repo/brain/SOUL.md" "$root/brain/SOUL.md"
+cp -R "$repo/hands" "$root/hands"
+cp -R "$repo/evals" "$root/evals"
+cp -R "$repo/brain/playbooks" "$repo/brain/agents" "$root/brain/"
+cp "$repo/brain/cron.toml" "$repo/brain/SOUL.md" "$repo/brain/CONTEXT.md" "$root/brain/"
 cat >"$root/secrets/spine.env" <<ENV
 LADDER_URL=http://127.0.0.1:$model_port/v1
 LADDER_API_KEY=stub-key
