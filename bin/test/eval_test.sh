@@ -7,7 +7,8 @@
 #   first          always draft 1 (a judge that only looks at position)
 #   garbage        an answer that is not JSON
 #   prefer:WORD    the draft containing WORD, for the tasks in $FAKE_PREFER_TASKS
-#                  (a comma list; every task when unset), else a tie
+#                  (a comma list; every task when unset); on the other tasks
+#                  the draft containing $FAKE_ELSE, or a tie when it is unset
 #   breaks:WORD:ID like prefer:WORD, and says the draft with WORD breaks ID
 #
 # Every message is logged, so the tests can read what the judge was shown.
@@ -41,12 +42,13 @@ if agent == "act":
     answer = open(os.environ["FAKE_DRAFT"]).read().replace("%TASK%", task)
 elif agent == "judge":
     mode = os.environ["FAKE_JUDGE"]
-    task = re.search(r"Its inputs, as data", message) and re.search(r"^## the task\n\n(.*)$", message, re.M).group(1)
     drafts = dict(re.findall(r"^## draft ([12])\n\n```text\n(.*?)\n```", message, re.M | re.S))
     tasks = os.environ.get("FAKE_PREFER_TASKS")
     def preferred(word):
         if tasks and not any(t in drafts["1"] + drafts["2"] for t in tasks.split(",")):
-            return "tie"
+            word = os.environ.get("FAKE_ELSE")
+            if not word:
+                return "tie"
         hits = [k for k in ("1", "2") if word in drafts[k]]
         return hits[0] if len(hits) == 1 else "tie"
     if mode == "tie":
@@ -72,7 +74,7 @@ FAKE
 chmod +x "$scratch/fake-oh"
 
 export TEENY_OH="$scratch/fake-oh" FAKE_CALLS="$scratch/calls.log" FAKE_DRAFT="$scratch/draft.txt"
-unset FAKE_JUDGE FAKE_PREFER_TASKS OPENHUMAN_WORKSPACE TEENY_STATE
+unset FAKE_JUDGE FAKE_PREFER_TASKS FAKE_ELSE OPENHUMAN_WORKSPACE TEENY_STATE
 draft() { printf '%s' "$1" >"$FAKE_DRAFT"; }
 tasks="$(find "$repo/evals/tasks" -name '*.toml' | wc -l | tr -d ' ')"
 runs="$scratch/runs"
@@ -175,23 +177,21 @@ FAKE_JUDGE=garbage compare "$scratch/garbage"
 check "an unreadable judge decides nothing" test "$(report .decided "$scratch/garbage")" = 0
 
 # --- the thresholds -------------------------------------------------------------------------------
-# Wins on 7 tasks (14 pairs), losses on the rest: 14/24 = 0.58.
+# Wins on 7 tasks (14 pairs), losses on the other 5 (10): 14/24 = 0.58.
 prefer_cand="arc-progress,episode-night-shift,episode-visitor,morning-post,reply-fud,reply-mcap-memory,reply-provocation"
-cat >"$scratch/split-judge" <<'SPLIT'
-#!/usr/bin/env bash
-# Wins for the candidate on $FAKE_PREFER_TASKS, wins for the base elsewhere.
-SPLIT
+FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="$prefer_cand" FAKE_ELSE=base compare "$scratch/close"
+check "counts wins over decided pairs" test "$(report .win_rate "$scratch/close")" = 0.5833
+check "0.58 is under the 0.6 needed" test "$(report .promote "$scratch/close")" = false
+FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="$prefer_cand" FAKE_ELSE=base compare "$scratch/lower" --threshold 0.55
+check "--threshold sets the win rate needed" test "$(report .promote "$scratch/lower")" = true
 FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="$prefer_cand" compare "$scratch/some"
-check "ties do not count against the candidate" test "$(report .win_rate "$scratch/some")" = 1
-check "but too few decided pairs promote nothing" test "$(report .promote "$scratch/some")" = true
+check "ties count for neither side" test "$(report '[.wins, .losses, .ties] | join(" ")' "$scratch/some")" = "14 0 10"
 FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="arc-progress,morning-post,reply-fud" compare "$scratch/few"
 check "six decided pairs are under the 12 needed" test "$(report .promote "$scratch/few")" = false
 FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="arc-progress,morning-post,reply-fud" compare "$scratch/fewer" --min-pairs 6
 check "--min-pairs lowers the bar" test "$(report .promote "$scratch/fewer")" = true
 FAKE_JUDGE=prefer:base compare "$scratch/lose"
 check "a candidate that loses every pair is not promoted" test "$(report .win_rate "$scratch/lose")" = 0
-FAKE_JUDGE=prefer:CAND compare "$scratch/high" --threshold 1.01
-check "--threshold sets the win rate needed" test "$(report .promote "$scratch/high")" = false
 
 # --- hard checks beat the judge ------------------------------------------------------------------
 FAKE_JUDGE=breaks:CAND:never-sell compare "$scratch/breaks"
