@@ -78,7 +78,7 @@ run() {
 }
 
 compare() {
-  local judge_root="$TEENY_ROOT" threshold=0.6 min_pairs=12 base cand out pair task sample first second
+  local judge_root="$TEENY_ROOT" threshold=0.6 min_pairs=12 base cand out
   while [ $# -gt 0 ]; do
     case "$1" in
       --judge-root) judge_root="$(cd "$2" && pwd)"; shift 2 ;;
@@ -95,15 +95,8 @@ compare() {
   : >"$out/judged.jsonl"
   # Every pair both sides drafted, judged twice: the baseline shown first,
   # then the candidate. The judge never learns which is which.
-  while IFS= read -r pair; do
-    task="$(jq -r .task <<<"$pair")" sample="$(jq -r .sample <<<"$pair")"
-    first="$(jq -c '{"1": .base, "2": .cand}' <<<"$pair" | python3 "$lib" judge-message "$evals" "$judge_root/brain" "$task" | ask judge 2>"$out/ask.err" || true)"
-    second="$(jq -c '{"1": .cand, "2": .base}' <<<"$pair" | python3 "$lib" judge-message "$evals" "$judge_root/brain" "$task" | ask judge 2>"$out/ask.err" || true)"
-    jq -cn --arg t "$task" --argjson s "$sample" \
-      --argjson f "$(python3 "$lib" verdict <<<"$first")" --argjson g "$(python3 "$lib" verdict <<<"$second")" \
-      '{task: $t, sample: $s, first: $f, second: $g}' >>"$out/judged.jsonl"
-    log "$task #$sample judged"
-  done < <(python3 "$lib" pairs "$base" "$cand")
+  python3 "$lib" judge "$evals" "$judge_root/brain" "$base" "$cand" "$out/judged.jsonl" \
+    -- "$TEENY_ROOT/bin/ask" --agent judge >/dev/null
   python3 "$lib" score "$base" "$cand" "$out/judged.jsonl" "$threshold" "$min_pairs" >"$out/report.json.tmp"
   mv "$out/report.json.tmp" "$out/report.json"
   jq -c '{promote, reason, wins, losses, ties, decided, win_rate, regressions}' "$out/report.json"

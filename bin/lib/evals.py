@@ -7,7 +7,8 @@ here talks to a core, writes a guard hold or posts.
     python3 bin/lib/evals.py check EVALS TASK HANDS_LIB   < answer -> {draft, checks, ok}
     python3 bin/lib/evals.py invariants EVALS BRAIN       -> {ok, missing}
     python3 bin/lib/evals.py judge-message EVALS BRAIN TASK < {"1": draft, "2": draft}
-    python3 bin/lib/evals.py pairs BASE CAND              -> {task, sample, base, cand} per line
+    python3 bin/lib/evals.py judge EVALS BRAIN BASE CAND OUT -- ASK...
+                                                          -> OUT, a verdict pair per line
     python3 bin/lib/evals.py verdict                      < the judge's answer
     python3 bin/lib/evals.py score BASE CAND JUDGED THRESHOLD MIN_PAIRS
 
@@ -31,6 +32,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -272,6 +274,26 @@ def pairs(base_path: Path, cand_path: Path) -> list[dict]:
     ]
 
 
+def judge(evals: Path, brain: Path, base_path: Path, cand_path: Path, out: Path, ask: list[str]) -> int:
+    """Every pair, judged twice by `ask` (bin/ask --agent judge): the
+    baseline shown as draft 1, then the candidate. A turn that fails is an
+    unusable answer, so a tie."""
+    count = 0
+    with out.open("w", encoding="utf-8") as fh:
+        for pair in pairs(base_path, cand_path):
+            task = load_task(evals, pair["task"])
+            verdicts = []
+            for drafts in ({"1": pair["base"], "2": pair["cand"]}, {"1": pair["cand"], "2": pair["base"]}):
+                turn = subprocess.run(ask, input=judge_message(evals, brain, task, drafts), capture_output=True, text=True)
+                verdicts.append(verdict(turn.stdout if turn.returncode == 0 else ""))
+                if turn.returncode != 0:
+                    verdicts[-1]["notes"] = f"the judge's turn failed: {turn.stderr.strip()[-300:]}"
+            fh.write(json.dumps({"task": pair["task"], "sample": pair["sample"], "first": verdicts[0], "second": verdicts[1]}, ensure_ascii=False) + "\n")
+            print(f"[eval] {pair['task']} #{pair['sample']} judged", file=sys.stderr)
+            count += 1
+    return count
+
+
 def pair_outcome(first: dict, second: dict) -> dict:
     """Two verdicts on one pair: `first` showed the baseline as draft 1,
     `second` showed the candidate as draft 1. They must agree to decide."""
@@ -377,10 +399,8 @@ def main(argv: list[str]) -> int:
         elif cmd == "judge-message" and len(args) == 3:
             print(judge_message(Path(args[0]), Path(args[1]), load_task(Path(args[0]), args[2]), json.loads(sys.stdin.read())))
             return 0
-        elif cmd == "pairs" and len(args) == 2:
-            for pair in pairs(Path(args[0]), Path(args[1])):
-                print(json.dumps(pair, ensure_ascii=False))
-            return 0
+        elif cmd == "judge" and len(args) > 6 and args[5] == "--":
+            out = {"judged": judge(Path(args[0]), Path(args[1]), Path(args[2]), Path(args[3]), Path(args[4]), args[6:])}
         elif cmd == "verdict" and not args:
             out = verdict(sys.stdin.read())
         elif cmd == "score" and len(args) == 5:
