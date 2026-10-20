@@ -1,6 +1,6 @@
-# Deploying the kernel
+# Deploying the spine
 
-The kernel is one container: `teeny-kernel` serving over the checkout, which
+The spine is one container: `teeny-spine` serving over the checkout, which
 is mounted at `/srv/teeny`. It publishes no port and shares no database with
 anything else on the box.
 
@@ -10,12 +10,12 @@ From the checkout:
 
 ```sh
 git submodule update --init --recursive vendor/openhuman
-mkdir -p secrets && cp deploy/kernel.env.example secrets/kernel.env && chmod 600 secrets/kernel.env
-$EDITOR secrets/kernel.env            # LADDER_API_KEY, KERNEL_MODEL; CortexDB if wanted
+mkdir -p secrets && cp deploy/spine.env.example secrets/spine.env && chmod 600 secrets/spine.env
+$EDITOR secrets/spine.env            # LADDER_API_KEY, SPINE_MODEL; CortexDB if wanted
 cp deploy/teeny.env.example secrets/teeny.env && chmod 600 secrets/teeny.env
 $EDITOR secrets/teeny.env             # the X keys; DRY_RUN stays 1 until you mean it
 docker compose -f deploy/compose.yaml up -d --build
-docker compose -f deploy/compose.yaml logs -f kernel     # "[kernel] ready" once seeded
+docker compose -f deploy/compose.yaml logs -f spine     # "[spine] ready" once seeded
 ```
 
 The first boot mints `secrets/core.token` (the RPC bearer) and
@@ -26,22 +26,22 @@ The first boot mints `secrets/core.token` (the RPC bearer) and
 ```sh
 bin/crons                             # jobs, next run, last result: read-only, straight from storage.db
 bin/crons runs heartbeat              # one job's recent runs and output
-docker compose -f deploy/compose.yaml exec kernel bin/ask "hello"
+docker compose -f deploy/compose.yaml exec spine bin/ask "hello"
 ```
 
 ## Changing it
 
-- **What it runs:** edit `workspace/cron.toml`, then
-  `docker compose -f deploy/compose.yaml restart kernel`. `bin/seed-cron`
+- **What it runs:** edit `brain/cron.toml`, then
+  `docker compose -f deploy/compose.yaml restart spine`. `bin/seed-cron`
   reconciles the core's jobs by name at every boot.
-- **A script or the workspace:** pull, then restart. Nothing of Teeny's is
+- **A script or the brain:** pull, then restart. Nothing of Teeny's is
   baked into the image.
 - **OpenHuman itself:** bump `vendor/openhuman` (see the root README), then
   `up -d --build`.
 
 ## Backups
 
-Back up `workspace/storage.db` and `secrets/openhuman.key` **together**:
+Back up `brain/storage.db` and `secrets/openhuman.key` **together**:
 - `storage.db` holds all of the core's state, including the cron jobs and its
   secrets, which are encrypted under that key.
 - A database without its key has unreadable secrets.

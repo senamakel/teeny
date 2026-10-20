@@ -1,4 +1,4 @@
-# The image needs the workspace manifest, kernel/ and vendor/ only. Never the
+# The image needs the workspace manifest, spine/ and vendor/ only. Never the
 # keys, the core's state or anything local.
 **/.git
 **/target
@@ -7,7 +7,7 @@ worktrees
 secrets
 state
 .openhuman
-workspace
+brain
 web
 deploy
 docs

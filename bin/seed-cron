@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Make OpenHuman's cron match workspace/cron.toml.
+# Make OpenHuman's cron match brain/cron.toml.
 #
-#   bin/seed-cron [--dry-run] [--file workspace/cron.toml]
+#   bin/seed-cron [--dry-run] [--file brain/cron.toml]
 #
 # OpenHuman cannot load jobs from a file (docs/oh-gaps.md, G2), so this
 # reconciles by name: a job in the file and not in the core is added, one that
@@ -19,7 +19,7 @@ set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
 need jq python3
 
-file="$TEENY_WORKSPACE/cron.toml"
+file="$TEENY_BRAIN/cron.toml"
 dry_run=0
 while [ $# -gt 0 ]; do
   case "$1" in

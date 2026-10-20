@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests for bin/seed-cron against a stand-in for the core's cron RPC that keeps
-# its jobs in a JSON file. No OpenHuman needed; bin/test/kernel_live_test.sh
+# its jobs in a JSON file. No OpenHuman needed; bin/test/spine_live_test.sh
 # runs the same reconciliation against a real core.
 #
 #   bin/test/seed_cron_test.sh
@@ -157,8 +157,8 @@ refuses "refuses a non-boolean enabled" $'[jobs.x]\nschedule = "* * * * *"\ncomm
 
 # --- the repository's own schedule file is valid ------------------------------
 reset
-"$seed" --dry-run --file "$here/../../workspace/cron.toml" 2>"$scratch/stderr"
-check "workspace/cron.toml parses and plans" grep -q 'teeny.heartbeat' "$scratch/stderr"
+"$seed" --dry-run --file "$here/../../brain/cron.toml" 2>"$scratch/stderr"
+check "brain/cron.toml parses and plans" grep -q 'teeny.heartbeat' "$scratch/stderr"
 
 if [ "$failures" -gt 0 ]; then
   printf '%d failure(s)\n' "$failures" >&2

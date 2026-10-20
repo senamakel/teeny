@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 # Run the OpenHuman core over this checkout: the container's entrypoint, and
-# how to run the kernel on a laptop.
+# how to run the spine on a laptop.
 #
-#   bin/kernel
+#   bin/spine
 #
 # 1. Mints what a first boot needs and nothing else: secrets/core.token (the
 #    RPC bearer) and secrets/openhuman.key (the master key every secret the core
-#    stores is encrypted under). Back both up with workspace/storage.db; a
+#    stores is encrypted under). Back both up with brain/storage.db; a
 #    storage.db without its key is unreadable.
-# 2. Starts `openhuman-core serve` with the workspace, the single storage file
-#    and the file keyring (docs/architecture.md, "Kernel").
+# 2. Starts `openhuman-core serve` with the brain, the single storage file
+#    and the file keyring (docs/architecture.md, "Spine").
 # 3. Once it answers, points it at the model and the memory store named in
-#    secrets/kernel.env, then makes cron match workspace/cron.toml.
+#    secrets/spine.env, then makes cron match brain/cron.toml.
 # 4. Waits on the core, forwarding SIGTERM, and exits with its status.
 #
-# secrets/kernel.env is read in a subshell and never exported to the core:
+# secrets/spine.env is read in a subshell and never exported to the core:
 # shell jobs inherit the core's environment, and the model and memory keys
 # belong in the core's encrypted store, not in every job's `env`.
 set -euo pipefail
@@ -23,22 +23,22 @@ set -euo pipefail
 need curl jq python3 sqlite3
 
 # The image sets OPENHUMAN_CORE_BIN; on a laptop it is the release build in
-# this checkout (`cargo build --release -p teeny-kernel`).
+# this checkout (`cargo build --release -p teeny-spine`).
 core_bin="${OPENHUMAN_CORE_BIN:-}"
 if [ -z "$core_bin" ]; then
-  core_bin="$TEENY_ROOT/target/release/teeny-kernel"
-  [ -x "$core_bin" ] || core_bin=teeny-kernel
+  core_bin="$TEENY_ROOT/target/release/teeny-spine"
+  [ -x "$core_bin" ] || core_bin=teeny-spine
 fi
-command -v "$core_bin" >/dev/null 2>&1 || die "no kernel binary at '$core_bin' (cargo build --release -p teeny-kernel, or set OPENHUMAN_CORE_BIN)"
+command -v "$core_bin" >/dev/null 2>&1 || die "no spine binary at '$core_bin' (cargo build --release -p teeny-spine, or set OPENHUMAN_CORE_BIN)"
 host="${OPENHUMAN_CORE_HOST:-127.0.0.1}"
 port="${OPENHUMAN_CORE_PORT:-7788}"
 
-mkdir -p "$TEENY_WORKSPACE" "$TEENY_STATE"
+mkdir -p "$TEENY_BRAIN" "$TEENY_STATE"
 (umask 077 && mkdir -p "$TEENY_SECRETS")
-# Never a config.toml inside the workspace: the core would take the workspace
-# for its home and nest a second workspace/ inside it.
-[ ! -e "$TEENY_WORKSPACE/config.toml" ] ||
-  die "$TEENY_WORKSPACE/config.toml must not exist; the core keeps its config in $(dirname "$TEENY_WORKSPACE")/.openhuman/"
+# Never a config.toml inside the brain: the core would take the brain
+# for its home and nest a second brain/ inside it.
+[ ! -e "$TEENY_BRAIN/config.toml" ] ||
+  die "$TEENY_BRAIN/config.toml must not exist; the core keeps its config in $(dirname "$TEENY_BRAIN")/.openhuman/"
 
 mint() {
   local file="$1" what="$2"
@@ -49,10 +49,10 @@ mint() {
 mint "$TEENY_SECRETS/core.token" "the core RPC token"
 mint "$TEENY_SECRETS/openhuman.key" "the keyring master key"
 
-# Read one value from secrets/kernel.env without loading the rest of it into
+# Read one value from secrets/spine.env without loading the rest of it into
 # this shell (and so into the core's environment).
-kernel_env() {
-  local file="$TEENY_SECRETS/kernel.env"
+spine_env() {
+  local file="$TEENY_SECRETS/spine.env"
   [ -r "$file" ] || return 0
   # shellcheck disable=SC1090
   (set -a && . "$file" && printf '%s' "${!1:-}")
@@ -63,12 +63,12 @@ kernel_env() {
 # its `local-openai` runtime, and that runtime's URL is LOCAL_OPENAI_URL. A
 # custom cloud provider would need a TinyHumans sign-in (every turn fails
 # SESSION_EXPIRED without one).
-ladder_url="$(kernel_env LADDER_URL)"
+ladder_url="$(spine_env LADDER_URL)"
 if [ -n "$ladder_url" ]; then
   export LOCAL_OPENAI_URL="$ladder_url"
 fi
 
-export OPENHUMAN_WORKSPACE="$TEENY_WORKSPACE"
+export OPENHUMAN_WORKSPACE="$TEENY_BRAIN"
 export OPENHUMAN_STORAGE_URL="sqlite:$TEENY_STORAGE"
 export OPENHUMAN_ACTION_DIR="$TEENY_ROOT"
 export OPENHUMAN_KEYRING_BACKEND=file
@@ -80,22 +80,22 @@ export OPENHUMAN_CORE_URL="http://127.0.0.1:$port"
 # For cron shell jobs, which do not inherit this environment (bin/lib/teeny.sh).
 printf '%s\n' "$OPENHUMAN_CORE_URL" >"$TEENY_STATE/core.url"
 
-log "serving $TEENY_WORKSPACE on $host:$port (storage $TEENY_STORAGE)"
+log "serving $TEENY_BRAIN on $host:$port (storage $TEENY_STORAGE)"
 "$core_bin" serve &
 core=$!
 trap 'kill -TERM "$core" 2>/dev/null || true' TERM INT
 
-for _ in $(seq 1 "${KERNEL_BOOT_SECS:-120}"); do
+for _ in $(seq 1 "${SPINE_BOOT_SECS:-120}"); do
   curl -fsS -o /dev/null "$OPENHUMAN_CORE_URL/health" 2>/dev/null && break
   kill -0 "$core" 2>/dev/null || { wait "$core" || exit $?; exit 1; }
   sleep 1
 done
-curl -fsS -o /dev/null "$OPENHUMAN_CORE_URL/health" || die "the core did not answer /health in ${KERNEL_BOOT_SECS:-120}s"
+curl -fsS -o /dev/null "$OPENHUMAN_CORE_URL/health" || die "the core did not answer /health in ${SPINE_BOOT_SECS:-120}s"
 
-# The model and the memory store, from secrets/kernel.env when it exists. Set
+# The model and the memory store, from secrets/spine.env when it exists. Set
 # on every boot, so editing the file and restarting is the whole procedure.
 (
-  env_file="$TEENY_SECRETS/kernel.env"
+  env_file="$TEENY_SECRETS/spine.env"
   if [ -r "$env_file" ]; then
     set -a
     # shellcheck disable=SC1090
@@ -103,36 +103,36 @@ curl -fsS -o /dev/null "$OPENHUMAN_CORE_URL/health" || die "the core did not ans
     set +a
   fi
   if [ -n "${LADDER_URL:-}" ]; then
-    [ -n "${KERNEL_MODEL:-}" ] || die "LADDER_URL is set without KERNEL_MODEL (the model id every workload uses, as LLM_MODEL is today)"
+    [ -n "${SPINE_MODEL:-}" ] || die "LADDER_URL is set without SPINE_MODEL (the model id every workload uses, as LLM_MODEL is today)"
     # The key goes to the core's encrypted store, never its environment. Once
-    # stored it can be dropped from kernel.env: a boot without it keeps the
+    # stored it can be dropped from spine.env: a boot without it keeps the
     # stored one.
     oh config_update_local_ai_settings "$(jq -cn --arg k "${LADDER_API_KEY:-}" \
       '{runtime_enabled: true, opt_in_confirmed: true} + (if $k != "" then {api_key: $k} else {} end)')" >/dev/null
     [ -n "${LADDER_API_KEY:-}" ] || log "model: no LADDER_API_KEY; keeping the key the core already stores"
-    oh config_update_model_settings "$(jq -cn --arg m "$KERNEL_MODEL" '("local-openai:" + $m) as $p |
+    oh config_update_model_settings "$(jq -cn --arg m "$SPINE_MODEL" '("local-openai:" + $m) as $p |
       {default_model: $m, chat_provider: $p, reasoning_provider: $p, agentic_provider: $p,
        coding_provider: $p, vision_provider: $p, memory_provider: $p}')" >/dev/null
-    log "model: $LADDER_URL as local-openai:$KERNEL_MODEL"
+    log "model: $LADDER_URL as local-openai:$SPINE_MODEL"
     # The core never asks a local-openai endpoint for the model's window and
     # budgets an unknown one at a few thousand tokens: less than its own
     # system prompt, so the trim drops the user's message and the model
-    # answers an empty turn. KERNEL_CONTEXT_WINDOW wins; else the endpoint's
+    # answers an empty turn. SPINE_CONTEXT_WINDOW wins; else the endpoint's
     # own listing (the ladder reports `context_length`). The key goes in a
     # header file, never in curl's argv.
-    window="${KERNEL_CONTEXT_WINDOW:-}"
+    window="${SPINE_CONTEXT_WINDOW:-}"
     if [ -z "$window" ]; then
       window="$(curl -fsS -m 10 -H @<(printf 'authorization: Bearer %s\n' "${LADDER_API_KEY:-}") \
-        "${LADDER_URL%/}/models" 2>/dev/null | jq -r --arg m "$KERNEL_MODEL" \
+        "${LADDER_URL%/}/models" 2>/dev/null | jq -r --arg m "$SPINE_MODEL" \
         '[.data[]? | select(.id == $m or ((.aliases // []) | index($m)))
           | (.context_length // .context_window // empty)][0] // empty' 2>/dev/null)" || window=""
     fi
     if [[ "$window" =~ ^[1-9][0-9]*$ ]]; then
-      oh inference_update_model_settings "$(jq -cn --arg m "$KERNEL_MODEL" --argjson w "$window" \
+      oh inference_update_model_settings "$(jq -cn --arg m "$SPINE_MODEL" --argjson w "$window" \
         '{model_registry: [{id: $m, provider: "local-openai", context_window: $w}]}')" >/dev/null
-      log "model: $KERNEL_MODEL has a $window-token window"
+      log "model: $SPINE_MODEL has a $window-token window"
     else
-      log "model: no window for $KERNEL_MODEL from the endpoint; keeping the stored one (set KERNEL_CONTEXT_WINDOW if turns come back empty)"
+      log "model: no window for $SPINE_MODEL from the endpoint; keeping the stored one (set SPINE_CONTEXT_WINDOW if turns come back empty)"
     fi
   else
     log "model: not configured (no LADDER_URL in $env_file)"

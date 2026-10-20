@@ -1,10 +1,10 @@
-//! `teeny-kernel`: OpenHuman's command-line host, built from the library.
+//! `teeny-spine`: OpenHuman's command-line host, built from the library.
 //!
 //! It is what upstream's `openhuman-core` binary is (`crates/openhuman-cli`):
 //! the shared host entry [`openhuman_rpc::host::cli`] does everything, so
-//! `teeny-kernel serve`, `teeny-kernel cron list` and the rest behave exactly
+//! `teeny-spine serve`, `teeny-spine cron list` and the rest behave exactly
 //! as the upstream binary does. Teeny adds no behaviour here; what Teeny does
-//! lives in `workspace/` and `bin/`. `bin/kernel` runs it.
+//! lives in `brain/` and `bin/`. `bin/spine` runs it.
 
 use openhuman_rpc::embed::process;
 
@@ -23,7 +23,7 @@ fn main() {
 }
 
 /// Rust ignores SIGPIPE at startup, which turns a write to a closed pipe
-/// (`teeny-kernel cron list | head`) into a panic. A command-line tool should
+/// (`teeny-spine cron list | head`) into a panic. A command-line tool should
 /// stop quietly instead.
 #[cfg(unix)]
 #[allow(unsafe_code)]

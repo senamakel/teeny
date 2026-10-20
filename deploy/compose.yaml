@@ -1,25 +1,25 @@
-# The kernel: teeny-kernel (a stock OpenHuman core, built here) over this
+# The spine: teeny-spine (a stock OpenHuman core, built here) over this
 # checkout (docs/architecture.md).
 #
 # Its own compose project, so it runs beside whatever else is on the box. It
 # publishes no port; operators reach it with `exec`.
 #
 #   git submodule update --init --recursive vendor/openhuman
-#   cp deploy/kernel.env.example secrets/kernel.env      # then fill it in
+#   cp deploy/spine.env.example secrets/spine.env      # then fill it in
 #   docker compose -f deploy/compose.yaml up -d --build
-#   docker compose -f deploy/compose.yaml exec kernel bin/crons
-#   docker compose -f deploy/compose.yaml exec kernel bin/ask "hello"
+#   docker compose -f deploy/compose.yaml exec spine bin/crons
+#   docker compose -f deploy/compose.yaml exec spine bin/ask "hello"
 
-name: teeny-kernel
+name: teeny-spine
 
 services:
-  kernel:
-    image: teeny-kernel:current
+  spine:
+    image: teeny-spine:current
     build:
       context: ..
     restart: unless-stopped
     init: true
-    # The checkout owner's uid, so what the core writes (workspace/storage.db,
+    # The checkout owner's uid, so what the core writes (brain/storage.db,
     # state/, secrets/, .openhuman/) belongs to whoever pulls and backs it up.
     user: "${TEENY_UID:-1000}:${TEENY_GID:-1000}"
     environment:

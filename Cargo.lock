@@ -3384,7 +3384,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "teeny-kernel"
+name = "teeny-spine"
 version = "0.1.0"
 dependencies = [
  "libc",
