@@ -7,9 +7,11 @@ state in `state/hands.db`, `DRY_RUN=1` by default.
 
 **Status.** `guard` and the outbound and read half of `x` are built
 (`hands/guard`, `hands/x`, code in `hands/lib/teeny_hands/`, tests in
-`hands/tests/`). Mention intake and the queue (`x ingest`, `x queue`) belong to
-the event ledger, which is separate work. `article`, `auth` and the other hands
-are still to come. Rows below say which.
+`hands/tests/`). So is mention intake (`x ingest`, `x mentions`, `x mark`):
+the queue itself is the core's inbound event queue, which coalesces mentions
+into one drafting turn (docs/architecture.md, §7), so there is no `x queue`
+claim or lease here. `article`, `auth` and the other hands are still to
+come. Rows below say which.
 
 **Language.** The hands are Python 3.11 standard library, with no
 dependencies. Python is already in the image for `bin/seed-cron`, and OAuth 1.0a
@@ -28,9 +30,9 @@ codes, secrets, dry run, state, the core client) is
 
 | Verb | | Does |
 |---|---|---|
-| `ingest` | A | *Event ledger, not built here.* Poll mentions since the cursor. Keep one-level-eligible mentions that aren't from the account. Insert as `pending`, unique on post id. Advance `since_id`. |
-| `queue claim` | A | *Event ledger, not built here.* Atomically move one `pending` row, or a stale `replying` row with no `replyId` and a lease over 15 minutes, to `replying` with `claimedAt`. |
-| `queue done/fail/hold` | A | *Event ledger, not built here.* Mark the outcome. A row that carries a `replyId` is never offered again. |
+| `ingest [--max N] [--no-offer]` | J | Read the mentions timeline since the `x_cursor` cursor into `x_mentions`, unique on post id. The account's own posts and posts already answered are `skipped`; `guard inbound` screens the rest and a hold is `held`. Every `pending` row is offered to the core (`openhuman.inbound_offer`, source `x:mentions`) and marked `offered`; a failed offer stays `pending` for the next run. The cursor moves once the page is stored. |
+| `mentions [--status S]` | J | The queue, newest first. |
+| `mark ID --status S [--note T]` | J | What became of a mention after its draft: `drafted` (under `DRY_RUN`), `replied`, `refused` or `skipped`. |
 | `get`, `thread`, `user`, `search`, `whoami` | R | X reads through the read cache (posts 30 days; searches and threads 10 minutes). |
 | `reply`, `post` | A | Run `guard check` (house style, the 280 limit in UTF-16, the emoji cap, links, lexicon, judge). Then the posting rules: for an own post, the gap (`POST_MIN_GAP_HOURS`, 20-minute tolerance) re-checked under the posting lock; for a reply, never twice to one post, never to the account's own post, and 30–60s pacing kept in `x_pacing` and refused with `wait_seconds` rather than slept through. Then `DRY_RUN`, then X. **The post id is recorded first** (`x_replies`, `x_posts`). A ledger write that fails after a post is logged, never retried. Under `DRY_RUN`: no X write, no like, no ledger row. *The reply budget lanes come with `cadence`.* |
 | `upload` | A | Media upload. Returns a media id that this hand minted, recorded in `hands.db`. `post` attaches only ids from that table or a Giphy id, never a URL, and never both. |
@@ -109,7 +111,7 @@ persisted, which is a deliberate fix.
 
 | Table | From (Mongo / file) |
 |---|---|
-| `mentions` (queue, lease, `reply_id`, lane) | `mentions` |
+| `x_mentions`, `x_cursor` (the intake; the queue proper is the core's) | `mentions` |
 | `own_posts` (ledger, heat samples, hot hold) | `own_posts` |
 | `holds`, `approved_hosts` | `holds`, `holds_links` |
 | `x_cache` | `x-cache` |
