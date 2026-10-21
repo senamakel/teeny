@@ -2004,6 +2004,7 @@ dependencies = [
  "tinycomputer-bus",
  "tinyconnectors-bus",
  "tinydocs-bus",
+ "tinyeventqueues-bus",
  "tinyflows-bus",
  "tinyflows-import",
  "tinyhosts-bus",
@@ -3711,6 +3712,15 @@ version = "0.2.4"
 dependencies = [
  "serde",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "tinyeventqueues-bus"
+version = "0.1.2"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tinystoragedrivers-core",
 ]
 
 [[package]]
@@ -5492,6 +5502,14 @@ dependencies = [
 ]
 
 [[patch.unused]]
+name = "tinystoragedrivers-mongodb"
+version = "1.0.0"
+
+[[patch.unused]]
+name = "tinystoragedrivers-s3"
+version = "1.0.0"
+
+[[patch.unused]]
 name = "tinyagents-live"
 version = "2.10.0"
 
@@ -5502,11 +5520,3 @@ version = "0.1.38"
 [[patch.unused]]
 name = "tinyflows"
 version = "0.8.29"
-
-[[patch.unused]]
-name = "tinystoragedrivers-mongodb"
-version = "1.0.0"
-
-[[patch.unused]]
-name = "tinystoragedrivers-s3"
-version = "1.0.0"
