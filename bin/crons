@@ -19,7 +19,7 @@ need sqlite3
 db="file:$TEENY_STORAGE?mode=ro"
 q() { sqlite3 -cmd '.timeout 5000' -column -header "$db" "$@"; }
 # An epoch-milliseconds field of a JSON body, as UTC `YYYY-MM-DD HH:MM:SS`.
-ms() { printf "strftime('%%Y-%%m-%%d %%H:%%M:%%S', json_extract(%s, '\\$.%s') / 1000.0, 'unixepoch')" "$2" "$1"; }
+ms() { printf "strftime('%%Y-%%m-%%d %%H:%%M:%%S', json_extract(%s, '\$.%s') / 1000.0, 'unixepoch')" "$2" "$1"; }
 
 # Every query narrows to the cron collections and to valid JSON in a
 # materialized CTE first: other stores keep bodies that are not JSON
