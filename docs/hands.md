@@ -24,7 +24,9 @@ codes, secrets, dry run, state, the core client) is
 
 **R** marks a read verb. Read verbs are exposed to no-shell agents through
 `hands/mcp` as read-only tools. **A** marks an acting verb, which only
-`bin/job` scripts and the operator call.
+`bin/job` scripts and the operator call. **J** marks a job verb: it says
+nothing to anyone but writes state and calls the core, so like an acting
+verb it is never given to a model.
 
 ## `x`: the only holder of the X keys
 
