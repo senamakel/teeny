@@ -21,7 +21,8 @@ with three things:
 Plus `bin/`, which holds the bash that wires the three together, and `web/`,
 which is unchanged and reads `brain/record/`.
 
-OpenHuman references below are `upstream/main` at `6741ea4b41`, with
+OpenHuman references below are `upstream/main` at `6741ea4b41` unless they
+say `b56f31fb7f` (the bump that brought the inbound event queues), with
 `$C = crates/openhuman-core/src`. Upstream's gaps are in
 [`oh-gaps.md`](oh-gaps.md) and the hands' verbs are in [`hands.md`](hands.md).
 
@@ -79,14 +80,14 @@ container. Configuration:
 | Concern | How | Reference |
 |---|---|---|
 | Home in the repo | `OPENHUMAN_WORKSPACE=/srv/teeny/brain`, with **no `config.toml` inside it**. OpenHuman then uses `brain/` as its files directory (SOUL.md, skills, agents) and keeps its config at `/srv/teeny/.openhuman/config.toml`, which is gitignored. The core writes it itself, and `bin/spine` sets the model and memory over RPC at every boot, so there is no template to render. OpenHuman takes the sibling `.openhuman/` for its config only when the folder is named `workspace` or that config already exists; otherwise, and whenever `config.toml` is put inside `brain/`, it treats `brain/` as the home and nests a second `brain/workspace/`. So `bin/spine` writes an empty `.openhuman/config.toml` before the first boot (an empty file is the core's defaults) and refuses to start with a `brain/config.toml`. Both behaviours were measured on a build of `6741ea4b41`. There is no `--home` flag. | `$C/config/README.md` |
-| One state file | `OPENHUMAN_STORAGE_URL=sqlite:/srv/teeny/brain/storage.db`. This holds sessions, threads and memory state. Every store is a row in one `docs` table (`scope, coll, id, body` JSON), and crons are `coll = 'cron_jobs'` and `'cron_runs'`. Verified on a build of `6741ea4b41` (§6). | `$C/storage/config.rs:95`, `$C/cron/documents_port.rs:44-53` |
+| One state file | `OPENHUMAN_STORAGE_URL=sqlite:/srv/teeny/brain/storage.db`. This holds sessions, threads and memory state. Every store is a row in one `docs` table (`scope, coll, id, body` JSON), and crons are `coll = 'cron.jobs'` and `'cron.runs'` (`cron_jobs` and `cron_runs` before the v2 schedule store; measured on a build of `b56f31fb7f`, §6). | `$C/storage/config.rs:95`, `$C/cron/documents_port.rs:44-53` |
 | Tool working dir | `OPENHUMAN_ACTION_DIR=/srv/teeny`, so `hands/*` resolves | |
 | RPC auth | `OPENHUMAN_CORE_TOKEN` from a file. `bin/oh` reads it, and so does every script. | `$C/core/auth.rs:70` |
 | Model | The core's `local-openai` runtime, which needs no TinyHumans account. A custom cloud provider set through `inference_url` does need one: every turn fails `SESSION_EXPIRED` without a sign-in (measured). `bin/spine` exports `LOCAL_OPENAI_URL=$LADDER_URL`, stores the key with `config_update_local_ai_settings`, and pins every workload to `local-openai:$SPINE_MODEL` with `config_update_model_settings`. The core never asks a `local-openai` endpoint for the model's context window and budgets an unknown model at a few thousand tokens, less than its own system prompt, so the trim drops the user's message (measured: the model answered an empty turn). `bin/spine` therefore registers the window with `inference_update_model_settings` (`model_registry`), from `SPINE_CONTEXT_WINDOW` or the endpoint's `/models` `context_length` | OpenHuman `docs/gitbooks/en/features/cloud-deploy.md`, "Headless without a TinyHumans account" |
 | Memory | `[memory] engine = "cortexdb"` and `[memory.engines.cortexdb] endpoint`. The key goes in the keyring via `openhuman.memory_engine_set`. Recall is injected into every turn. | `$C/config/schema/memory.rs` |
 | Keyring | **File store**: `OPENHUMAN_KEYRING_BACKEND=file` and `OPENHUMAN_KEYRING_MASTER_KEY_FILE=/srv/teeny/secrets/openhuman.key` (64 hex characters, mode 0400, outside `brain/`). Every secret OpenHuman holds (the CortexDB key, the model key) is a row in `storage.db` (`coll = 'secrets'`, encrypted `enc2:` ciphertext) under that key. Measured: the core logs "master key loaded from OPENHUMAN_KEYRING_MASTER_KEY_FILE", and the CortexDB key survives a restart. Without the variable it looks for a host source and then a brain key file. Unset, the backend is `memory`. Back up `storage.db` and the key file together. | `$C/security/secret_storage/store.rs:189-197`, `encrypted_file_backend.rs:31-35` |
 | Persona | `brain/SOUL.md` and `IDENTITY.md`, read every turn | `$C/prompts/workspace_files.rs` |
-| Agents | Custom agents with `tool_allowlist`, a system prompt and a model, seeded by `bin/seed-agents` through `agent_registry.upsert_custom` | `$C/agent_registry/types.rs:76` |
+| Agents | Custom agents with `tool_allowlist`, a system prompt and a model. The core loads `brain/agents/*.toml` itself at boot (`$C/agent_registry/host_definition.rs`); nothing seeds them | `$C/agent_registry/types.rs:76` |
 | Shell limits | `[autonomy] enabled = true`, `allowed_commands = ["hands/…"]`, `workspace_only = true`, `max_actions_per_hour` | `$C/config/schema/autonomy.rs:31-44` |
 | Hooks | `brain/hooks.json`: `beforeShellExecution` runs `hands/policy shell` for the operator's shell. Inbound screening is **not** a hook: `beforeSubmitPrompt` fires only on the web-chat path (`$C/web_chat/ops/start_chat.rs:313`), not on `agent_chat`, so `bin/job` calls `hands/guard inbound` itself before every draft | `vendor/tinyagents/crates/tinyagents-hooks/src/command/types.rs` |
 | Browser | `[browser] enabled`, `headless`, `chrome_path`, `profile_mode = "persistent"` with the profile under `brain/.browser/` (gitignored), and x.com in the allowed domains. The module is TinyComputer, from the `tinyhumansai/tinydesktop` repo. Reads only. | `$C/config/schema/tools/browser.rs:49,96` |
@@ -143,7 +144,7 @@ brain/
   skills/<name>/SKILL.md               humanizer, humor, conversation, video-script (exist),
                                        reply, morning, chart, moon, lore, quote, article,
                                        serial, backrooms, critic, learnings (ported)
-  agents/<id>.toml                     roster (§5); seeded by bin/seed-agents
+  agents/<id>.toml                     roster (§5); the core loads them at boot
   jobs/<name>.md                       the drafting prompt each job sends
   cron.toml                            schedules; seeded by bin/seed-cron
   hooks.json                           shell policy for the operator
@@ -224,20 +225,20 @@ and `bin/spine` will not boot a checkout the doctor fails. See
 
   ```sh
   sqlite3 -column -header brain/storage.db "
-    select json_extract(body,'$.name')       as name,
-           json_extract(body,'$.job_type')   as type,
-           json_extract(body,'$.expression') as expr,
-           json_extract(body,'$.next_run')   as next_run,
-           json_extract(body,'$.enabled')    as enabled
-    from docs where coll = 'cron_jobs' and deleted = 0"
+    select json_extract(body,'$.name')        as name,
+           json_extract(body,'$.job_type')    as type,
+           json_extract(body,'$.expression')  as expr,
+           json_extract(body,'$.next_run_ms') as next_run_ms,
+           json_extract(body,'$.enabled')     as enabled
+    from docs where coll = 'cron.jobs' and deleted = 0"
   ```
 
   On a fresh core this lists the job `bin/seed-cron` added beside OpenHuman's
   own `memory_background` and `memory_sources_sync` system jobs. Runs are
-  `coll = 'cron_runs'`, joined with `bin/job`'s own records in `hands.db`.
+  `coll = 'cron.runs'`, one row per run with its `job_id`, `status` and `output`.
   Treat the table as **read-only**: writes go through `cron_add`, `cron_update`
   and `cron_remove`, because rows carry claim generations and an admission
-  record (`cron_counters`).
+  record (`cron.admission`).
 - **The 120-second wall.** Shell jobs are killed at 120s
   (`$C/cron/scheduler/shell_job.rs:9`, gap G1). `bin/job` re-executes itself
   under `setsid` and returns immediately. The detached run takes a per-job
