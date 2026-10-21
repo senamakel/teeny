@@ -37,6 +37,9 @@ def check_outbound(text, *, surface="x", kind="post", replying_to=None, max_emoj
     if "hold me" in text:
         return Verdict("hold", text, "judge", category="politics", hold_id=7)
     return Verdict("allow", text.replace(" -- ", ", "), "")
+
+def inbound(text, *, surface="x", context=None):
+    return Verdict("allow", text, "")
 '''
 
 
