@@ -192,8 +192,7 @@ That's gap G4.
 
 | Job | `cron.toml` schedule (defaults today) | `bin/job` does |
 |---|---|---|
-| `ingest` | `*/5 * * * *` | `hands/x ingest`: poll mentions into the queue |
-| `reply` | `* * * * *` | `hands/x queue claim` → draft with `teeny-reply` → `hands/x reply` (guard, budget, pacing inside) |
+| `mentions-inbound` (pinned, built) | `*/5 * * * *` | `bin/mentions`: `hands/x ingest` offers new mentions to the core's inbound queue, which drafts each debounced batch with `teeny-mentions`; `bin/inbound-consume` sends the drafts through `hands/x reply` (§7) |
 | `heat` | `*/20 * * * *` | `hands/cadence heat` |
 | `cortex-health` | `17 * * * *` | `hands/record health` (CortexDB readiness into `record/`) |
 | `learnings` | `0 5 * * *` | draft with `teeny-learner` → `hands/record brief` |
@@ -254,25 +253,34 @@ and `bin/spine` will not boot a checkout the doctor fails. See
 
 ## 7. Two walkthroughs
 
-**A reply.**
-1. `ingest` runs `hands/x ingest`. It reads mentions since the cursor, drops
-   ineligible ones (own post, deeper than one level), and inserts them as
-   `pending`, unique on post id.
-2. Within a minute, `reply` runs `hands/x queue claim`. That atomically moves
-   one `pending` row, or a stale `replying` row with no reply id and a lease
-   older than 15 minutes, to `replying`.
-3. The script calls `bin/oh chat teeny-reply` with the mention, its thread
-   (from `hands/x thread`) and the instruction to answer as JSON
-   `{text, gif_id?}`. Before that, `hands/guard inbound` has screened the
-   mention's text, and a held mention is never drafted.
-4. It runs `hands/x reply --to <id> < draft.json`. Inside that, in order:
-   `guard check` (links, lexicon, judge; a hold goes to `record/holds`), house
-   style, the 280 and emoji checks, the lane budget, the 30–60s pacing, then
-   `DRY_RUN`. Then the X call. The reply id is written to the queue row
-   **before** anything else, and the journal and memory capture come after.
-5. The exit code drives the script: `0` done, `2` held or refused (the row is
-   marked with the reason), otherwise the row goes back to `pending` once
-   the lease runs out.
+**A reply** (built: `bin/mentions`, the pinned `mentions-inbound` job, every
+5 minutes).
+1. `hands/x ingest` reads the account's mentions timeline
+   (`/2/users/:id/mentions`, which includes replies to its own posts) from the
+   `since_id` cursor in `x_cursor`, so each mention is read and billed once.
+   Each new one is a row in `x_mentions`, unique on post id. Its own posts and
+   anything already answered are `skipped`; `hands/guard inbound` screens the
+   rest, and a held mention is never offered to a model.
+2. Each `pending` row is offered to the core with `openhuman.inbound_offer`
+   (source `x:mentions`, key `mentions`, the post id as the event id) and
+   marked `offered`. A failed offer leaves it `pending` for the next run.
+3. The core queues the offers durably and coalesces them: 30s after the last
+   one, or 5 minutes after the first, or 20 in a batch
+   (`[inbound.sources."x:mentions"]`, written into the core's config by
+   `bin/lib/inbound_config.py` at every boot). The batch is **one turn** of
+   the tool-less `teeny-mentions` agent, prompted with the body of
+   `brain/playbooks/mentions.md` and the mentions as JSON. Its answer is kept
+   as a result (`openhuman.inbound_results`), and `InboundTurnCompleted` goes
+   out on `/events/domain` to wake anything listening.
+4. `bin/inbound-consume` reads the completed results. Each `reply` item goes
+   through `hands/x reply --to <id>`, but only to a mention in that batch, so
+   a draft cannot choose whom it answers. Inside the hand, in order: `guard
+   check`, house style, the 280 and emoji checks, one reply per post, the
+   30–60s pacing, then `DRY_RUN`, then X. The outcome is written back with
+   `hands/x mark` (`drafted` under `DRY_RUN`, `replied`, `refused` or
+   `skipped`), and the result is acknowledged so it is handled once. A
+   pacing wait longer than the run's budget leaves the result unacknowledged
+   for the next run.
 
 **The morning post.**
 1. `morning` at 07:00 runs `hands/cadence claim morning`. It applies the 20h
@@ -299,8 +307,8 @@ and `bin/spine` will not boot a checkout the doctor fails. See
 - The entrypoint is `bin/spine`. It mints `secrets/core.token` and
   `secrets/openhuman.key` on first boot, starts `serve`, configures the model
   and memory from `secrets/spine.env` (read in a subshell, so the keys never
-  enter the core's environment, which jobs inherit), runs `bin/seed-cron`,
-  and later `bin/seed-agents`.
+  enter the core's environment, which jobs inherit), writes the mentions
+  inbound source into the core's config, and runs `bin/seed-cron`.
 - Gone: Mongo (its collections move into `hands.db`; see `hands.md`), the
   axum server and its feeds (`web/` reads `record/`), and the `opencompany`
   and `brain-sync` services.
