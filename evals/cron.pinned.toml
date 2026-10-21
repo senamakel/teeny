@@ -5,3 +5,10 @@
 # here with it.
 #
 # Same format as brain/cron.toml; a pinned job may run any script under bin/.
+
+# Read the mentions and answer the ones the core has drafted (bin/mentions).
+# Operator-owned: the brain shapes the answers through playbooks/mentions.md,
+# but not whether Teeny reads what is said to it.
+[jobs.mentions-inbound]
+schedule = "*/5 * * * *"
+command = "bin/mentions"
