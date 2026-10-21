@@ -18,6 +18,12 @@
 # outcome goes to `hands/x mark`, and the answer is acknowledged
 # (`openhuman.inbound_result_ack`) so it is handled once.
 #
+# Live replies are paced (REPLY_MIN/MAX_INTERVAL_MS, refused with the wait).
+# A wait that fits in INBOUND_BUDGET_SECONDS (default 100, under cron's 120s
+# wall) is slept; otherwise the answer is left unacknowledged and the next run
+# picks it up where this one stopped: the replies already out are refused as
+# `replied` and count as done.
+#
 # Prints one JSON summary per answer and appends it to
 # state/inbound/runs.jsonl. Exits 0 when it ran, 1 on an error.
 set -euo pipefail
@@ -42,6 +48,8 @@ results="$(oh inbound_results '{"source": "x:mentions", "status": "completed", "
 jq -e 'type == "object" and (.results | type == "array")' <<<"$results" >/dev/null ||
   die "unexpected answer from inbound_results"
 
+budget="${INBOUND_BUDGET_SECONDS:-100}"
+started="$(date +%s)"
 mark() { (cd "$TEENY_ROOT" && "$hands/x" mark "$1" --status "$2" --note "$3" </dev/null >/dev/null) || true; }
 
 while IFS= read -r turn; do
@@ -49,6 +57,7 @@ while IFS= read -r turn; do
   batch="$(jq -c '.event_ids // []' <<<"$turn")"
   handled='[]'
   actions='[]'
+  paused=0
   if items="$(jq -r '.text // ""' <<<"$turn" | python3 "$TEENY_ROOT/bin/lib/answer.py" 2>"$dir/parse.err")"; then
     while IFS= read -r item; do
       action="$(jq -r .action <<<"$item")"
@@ -65,11 +74,26 @@ while IFS= read -r turn; do
           actions="$(jq -c --arg to "$to" --arg r "$reason" '. + [{action: "skip", to: $to, reason: $r}]' <<<"$actions")"
           ;;
         reply)
-          status=0
-          result="$(jq -c '{text: (.text // "")} + (if .gif_id then {gif_id} else {} end)' <<<"$item" |
-            (cd "$TEENY_ROOT" && "$hands/x" reply --to "$to"))" || status=$?
-          result="$(jq -c . <<<"$result" 2>/dev/null || jq -cn --arg r "$result" '{raw: $r}')"
-          if [ "$status" = 0 ] && jq -e '.dry_run == true' <<<"$result" >/dev/null; then
+          while :; do
+            status=0
+            result="$(jq -c '{text: (.text // "")} + (if .gif_id then {gif_id} else {} end)' <<<"$item" |
+              (cd "$TEENY_ROOT" && "$hands/x" reply --to "$to"))" || status=$?
+            result="$(jq -c . <<<"$result" 2>/dev/null || jq -cn --arg r "$result" '{raw: $r}')"
+            [ "$status" = 2 ] && [ "$(jq -r '.rule // ""' <<<"$result")" = pacing ] || break
+            wait="$(jq -r '.wait_seconds | ceil' <<<"$result")"
+            if [ $(($(date +%s) - started + wait)) -gt "$budget" ]; then
+              paused=1
+              break
+            fi
+            sleep "$wait"
+          done
+          if [ "$paused" = 1 ]; then
+            actions="$(jq -c --arg to "$to" '. + [{action: "reply", to: $to, status: "paused", reason: "pacing; the next run resumes"}]' <<<"$actions")"
+            break
+          fi
+          if [ "$status" = 2 ] && [ "$(jq -r '.rule // ""' <<<"$result")" = replied ]; then
+            mark "$to" replied "$(jq -r '.reply_id // ""' <<<"$result")"
+          elif [ "$status" = 0 ] && jq -e '.dry_run == true' <<<"$result" >/dev/null; then
             mark "$to" drafted "dry run"
           elif [ "$status" = 0 ]; then
             mark "$to" replied "$(jq -r '.id // .reply_id // ""' <<<"$result")"
@@ -86,6 +110,11 @@ while IFS= read -r turn; do
     done < <(jq -c '.[]' <<<"$items")
   else
     actions="$(jq -cn --arg e "$(cat "$dir/parse.err")" '[{error: "the draft is not usable JSON: \($e)"}]')"
+  fi
+  if [ "$paused" = 1 ]; then
+    record "$(jq -cn --arg t "$turn_id" --argjson b "$batch" --argjson a "$actions" \
+      --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{at: $at, turn_id: $t, mentions: $b, actions: $a, paused: true}')"
+    break
   fi
   # Whatever the answer did not cover is not answered.
   while IFS= read -r left; do
