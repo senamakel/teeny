@@ -15,6 +15,9 @@ target/
 /.openhuman/
 /secrets/
 /state/
+# The pre-spine layout (bin/kernel): its workspace held the core's storage.db
+# and encrypted secrets. The spine keeps them in brain/ now.
+/workspace/
 # What the core writes into the brain at boot: its own state, and its
 # generic persona defaults (IDENTITY, ROLE, STYLE) with their hash sidecars.
 # Teeny's SOUL.md is kept as is (the core never overwrites a file it did not

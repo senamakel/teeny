@@ -182,6 +182,12 @@ if [ -e "$storage" ]; then
 else
   note "storage.db" ok "none yet (a first boot)"
 fi
+# Left over from the pre-spine layout (bin/kernel). Nothing reads them now,
+# but a container still running the old entrypoint would keep writing there.
+for leftover in "$secrets/kernel.env" "$root/workspace/storage.db"; do
+  [ -e "$leftover" ] || continue
+  note "${leftover#"$root"/}" warn "pre-spine leftover; the spine uses secrets/spine.env and brain/storage.db"
+done
 for file in core.token openhuman.key; do
   [ -e "$secrets/$file" ] || continue
   mode="$(mode_of "$secrets/$file")"
