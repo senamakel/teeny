@@ -8,7 +8,7 @@ import os
 from types import SimpleNamespace
 
 from .support import T0, Scratch, me
-from ..guard.support import FakeCore, result
+from guard.support import FakeCore, result
 from teeny_hands import hand
 from teeny_hands.x import mentions
 
