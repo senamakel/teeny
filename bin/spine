@@ -10,7 +10,8 @@
 #    storage.db without its key is unreadable.
 # 2. Runs bin/doctor, and refuses to boot a checkout it fails.
 # 3. Starts `openhuman-core serve` with the brain, the single storage file
-#    and the file keyring (docs/architecture.md, "Spine").
+#    and the file keyring (docs/architecture.md, "Spine"), and the mentions
+#    inbound source written into its config (bin/lib/inbound_config.py).
 # 4. Once it answers, points it at the model and the memory store named in
 #    secrets/spine.env, then makes cron match brain/cron.toml.
 # 5. Waits on the core, forwarding SIGTERM, and exits with its status.
@@ -49,6 +50,12 @@ if [ ! -e "$config_dir/config.toml" ]; then
   mkdir -p "$config_dir"
   : >"$config_dir/config.toml"
 fi
+
+# The mentions source: which agent drafts a batch of mentions, the debounce,
+# and the prompt from brain/playbooks/mentions.md. The core only reads it at
+# boot, so it is rewritten into the config every boot.
+python3 "$TEENY_ROOT/bin/lib/inbound_config.py" "$config_dir/config.toml" "$TEENY_BRAIN" ||
+  die "could not write the inbound sources into $config_dir/config.toml"
 
 mint() {
   local file="$1" what="$2"
