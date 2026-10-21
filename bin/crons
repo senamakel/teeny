@@ -7,8 +7,9 @@
 #
 # Read-only, and needs no running core: every OpenHuman store is a row in one
 # `docs` table, and cron is `coll = 'cron.jobs'` / `'cron.runs'` (the v2
-# schedule store; v1 was `cron_jobs` / `cron_runs`; docs/architecture.md, §6). Never write here; rows carry claim generations
-# and an admission record, so changes go through `bin/seed-cron`.
+# schedule store; v1 was `cron_jobs` / `cron_runs`; docs/architecture.md, §6).
+# Never write here; rows carry claim generations and an admission record, so
+# changes go through `bin/seed-cron`.
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
