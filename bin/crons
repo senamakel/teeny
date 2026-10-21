@@ -6,8 +6,8 @@
 #                        works too)
 #
 # Read-only, and needs no running core: every OpenHuman store is a row in one
-# `docs` table, and cron is `coll = 'cron_jobs'` / `'cron_runs'`
-# (docs/architecture.md, §6). Never write here; rows carry claim generations
+# `docs` table, and cron is `coll = 'cron.jobs'` / `'cron.runs'` (the v2
+# schedule store; v1 was `cron_jobs` / `cron_runs`; docs/architecture.md, §6). Never write here; rows carry claim generations
 # and an admission record, so changes go through `bin/seed-cron`.
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
@@ -18,20 +18,21 @@ need sqlite3
 # Read-only and tolerant of the live writer's WAL.
 db="file:$TEENY_STORAGE?mode=ro"
 q() { sqlite3 -cmd '.timeout 5000' -column -header "$db" "$@"; }
+# An epoch-milliseconds field of a JSON body, as UTC `YYYY-MM-DD HH:MM:SS`.
+ms() { printf "strftime('%%Y-%%m-%%d %%H:%%M:%%S', json_extract(%s, '\\$.%s') / 1000.0, 'unixepoch')" "$2" "$1"; }
 
 # Every query narrows to the cron collections and to valid JSON in a
 # materialized CTE first: other stores keep bodies that are not JSON
 # (transcripts, catalogs), and SQLite may otherwise evaluate json_extract on
-# them before the coll filter. A job's `schedule` is itself stored as a JSON
-# string inside the body, hence the nested extract for tz.
+# them before the coll filter. Times are epoch milliseconds (`*_ms`).
 jobs_cte="
   jobs as materialized (
     select id, body from docs
-    where coll = 'cron_jobs' and deleted = 0 and json_valid(body)
+    where coll = 'cron.jobs' and deleted = 0 and json_valid(body)
   ),
   runs as materialized (
     select body from docs
-    where coll = 'cron_runs' and deleted = 0 and json_valid(body) and body != '{}'
+    where coll = 'cron.runs' and deleted = 0 and json_valid(body) and body != '{}'
   )"
 
 case "${1:-}" in
@@ -41,19 +42,19 @@ case "${1:-}" in
       last as (
         select json_extract(body, '\$.job_id') as job_id,
                json_extract(body, '\$.status') as status,
-               json_extract(body, '\$.finished_at') as finished_at,
+               json_extract(body, '\$.finished_ms') as finished_ms,
                row_number() over (partition by json_extract(body, '\$.job_id')
-                                  order by json_extract(body, '\$.started_ns') desc) as n
+                                  order by json_extract(body, '\$.seq') desc) as n
         from runs
       )
       select json_extract(jobs.body, '\$.name')                as name,
              json_extract(jobs.body, '\$.job_type')            as type,
              json_extract(jobs.body, '\$.expression')          as expr,
-             json_extract(json_extract(jobs.body, '\$.schedule'), '\$.tz') as tz,
+             json_extract(jobs.body, '\$.schedule.tz')        as tz,
              case json_extract(jobs.body, '\$.enabled') when 0 then 'no' else 'yes' end as on_,
-             substr(json_extract(jobs.body, '\$.next_run'), 1, 19) as next_run,
+             $(ms next_run_ms jobs.body)                       as next_run,
              last.status                                       as last,
-             substr(last.finished_at, 1, 19)                   as last_at
+             $(ms finished_ms "json_object('finished_ms', last.finished_ms)") as last_at
       from jobs left join last on last.job_id = jobs.id and last.n = 1
       order by name"
     ;;
@@ -65,13 +66,13 @@ case "${1:-}" in
     # The name is bound as a parameter, not spliced into the SQL.
     q -cmd ".parameter set :name '$(printf '%s' "$name" | sed "s/'/''/g")'" "
       with $jobs_cte
-      select substr(json_extract(runs.body, '\$.started_at'), 1, 19) as started,
+      select $(ms started_ms runs.body)                               as started,
              json_extract(runs.body, '\$.duration_ms')               as ms,
              json_extract(runs.body, '\$.status')                    as status,
              replace(substr(json_extract(runs.body, '\$.output'), 1, 120), char(10), ' ') as output
       from runs join jobs on jobs.id = json_extract(runs.body, '\$.job_id')
       where json_extract(jobs.body, '\$.name') = :name
-      order by json_extract(runs.body, '\$.started_ns') desc
+      order by json_extract(runs.body, '\$.seq') desc
       limit 20"
     ;;
   *) die "usage: bin/crons [runs NAME]" ;;
