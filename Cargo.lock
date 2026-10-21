@@ -5500,23 +5500,3 @@ dependencies = [
  "cc",
  "pkg-config",
 ]
-
-[[patch.unused]]
-name = "tinystoragedrivers-mongodb"
-version = "1.0.0"
-
-[[patch.unused]]
-name = "tinystoragedrivers-s3"
-version = "1.0.0"
-
-[[patch.unused]]
-name = "tinyagents-live"
-version = "2.10.0"
-
-[[patch.unused]]
-name = "tinychannels"
-version = "0.1.38"
-
-[[patch.unused]]
-name = "tinyflows"
-version = "0.8.29"

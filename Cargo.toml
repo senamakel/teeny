@@ -10,7 +10,7 @@
 # fails `cargo metadata` outright); Cargo.lock started as OpenHuman's own.
 #
 # Except the entries the spine's graph never uses (tinyagents-live,
-# tinychannels, tinystoragedrivers-mongodb and -s3 at this pin): Cargo records
+# tinychannels, tinyflows, tinystoragedrivers-mongodb and -s3 at this pin): Cargo records
 # an unused patch in Cargo.lock in an order that differs between macOS and
 # Linux, so the image's `--locked` build fails on a lock written on a Mac.
 # Drop any entry `cargo metadata` warns "was not used in the crate graph".
@@ -42,8 +42,6 @@ tinystoragedrivers-busproxy = { path = "vendor/openhuman/vendor/tinystoragedrive
 tinystoragedrivers-client = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-client" }
 tinystoragedrivers-core = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-core" }
 tinystoragedrivers-file = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-file" }
-tinystoragedrivers-mongodb = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-mongodb" }
-tinystoragedrivers-s3 = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-s3" }
 tinystoragedrivers-secrets = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-secrets" }
 tinystoragedrivers-sqlite = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-sqlite" }
 
@@ -57,7 +55,6 @@ tinyinference-providers = { path = "vendor/openhuman/vendor/tinyagents/vendor/ti
 tinyinference-voice = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-voice" }
 
 [patch.crates-io]
-tinyagents-live = { path = "vendor/openhuman/vendor/tinyagents/crates/tinyagents-live" }
 tinyagents-harness = { path = "vendor/openhuman/vendor/tinyagents/crates/tinyagents-harness" }
 tinyagents-hooks = { path = "vendor/openhuman/vendor/tinyagents/crates/tinyagents-hooks" }
 tinytools = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinytools/crates/tinytools" }
@@ -70,8 +67,6 @@ tinyinference-llm = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinfe
 tinyinference-local = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-local" }
 tinyinference-providers = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-providers" }
 tinyinference-voice = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-voice" }
-tinyflows = { path = "vendor/openhuman/vendor/tinyflows/crates/tinyflows" }
-tinychannels = { path = "vendor/openhuman/vendor/tinychannels" }
 tiny-artifacts = { path = "vendor/openhuman/vendor/tiny-artifacts/crates/tiny-artifacts" }
 
 [profile.release]
