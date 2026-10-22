@@ -104,6 +104,16 @@ check "a paused answer is not acked" bash -c "! grep -q '^inbound_result_ack' '$
 check "nothing is marked when paused" bash -c "! grep -q '^x mark' '$FAKE_HANDS'"
 unset FAKE_REPLY_31
 
+# --- mentions the core's injection guard kept out of the prompt -----------------------
+reset
+jq -cn '{results: [{turn_id: "t2", status: "completed", text: "[{\"action\": \"reply\", \"to\": \"51\", \"text\": \"hi\"}]",
+  event_ids: ["51", "52"], blocked: [{event_id: "52", reason: "blocked: override.ignore_previous"}]}]}' >"$FAKE_RESULTS"
+out="$(run)"
+check "a blocked mention is marked held with the guard's reason" grep -q '^x mark 52 --status held --note blocked: override.ignore_previous ' "$FAKE_HANDS"
+check "and is not also skipped" bash -c "! grep -q '^x mark 52 --status skipped' '$FAKE_HANDS'"
+check "the rest of the batch is answered" grep -q '^x reply --to 51 ' "$FAKE_HANDS"
+check "the blocked ones are in the record" test "$(jq -r '.blocked[0].event_id' <<<"$out")" = 52
+
 # --- an answer that is not JSON --------------------------------------------------------
 reset
 results 'sorry, I cannot help with that' '["41"]'
