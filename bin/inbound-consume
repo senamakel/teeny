@@ -14,7 +14,9 @@
 #          cannot pick whom it answers
 #   skip   the mention is marked skipped
 #
-# A mention in the batch the answer left out is skipped too. Each mention's
+# A mention the core's prompt-injection guard kept out of the turn (the
+# result's `blocked`) is marked held with the guard's reason. A mention in the
+# batch the answer left out is skipped. Each mention's
 # outcome goes to `hands/x mark`, and the answer is acknowledged
 # (`openhuman.inbound_result_ack`) so it is handled once.
 #
@@ -55,7 +57,8 @@ mark() { (cd "$TEENY_ROOT" && "$hands/x" mark "$1" --status "$2" --note "$3" </d
 while IFS= read -r turn; do
   turn_id="$(jq -r .turn_id <<<"$turn")"
   batch="$(jq -c '.event_ids // []' <<<"$turn")"
-  handled='[]'
+  blocked="$(jq -c '.blocked // []' <<<"$turn")"
+  handled="$(jq -c '[.[].event_id]' <<<"$blocked")"
   actions='[]'
   paused=0
   if items="$(jq -r '.text // ""' <<<"$turn" | python3 "$TEENY_ROOT/bin/lib/answer.py" 2>"$dir/parse.err")"; then
@@ -116,12 +119,15 @@ while IFS= read -r turn; do
       --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{at: $at, turn_id: $t, mentions: $b, actions: $a, paused: true}')"
     break
   fi
+  while IFS=$'\t' read -r id reason; do
+    mark "$id" held "$reason"
+  done < <(jq -r '.[] | [.event_id, .reason] | @tsv' <<<"$blocked")
   # Whatever the answer did not cover is not answered.
   while IFS= read -r left; do
     mark "$left" skipped "no answer in the draft"
   done < <(jq -r --argjson h "$handled" '.[] | select(. as $id | $h | index($id) | not)' <<<"$batch")
   oh inbound_result_ack "$(jq -cn --arg t "$turn_id" '{turn_id: $t}')" >/dev/null ||
     log "could not acknowledge $turn_id; it will be read again"
-  record "$(jq -cn --arg t "$turn_id" --argjson b "$batch" --argjson a "$actions" \
-    --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{at: $at, turn_id: $t, mentions: $b, actions: $a}')"
+  record "$(jq -cn --arg t "$turn_id" --argjson b "$batch" --argjson a "$actions" --argjson k "$blocked" \
+    --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{at: $at, turn_id: $t, mentions: $b, actions: $a, blocked: $k}')"
 done < <(jq -c '.results[]' <<<"$results")

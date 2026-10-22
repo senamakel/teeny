@@ -6,7 +6,8 @@ from a cursor kept in `x_cursor`, so a mention is fetched, and billed, once.
 Each new one becomes a row in `x_mentions`, unique on its post id:
 
   pending  stored, not yet offered (or the offer failed; the next run retries)
-  held     the inbound guard held it; nothing will ever draft an answer
+  held     the inbound guard held it, or the core's prompt-injection guard
+           kept it out of the drafting turn; nothing answers it
   skipped  never offered: the account's own post, or already answered
   offered  in the core's queue (`openhuman.inbound_offer`, source x:mentions)
   drafted  a draft came back and went through `hands/x reply` under DRY_RUN
@@ -38,7 +39,7 @@ KEY = "mentions"
 
 STATUSES = ("pending", "held", "skipped", "offered", "drafted", "replied", "refused")
 #: What `mark` may set: the outcomes after a draft.
-MARKS = ("drafted", "replied", "refused", "skipped")
+MARKS = ("drafted", "replied", "refused", "skipped", "held")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS x_cursor (
