@@ -37,6 +37,9 @@ def check_outbound(text, *, surface="x", kind="post", replying_to=None, max_emoj
     if "hold me" in text:
         return Verdict("hold", text, "judge", category="politics", hold_id=7)
     return Verdict("allow", text.replace(" -- ", ", "), "")
+
+def inbound(text, *, surface="x", context=None):
+    return Verdict("allow", text, "")
 '''
 
 
@@ -131,6 +134,17 @@ class ReadVerbsTest(Cli):
         self.assertEqual(code, 1)
         self.assertEqual(out, {"ok": False, "error": "X answered 401: Unauthorized"})
         self.assertNotIn("127.0.0.1", json.dumps(out) + stderr)
+
+
+class MentionVerbsTest(Cli):
+    def test_ingest_queues_and_mentions_lists_and_mark_records(self):
+        self.x.route("GET", "/2/users/1000/mentions", {"data": [{"id": "11", "text": "gm", "author_id": "8"}]})
+        code, out, _ = self.run_x("ingest", "--no-offer", guarded=True)
+        self.assertEqual((code, out["read"], out["offered"]), (0, 1, 0))
+        code, out, _ = self.run_x("mentions", "--status", "pending")
+        self.assertEqual((code, [m["id"] for m in out["mentions"]]), (0, ["11"]))
+        self.assertEqual(self.run_x("mark", "11", "--status", "drafted")[:2], (0, {"ok": True, "id": "11", "status": "drafted"}))
+        self.assertEqual(self.run_x("mark", "12", "--status", "drafted")[0], 2)
 
 
 class WriteVerbsTest(Cli):

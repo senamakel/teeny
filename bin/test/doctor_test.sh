@@ -93,6 +93,13 @@ fails "fails without the guard" "guard screen"
 fresh; printf 'LEXICON = ()\nIDIOMS = ()\n' >"$root/hands/lib/teeny_hands/guard/lexicon.py"
 fails "fails a guard whose lexicon was emptied" "guard screen"
 
+# --- pre-spine leftovers warn, never fail --------------------------------------------
+fresh; mkdir -p "$root/secrets" "$root/workspace"; : >"$root/secrets/kernel.env"; : >"$root/workspace/storage.db"
+check "passes with pre-spine leftovers" doctor
+check "but warns about the old kernel env" grep -q '^warn secrets/kernel.env: pre-spine leftover' "$scratch/doctor.log"
+check "and the old workspace storage" grep -q '^warn workspace/storage.db: pre-spine leftover' "$scratch/doctor.log"
+check "teeny-mentions must stay tool-less" bash -c "grep -q 'teeny-mentions' '$root/bin/doctor'"
+
 # --- storage and secrets ------------------------------------------------------------------
 fresh; sqlite3 "$root/brain/storage.db" 'create table t (x); insert into t values (1);'
 fails "fails a storage.db without its master key" "secrets/openhuman.key"

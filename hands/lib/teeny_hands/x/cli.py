@@ -12,6 +12,12 @@ and are safe to expose to a drafting agent; acting verbs (A) only go through
   A  like ID                skipped under DRY_RUN
   A  unsay ID [--confirm]   delete an own post; previews unless confirmed
   A  upload --file PATH     from state/media/ or brain/assets/ only
+  J  ingest [--max N] [--no-offer]   new mentions into the queue, offered to the core
+  J  mentions [--status S]  the mentions queue
+  J  mark ID --status S [--note T]   what became of a mention after its draft
+
+Job verbs (J) keep the mentions queue. They answer nobody, but they write
+state and call the core, so no drafting agent is given them.
 """
 
 from __future__ import annotations
@@ -20,7 +26,7 @@ import argparse
 from typing import Any, Mapping
 
 from .. import hand
-from . import cache, media, publish
+from . import cache, media, mentions, publish
 from .client import number_setting
 from .model import SearchOptions
 
@@ -72,6 +78,18 @@ def _upload(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
     return media.upload(args.file)
 
 
+def _ingest(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    return mentions.ingest(args.max, offer=not args.no_offer)
+
+
+def _mentions(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    return mentions.mentions_list(args.status, args.limit)
+
+
+def _mark(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    return mentions.mark(args.id, args.status, args.note)
+
+
 def _max(value: str) -> int:
     number = int(value)
     if not 1 <= number <= 100:
@@ -104,6 +122,16 @@ def parser() -> argparse.ArgumentParser:
     unsay.add_argument("id")
     unsay.add_argument("--confirm", action="store_true")
     verb("upload", _upload, "upload a file from state/media/ or brain/assets/").add_argument("--file", required=True)
+    ingest = verb("ingest", _ingest, "new mentions into the queue, offered to the core")
+    ingest.add_argument("--max", type=_max, default=None)
+    ingest.add_argument("--no-offer", action="store_true", help="queue only; offer on a later run")
+    listing = verb("mentions", _mentions, "the mentions queue, newest first")
+    listing.add_argument("--status", choices=mentions.STATUSES, default=None)
+    listing.add_argument("--limit", type=_max, default=50)
+    marking = verb("mark", _mark, "what became of a mention after its draft")
+    marking.add_argument("id")
+    marking.add_argument("--status", required=True, choices=mentions.MARKS)
+    marking.add_argument("--note", default=None)
     return root
 
 

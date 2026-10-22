@@ -15,7 +15,8 @@ path = "src/main.rs"
 # product feature set minus `os-keyring`: the spine keeps secrets in the file
 # store under a master key file, never an OS keychain, which a container does
 # not have (docs/architecture.md, "Keyring"). Desktop-only features (voice,
-# whatsapp-web, wallet) stay off.
+# whatsapp-web, wallet) stay off. `inbound-queues` is the durable event intake
+# X mentions are offered to (`openhuman.inbound_offer`).
 openhuman-rpc = { path = "../vendor/openhuman/crates/openhuman-rpc", default-features = false, features = [
     "http-client",
     "server",
@@ -31,5 +32,6 @@ openhuman-rpc = { path = "../vendor/openhuman/crates/openhuman-rpc", default-fea
     "jev",
     "tinymemes",
     "storage-sqlite",
+    "inbound-queues",
 ] }
 libc = "0.2"

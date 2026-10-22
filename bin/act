@@ -112,21 +112,7 @@ if ! answer="$(printf '%s' "$message" | "$TEENY_ROOT/bin/ask" --agent act 2>"$di
   record "$(jq -cn --arg p "$name" --arg e "$(tail -c 500 "$dir/ask.err")" '{ok: false, playbook: $p, error: "the draft turn failed", stderr: $e}')"
   exit 1
 fi
-if ! items="$(python3 -c '
-import json, sys
-text = sys.stdin.read().strip()
-if text.startswith("```"):
-    text = text.split("\n", 1)[1] if "\n" in text else ""
-    text = text.rsplit("```", 1)[0]
-starts = [i for i in (text.find("{"), text.find("[")) if i >= 0]
-if not starts:
-    sys.exit("no JSON in the answer")
-value, _ = json.JSONDecoder().raw_decode(text[min(starts):])
-items = value if isinstance(value, list) else [value]
-if not all(isinstance(i, dict) and isinstance(i.get("action"), str) for i in items):
-    sys.exit("every item needs an action")
-print(json.dumps(items))
-' <<<"$answer" 2>"$dir/parse.err")"; then
+if ! items="$(python3 "$TEENY_ROOT/bin/lib/answer.py" <<<"$answer" 2>"$dir/parse.err")"; then
   record "$(jq -cn --arg p "$name" --arg e "$(cat "$dir/parse.err")" --arg a "${answer:0:1000}" \
     '{ok: false, playbook: $p, error: "the draft is not usable JSON: \($e)", answer: $a}')"
   exit 1

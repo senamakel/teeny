@@ -224,6 +224,21 @@ class XApi:
         """The first page of a recent search."""
         return self.search_page(query, options)["posts"]
 
+    def mentions_page(self, user_id: str, since_id: str | None = None, max_results: int = 20) -> Json:
+        """The newest page of posts that mention the account, after
+        `since_id` when given. Replies to the account's posts are mentions
+        too, so this is also how it reads its replies."""
+        params = [("max_results", str(min(max(max_results, 5), 100)))]
+        if since_id:
+            params.append(("since_id", since_id))
+        params += _post_query()
+        response = self.call("GET", f"/2/users/{percent_encode(user_id)}/mentions", params)
+        meta = response.get("meta") if isinstance(response.get("meta"), Mapping) else {}
+        return {
+            "posts": model.to_posts(response.get("data"), response.get("includes")),
+            "newestId": meta.get("newest_id"),
+        }
+
     def get_conversation(self, conversation_id: str, max_results: int | None = None) -> list[Json]:
         """Replies under a post, found through its conversation id; 25 unless told."""
         options = SearchOptions(max_results=max_results if max_results is not None else 25)

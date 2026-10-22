@@ -42,8 +42,14 @@ hands read them from `secrets/teeny.env` themselves.
   `hands/x post` returned `dry_run: true`.
 - **Playbooks:** `bin/act` runs a playbook from `brain/playbooks/` (inputs from
   hand read verbs, a draft from the tool-less `act` agent, the action through
-  a hand). `morning` and `mentions` are scheduled but switched off; only
-  `heartbeat` runs.
+  a hand). `morning` and `mentions` are scheduled but switched off.
+- **Mentions:** `bin/mentions` (the pinned `mentions-inbound` job, every 5
+  minutes) reads Teeny's mentions timeline with `hands/x ingest` and offers
+  each one to OpenHuman's inbound event queue. The core debounces them into
+  one turn of the tool-less `teeny-mentions` agent per batch, and
+  `bin/inbound-consume` sends the drafts through `hands/x reply`. The
+  `inbound_offer` RPC it uses is an upstream OpenHuman change that has not
+  merged yet (see `vendor/openhuman`).
 - **Doctor:** `bin/doctor` checks the brain, the crons, the playbooks, the
   invariants, the guard, the storage and the secrets. `bin/spine` won't boot a
   checkout it fails.
@@ -95,6 +101,8 @@ bin/seed-cron --dry-run            # what seeding brain/cron.toml would change
 bin/seed-cron --check              # is brain/cron.toml within the cron rules? (no core needed)
 bin/act morning                    # run one playbook now (DRY_RUN still applies)
 bin/act --check morning            # does it parse?
+bin/mentions                       # read mentions, offer them, answer what was drafted
+bin/inbound-consume                # only answer what the core has drafted
 bin/doctor                         # is this checkout safe to boot? (--live: is the spine healthy?)
 bin/eval run state/eval/now        # draft every eval task on the running spine
 bin/eval compare A B OUT           # judge two runs; exit 0 when B beats A
@@ -102,6 +110,8 @@ bin/eval invariants                # does the brain still say what Teeny is?
 
 hands/x whoami                                        # who the X keys belong to
 hands/x search '@teenydroid'                          # a recent search, cached
+hands/x ingest                                        # new mentions into the queue, offered to the core
+hands/x mentions --status drafted                     # the mentions queue and what became of each
 echo '{"text":"gm"}' | hands/guard check              # ok, or a hold with the reason
 echo '{"text":"gm"}' | hands/x post                   # guard, rules, then DRY_RUN or X
 hands/guard holds list                                # what the guard is holding for review
@@ -162,7 +172,7 @@ The database is unreadable without its key.
 ```
 spine/               teeny-spine, the one Rust package (OpenHuman's host, built from the library)
 vendor/openhuman     upstream tinyhumansai/openhuman, pinned by commit on upstream/main
-bin/                 spine, doctor, act, eval, oh, ask, crons, seed-cron, heartbeat; bin/lib/ shared shell and policy; bin/test/
+bin/                 spine, doctor, act, mentions, inbound-consume, eval, oh, ask, crons, seed-cron, heartbeat; bin/lib/ shared shell and policy; bin/test/
 evals/               frozen: what Teeny cannot edit about itself (tasks/, judge.md, invariants.md, cron.pinned.toml)
 hands/               guard, x: Python 3.11 stdlib, no dependencies; hands/lib/teeny_hands, hands/tests/
 brain/               SOUL.md, CONTEXT.md, skills/, playbooks/, agents/, narrative/ (LORE, ARCS), assets/, calendar.json, cron.toml
@@ -189,6 +199,7 @@ bin/test/seed_cron_test.sh                                   # cron reconciliati
 bin/test/act_test.sh                                         # playbooks; the core and hands faked
 bin/test/doctor_test.sh                                      # each thing the doctor catches; spine refuses to boot
 bin/test/eval_test.sh                                        # hard checks, blind swapped judging, scoring; the core faked
+bin/test/inbound_consume_test.sh                             # drafts to replies, batch-only, pacing; the core and hands faked
 OPENHUMAN_CORE_BIN=target/release/teeny-spine bin/test/spine_live_test.sh
 ```
 

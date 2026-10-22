@@ -10,7 +10,7 @@
 # fails `cargo metadata` outright); Cargo.lock started as OpenHuman's own.
 #
 # Except the entries the spine's graph never uses (tinyagents-live,
-# tinychannels, tinystoragedrivers-mongodb and -s3 at this pin): Cargo records
+# tinychannels, tinyflows, tinystoragedrivers-mongodb and -s3 at this pin): Cargo records
 # an unused patch in Cargo.lock in an order that differs between macOS and
 # Linux, so the image's `--locked` build fails on a lock written on a Mac.
 # Drop any entry `cargo metadata` warns "was not used in the crate graph".
@@ -67,10 +67,8 @@ tinyinference-llm = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinfe
 tinyinference-local = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-local" }
 tinyinference-providers = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-providers" }
 tinyinference-voice = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-voice" }
-tinyflows = { path = "vendor/openhuman/vendor/tinyflows/crates/tinyflows" }
 tiny-artifacts = { path = "vendor/openhuman/vendor/tiny-artifacts/crates/tiny-artifacts" }
 
-# OpenHuman's profiles, so the vendored graph builds the way upstream ships it.
 [profile.release]
 debug = "line-tables-only"
 split-debuginfo = "packed"
